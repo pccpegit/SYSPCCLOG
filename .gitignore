@@ -1,0 +1,70 @@
+# ============================================================
+# SYSPCC Platform — .gitignore
+# ============================================================
+
+# ── Environment variables (secrets) ──
+.env
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+venv/
+.venv/
+
+# ── Django ──
+*.sqlite3
+staticfiles/
+media/
+local_settings.py
+
+# ── Node ──
+node_modules/
+dist-ssr/
+*.local
+
+# ── Testing ──
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Logs ──
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ── Docker ──
+# Do not ignore docker-compose.yml or Dockerfiles
+
+# ── Claude Code ──
+.claude/
+
+# ── Personal ──
+cv_pcc.md

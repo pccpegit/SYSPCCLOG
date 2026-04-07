@@ -1,0 +1,1015 @@
+// ============================================================
+// SISTEMA RQ - PCC S.A.C.
+// Gestión de Requerimientos de Abastecimiento
+// Flujo 1: Operaciones (Proyectos/Obra)
+// Flujo 2: Administración (Oficina)
+// Rev.1 Marzo 2026 — sincronizado con base de datos SQLite
+// ============================================================
+
+// ────────────────────────────────────────────────────────────
+// ENUMS
+// ────────────────────────────────────────────────────────────
+
+Enum rq_flow {
+  OPERATIONS     [note: 'Flujo Operaciones: Residente → Control Proyecto → GG → Coord.Logístico → Almacén Central → Almacén Obra']
+  ADMINISTRATIVE [note: 'Flujo Administración: Jefe Directo → Gte.Admin → GG → Sup.Logístico → Jefe Logístico → Almacén Central']
+}
+
+Enum warehouse_origin {
+  CENTRAL [note: 'Almacén Central']
+  SITE    [note: 'Almacén de Obra']
+  OFFICE  [note: 'Almacén/Bodega de Oficina (Administración)']
+}
+
+Enum role {
+  // Comunes a ambos flujos
+  REQUESTER         [note: 'Usuario solicitante (ambos flujos)']
+  GENERAL_MANAGER   [note: 'Gerente General (ambos flujos) — aprueba adicionales y sobrecostos']
+  CENTRAL_WAREHOUSE [note: 'Almacén Central (ambos flujos) — recibe, despacha, actualiza registros']
+
+  // Flujo Operaciones
+  PROJECT_RESIDENT      [note: 'Residente de Proyecto — validación técnica (Operaciones)']
+  PROJECT_CONTROL       [note: 'Control de Proyecto — revisión presupuestal (Operaciones)']
+  LOGISTICS_COORDINATOR [note: 'Coordinador Logístico — cotizaciones, OC, recepción (Operaciones)']
+  SITE_WAREHOUSE        [note: 'Almacén de Obra — despacho y entrega en obra (Operaciones)']
+
+  // Flujo Administración
+  DIRECT_SUPERVISOR  [note: 'Jefe Directo — valida y aprueba el RQ (Administración)']
+  ADMIN_MANAGER      [note: 'Gerente Administrativo — revisa presupuesto vs Plan Anual (Administración)']
+  LOGISTICS_SUPERVISOR [note: 'Supervisor Logístico — cotizaciones, recepción, reclamos (Administración)']
+  LOGISTICS_CHIEF    [note: 'Jefe Logístico — compara propuestas y selecciona proveedor (Administración)']
+}
+
+Enum rq_status {
+  // ── Fase 1: Solicitud ──
+  DRAFT     [note: 'Borrador, aún no enviado por el solicitante']
+  SUBMITTED [note: 'Enviado por el usuario, en espera de primera revisión']
+
+  // ── Fase 2A: Validación Operaciones ──
+  TECHNICAL_REVIEW   [note: 'OPS: En revisión técnica por el Residente de Proyecto']
+  TECHNICAL_APPROVED [note: 'OPS: Aprobado técnicamente por el Residente']
+  TECHNICAL_REJECTED [note: 'OPS: Rechazado técnicamente por el Residente → FIN']
+  BUDGET_REVIEW      [note: 'OPS: En revisión presupuestal por Control de Proyecto']
+  WITHIN_PROPOSAL    [note: 'OPS: Clasificado dentro de la propuesta original del proyecto']
+  ADDITIONAL_REQ     [note: 'OPS: Clasificado como adicional a la propuesta → requiere GG']
+
+  // ── Fase 2B: Validación Administración ──
+  SUPERVISOR_REVIEW    [note: 'ADM: En revisión por el Jefe Directo']
+  SUPERVISOR_APPROVED  [note: 'ADM: Aprobado por el Jefe Directo']
+  SUPERVISOR_REJECTED  [note: 'ADM: Rechazado por el Jefe Directo → FIN']
+  ADMIN_BUDGET_REVIEW  [note: 'ADM: En revisión por el Gerente Administrativo vs Plan Anual']
+  WITHIN_ANNUAL_PLAN   [note: 'ADM: Dentro del Plan Anual del departamento']
+  OUT_OF_ANNUAL_PLAN   [note: 'ADM: Fuera del Plan Anual → requiere aprobación GG']
+
+  // ── Fase 2C: Gerencia General (común a ambos flujos) ──
+  GM_REVIEW    [note: 'En revisión por Gerente General (adicional OPS / fuera de PA ADM / sobrecosto)']
+  GM_APPROVED  [note: 'Aprobado por Gerente General']
+  GM_REJECTED  [note: 'Rechazado por Gerente General → FIN']
+
+  // ── Estado puente post-validación ──
+  VALIDATED [note: 'Requerimiento validado y listo para atención logística']
+
+  // ── Fase 3: Logística y Adquisición ──
+  STOCK_CHECK          [note: 'Verificando disponibilidad en inventario de almacén']
+  IN_STOCK             [note: 'Hay stock suficiente → genera pedido directo (salta a recepción)']
+  REQUIRES_PURCHASE    [note: 'No hay stock → requiere proceso de compra']
+  QUOTING              [note: 'Solicitando cotizaciones a proveedores']
+  QUOTE_COMPARISON     [note: 'ADM: Jefe Logístico comparando propuestas de proveedores']
+  QUOTE_SELECTED       [note: 'Proveedor seleccionado, cotización aprobada']
+  COST_OVERRUN_REVIEW  [note: 'Cotización excede presupuesto → requiere revisión GG']
+  COST_OVERRUN_APPROVED [note: 'Sobrecosto aprobado por Gerente General']
+  COST_OVERRUN_REJECTED [note: 'Sobrecosto rechazado por Gerente General → FIN']
+  PO_GENERATED         [note: 'Orden de Compra generada y enviada al proveedor']
+
+  // ── Fase 4: Recepción y Entrega ──
+  RECEIVING            [note: 'Materiales en proceso de recepción en almacén']
+  QUALITY_CHECK        [note: 'OPS: Control de calidad en Almacén Central']
+  QUALITY_APPROVED     [note: 'OPS: Control de calidad aprobado']
+  QUALITY_REJECTED     [note: 'Calidad rechazada → genera reclamo al proveedor']
+  RECEPTION_CONFORMITY [note: 'ADM: Verificación de conformidad en la recepción']
+  RECEPTION_CLAIM      [note: 'ADM: Reclamo al proveedor por recepción no conforme']
+  DISPATCHED_TO_SITE   [note: 'OPS: Despachado de Almacén Central hacia Almacén de Obra']
+  DELIVERED            [note: 'Entregado al destino final (obra o usuario)']
+
+  // ── Fase 5: Conformidad y Cierre ──
+  WAREHOUSE_UPDATED [note: 'Almacén actualizó registros de ingreso/salida en sistema']
+  USER_CONFORMITY   [note: 'Usuario confirma recepción conforme → proceso cierra']
+  USER_CLAIM        [note: 'Usuario genera reclamo por entrega no conforme']
+  CLAIM_IN_REVIEW   [note: 'Reclamo del usuario en revisión (Logística gestiona cambio)']
+  CLAIM_RESOLVED    [note: 'Reclamo resuelto, se reintenta entrega']
+  CLOSED            [note: 'RQ cerrado exitosamente — estado final']
+  CANCELLED         [note: 'Cancelado en cualquier etapa del proceso']
+}
+
+Enum priority {
+  URGENT [note: 'Urgente — requiere atención inmediata']
+  HIGH   [note: 'Alta prioridad']
+  NORMAL [note: 'Prioridad normal (valor por defecto)']
+  LOW    [note: 'Baja prioridad']
+}
+
+Enum acquisition_type {
+  COMPRA_LOCAL   [note: '1-3 días puesto en obra']
+  COMPRA_FORANEA [note: '5-7 días puesto en obra']
+  IMPORTACION    [note: '14-56 días (2-8 semanas), requiere aprobación GG + Gte.Proyecto + Control Costos + Gte.Admin']
+  FABRICACION    [note: '7-15 días (+7d extensión), talleres PCC u otros']
+  ALQUILER       [note: '3-15 días + tiempo de homologación/permisos']
+  CALIBRACION    [note: '7-10 días, laboratorios INACAL Lima']
+}
+
+Enum budget_classification {
+  WITHIN_PROPOSAL    [note: 'OPS: Dentro de la propuesta del proyecto (sin sufijo BC_)']
+  ADDITIONAL         [note: 'OPS: Adicional a la propuesta del proyecto']
+  WITHIN_ANNUAL_PLAN [note: 'ADM: Dentro del Plan Anual del departamento']
+  OUT_OF_ANNUAL_PLAN [note: 'ADM: Fuera del Plan Anual → requiere aprobación GG']
+}
+
+Enum approval_action {
+  // Solicitud
+  SUBMITTED
+  // Validación Operaciones
+  TECHNICAL_APPROVED
+  TECHNICAL_REJECTED
+  BUDGET_CLASSIFIED
+  // Validación Administración
+  SUPERVISOR_APPROVED
+  SUPERVISOR_REJECTED
+  ADMIN_BUDGET_REVIEWED
+  // Comunes
+  GM_APPROVED
+  GM_REJECTED
+  VALIDATED
+  // Logística
+  STOCK_CHECKED
+  QUOTE_REQUESTED
+  QUOTE_COMPARED
+  QUOTE_SELECTED
+  COST_OVERRUN_APPROVED
+  COST_OVERRUN_REJECTED
+  PO_GENERATED
+  // Recepción y entrega
+  RECEIVED
+  QUALITY_APPROVED
+  QUALITY_REJECTED
+  RECEPTION_CONFIRMED
+  RECEPTION_CLAIMED
+  DISPATCHED
+  DELIVERED
+  // Conformidad y cierre
+  WAREHOUSE_RECORDS_UPDATED
+  USER_CONFIRMED
+  USER_CLAIMED
+  CLAIM_RESOLVED
+  CLOSED
+  CANCELLED
+}
+
+Enum po_status {
+  DRAFT              [note: 'OC en borrador']
+  SENT               [note: 'OC enviada al proveedor']
+  CONFIRMED          [note: 'OC confirmada por el proveedor']
+  PARTIALLY_RECEIVED [note: 'Recibida parcialmente']
+  FULLY_RECEIVED     [note: 'Recibida en su totalidad']
+  CANCELLED          [note: 'OC cancelada']
+}
+
+Enum claim_type {
+  SUPPLIER_CLAIM [note: 'Reclamo al proveedor (recepción no conforme en almacén)']
+  USER_CLAIM     [note: 'Reclamo del usuario (entrega no conforme al solicitante)']
+}
+
+Enum claim_status {
+  OPEN      [note: 'Reclamo abierto, pendiente de gestión']
+  IN_REVIEW [note: 'Reclamo en revisión por Logística']
+  RESOLVED  [note: 'Reclamo resuelto']
+  CLOSED    [note: 'Reclamo cerrado formalmente']
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 1: CORE — Usuarios, Proyectos, Departamentos
+// ────────────────────────────────────────────────────────────
+
+Table users {
+  id           bigint       [pk, increment]
+  password     varchar(255) [not null, note: 'Hash de contraseña gestionado por Django (campo nativo AbstractUser)']
+  last_login   timestamp    [note: 'Último inicio de sesión (gestionado por Django)']
+  is_superuser bool         [not null, note: 'Acceso total al admin de Django']
+  username     varchar(50)  [unique, not null]
+  is_staff     bool         [not null, note: 'Acceso al panel de administración Django']
+  is_active    bool         [not null, note: 'Cuenta habilitada/deshabilitada']
+  date_joined  timestamp    [not null, note: 'Fecha de creación de la cuenta']
+  email        varchar(100) [unique, not null]
+  first_name   varchar(100) [not null]
+  last_name    varchar(100) [not null]
+  position     varchar(100) [not null, note: 'Cargo en la empresa (ej: Residente de Obra)']
+  department   varchar(100) [not null, note: 'Área/departamento como texto libre (ej: Logística, TI)']
+  phone        varchar(20)  [not null]
+  avatar_url   varchar(255) [not null, note: 'URL relativa al archivo de avatar subido']
+
+  Note: 'Extiende AbstractUser de Django. Los campos password, last_login, is_superuser, is_staff, is_active, date_joined son nativos de Django.'
+}
+
+Table user_roles {
+  id                bigint    [pk, increment]
+  user_id           bigint    [not null, ref: > users.id, note: 'Usuario al que se asigna el rol']
+  role              varchar(30) [not null, note: 'REQUESTER, PROJECT_RESIDENT, PROJECT_CONTROL, GENERAL_MANAGER, LOGISTICS_COORDINATOR, CENTRAL_WAREHOUSE, SITE_WAREHOUSE, DIRECT_SUPERVISOR, ADMIN_MANAGER, LOGISTICS_SUPERVISOR, LOGISTICS_CHIEF']
+  flow              varchar(20) [note: 'OPERATIONS, ADMINISTRATIVE, o null para ambos flujos']
+  project_id        bigint    [ref: > projects.id, note: 'OPS: proyecto al que aplica este rol. Null = acceso global']
+  department_obj_id bigint    [ref: > departments.id, note: 'ADM: departamento al que aplica este rol. Null = acceso global']
+  is_primary        bool      [not null, note: 'true si es el rol principal del usuario']
+  assigned_at       timestamp [not null, note: 'Fecha de asignación del rol']
+
+  indexes {
+    (user_id, role, project_id, department_obj_id) [unique]
+  }
+
+  Note: 'Un usuario puede tener múltiples roles en múltiples proyectos o departamentos. El campo department_obj_id usa sufijo _obj_ para evitar colisión con el campo de texto department en users.'
+}
+
+Table projects {
+  id           bigint        [pk, increment]
+  created_at   timestamp     [not null, note: 'Auto-gestionado por TimeStampedModel']
+  updated_at   timestamp     [not null, note: 'Auto-gestionado por TimeStampedModel']
+  code         varchar(20)   [unique, not null, note: 'Código único del proyecto, ej: PROY-2026-001']
+  name         varchar(200)  [not null]
+  location     varchar(200)  [not null, note: 'Ubicación geográfica del proyecto']
+  client       varchar(200)  [not null, note: 'Nombre del cliente contratante']
+  frente       varchar(200)  [not null, note: 'Frente o unidad minera/operativa, ej: MINERA YANACOCHA']
+  total_budget decimal(15,2) [note: 'Presupuesto total asignado al proyecto']
+  start_date   date          [note: 'Fecha de inicio del proyecto']
+  end_date     date          [note: 'Fecha de término del proyecto']
+  is_active    bool          [not null, note: 'Indica si el proyecto está activo y puede recibir RQs']
+
+  Note: 'Proyectos de obra para el flujo Operaciones. El campo frente identifica el frente de trabajo o unidad operativa.'
+}
+
+Table project_budget_lines {
+  id               bigint        [pk, increment]
+  project_id       bigint        [not null, ref: > projects.id, note: 'Proyecto al que pertenece la partida']
+  code             varchar(50)   [not null, note: 'Código de la partida presupuestal']
+  description      varchar(300)  [not null]
+  budgeted_amount  decimal(15,2) [not null, note: 'Monto total presupuestado para esta partida']
+  committed_amount decimal(15,2) [not null, default: 0, note: 'Monto comprometido en RQs en proceso']
+  spent_amount     decimal(15,2) [not null, default: 0, note: 'Monto ejecutado/pagado']
+  created_at       timestamp     [not null]
+
+  indexes {
+    (project_id, code) [unique]
+  }
+
+  Note: 'Partidas presupuestales por proyecto. Control de Proyecto las usa para clasificar RQs en WITHIN_PROPOSAL o ADDITIONAL.'
+}
+
+Table departments {
+  id         bigint      [pk, increment]
+  code       varchar(20) [unique, not null, note: 'Código corto del departamento, ej: ADM, RRHH, CONT, TI']
+  name       varchar(200) [not null, note: 'Nombre completo del departamento']
+  frente     varchar(200) [not null, default: 'OFICINA CENTRAL', note: 'Frente o sede, por defecto OFICINA CENTRAL']
+  manager_id bigint      [ref: > users.id, note: 'Jefe Directo del departamento (rol DIRECT_SUPERVISOR)']
+  is_active  bool        [not null, note: 'Departamento habilitado para recibir RQs']
+  created_at timestamp   [not null]
+
+  Note: 'Departamentos y áreas de oficina para el flujo Administración. El campo frente permite asociar un departamento a una sede específica.'
+}
+
+Table annual_plans {
+  id            bigint        [pk, increment]
+  year          int           [not null, note: 'Año fiscal del plan, ej: 2026']
+  department_id bigint        [not null, ref: > departments.id, note: 'Departamento al que pertenece el plan']
+  total_budget  decimal(15,2) [not null, note: 'Presupuesto total anual del departamento']
+  approved_by_id bigint       [ref: > users.id, note: 'Gerente General que aprobó el plan anual']
+  approved_at   timestamp     [note: 'Fecha y hora de aprobación por GG']
+  is_active     bool          [not null, note: 'Solo un plan activo por departamento por año']
+  created_at    timestamp     [not null]
+
+  indexes {
+    (year, department_id) [unique]
+  }
+
+  Note: 'Plan Anual de gastos por departamento. El Gerente Administrativo lo usa como referencia para clasificar RQs en WITHIN_ANNUAL_PLAN o OUT_OF_ANNUAL_PLAN.'
+}
+
+Table annual_plan_lines {
+  id              bigint        [pk, increment]
+  annual_plan_id  bigint        [not null, ref: > annual_plans.id, note: 'Plan Anual al que pertenece esta línea']
+  code            varchar(50)   [not null, note: 'Código de la línea del plan']
+  description     varchar(300)  [not null]
+  category        varchar(100)  [not null, note: 'Categoría, ej: materiales oficina, equipos TI, mobiliario']
+  budgeted_amount decimal(15,2) [not null, note: 'Monto presupuestado para esta línea']
+  committed_amount decimal(15,2) [not null, default: 0, note: 'Monto comprometido en RQs en proceso']
+  spent_amount    decimal(15,2) [not null, default: 0, note: 'Monto ejecutado']
+  created_at      timestamp     [not null]
+
+  indexes {
+    (annual_plan_id, code) [unique]
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 2: RQ — Requerimientos (núcleo del sistema)
+// ────────────────────────────────────────────────────────────
+
+Table requests {
+  id          bigint    [pk, increment]
+  created_at  timestamp [not null, note: 'Auto-gestionado por TimeStampedModel']
+  updated_at  timestamp [not null, note: 'Auto-gestionado por TimeStampedModel']
+  rq_number   varchar(20) [unique, not null, note: 'Número único del RQ, ej: RQ-2026-0001']
+  flow        varchar(20) [not null, note: 'OPERATIONS o ADMINISTRATIVE — define la cadena de aprobación y los roles involucrados']
+
+  // Origen (según flujo)
+  project_id    bigint [ref: > projects.id,    note: 'Flujo Operaciones: proyecto de obra al que pertenece']
+  department_id bigint [ref: > departments.id, note: 'Flujo Administración: departamento solicitante']
+
+  requested_by_id bigint     [not null, ref: > users.id, note: 'Usuario que creó y envió el RQ']
+  front_area      varchar(100) [not null, note: 'Frente de trabajo (Operaciones) o área específica']
+  service         varchar(100) [not null, note: 'Tipo de servicio o actividad para la que se solicita']
+  specific_use    varchar(300) [not null, note: 'Uso específico del material, equipo o servicio']
+  description     text         [not null, note: 'Descripción general del requerimiento']
+  justification   text         [not null, note: 'Justificación técnica o de negocio del requerimiento']
+
+  acquisition_type varchar(20)  [not null, note: 'COMPRA_LOCAL, COMPRA_FORANEA, IMPORTACION, FABRICACION, ALQUILER, CALIBRACION']
+  priority         varchar(10)  [not null, note: 'URGENT, HIGH, NORMAL, LOW']
+  status           varchar(30)  [not null, note: 'Estado actual en el workflow (35+ estados posibles, ver enum rq_status)']
+  current_step_id  bigint       [ref: > workflow_steps.id, note: 'Paso activo del workflow. Null = recién creado']
+
+  // Clasificación presupuestal
+  budget_classification varchar(30) [note: 'WITHIN_PROPOSAL, ADDITIONAL, WITHIN_ANNUAL_PLAN, OUT_OF_ANNUAL_PLAN']
+  budget_line_id        bigint      [ref: > project_budget_lines.id, note: 'OPS: partida del proyecto asignada']
+  annual_plan_line_id   bigint      [ref: > annual_plan_lines.id,    note: 'ADM: línea del Plan Anual asignada']
+
+  // Costos
+  estimated_cost decimal(15,2) [not null, default: 0, note: 'Costo estimado al crear el RQ']
+  final_cost     decimal(15,2) [note: 'Costo real final (se actualiza al cerrar)']
+
+  // Fechas operativas
+  fecha_necesidad         date [not null, note: 'Fecha en que se necesitan los materiales/equipos en obra']
+  fecha_estimada_entrega  date [note: 'Calculada según tipo de adquisición + SLA configurado']
+  fecha_real_entrega      date [note: 'Fecha real en que se completó la entrega']
+
+  indexes {
+    flow
+    project_id
+    department_id
+    requested_by_id
+    status
+    acquisition_type
+    priority
+    created_at
+  }
+
+  Note: 'Tabla central del sistema. Cada fila representa un Requerimiento de Materiales y Equipos (RQ). El campo flow determina qué cadena de aprobación aplica.'
+}
+
+Table request_items {
+  id                       bigint        [pk, increment]
+  request_id               bigint        [not null, ref: > requests.id, note: 'RQ al que pertenece este ítem']
+  line_number              int           [not null, note: 'Número de línea dentro del RQ (correlativo)']
+  description              varchar(300)  [not null, note: 'Descripción del material o equipo']
+  specifications           text          [not null, note: 'Especificaciones técnicas detalladas']
+  quantity                 decimal(12,3) [not null, note: 'Cantidad requerida']
+  unit                     varchar(30)   [not null, note: 'Unidad de medida, ej: und, kg, m, m2, m3, gln']
+  unit_price               decimal(15,2) [note: 'Precio unitario (se completa en cotización o valorización)']
+  total_price              decimal(15,2) [note: 'quantity × unit_price']
+  stock_almacen_obra       decimal(12,3) [not null, default: 0, note: 'Stock disponible en Almacén de Obra (solo Operaciones)']
+  stock_almacen_central    decimal(12,3) [not null, default: 0, note: 'Stock disponible en Almacén Central']
+  x_atender                decimal(12,3) [note: 'Cantidad neta a atender: quantity - stocks disponibles']
+  presupuestado_adicional  varchar(20)   [not null, note: 'P = Presupuestado, A = Adicional']
+  rfi_fwo                  varchar(50)   [not null, note: 'Referencia RFI o FWO (solo Operaciones)']
+  estatus_guia             varchar(100)  [not null, note: 'Estado de la guía de remisión asociada']
+  comentarios              text          [not null, note: 'Comentarios del solicitante o de revisores']
+  created_at               timestamp     [not null]
+
+  indexes {
+    (request_id, line_number) [unique]
+  }
+
+  Note: 'Líneas de detalle del RQ. Se importan desde la plantilla Excel. Cada ítem se rastrea individualmente en cotizaciones, OC y despachos.'
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 3: RQ — Motor de Workflow y Configuración SLA
+// ────────────────────────────────────────────────────────────
+
+Table acquisition_type_config {
+  id                                bigint [pk, increment]
+  type                              varchar(20) [unique, not null, note: 'Tipo de adquisición (coincide con enum acquisition_type)']
+  min_days                          int  [not null, note: 'Días mínimos de atención']
+  max_days                          int  [not null, note: 'Días máximos normales de atención']
+  max_extended_days                 int  [note: 'Máximo con extensión (ej: Fabricación +7d)']
+  requires_gm_approval              bool [not null, note: 'true si requiere aprobación del Gerente General']
+  requires_admin_approval           bool [not null, note: 'true si requiere aprobación del Gerente Administrativo']
+  requires_project_manager_approval bool [not null, note: 'true si requiere aprobación del Gerente de Proyecto']
+  requires_cost_control_approval    bool [not null, note: 'true si requiere aprobación de Control de Costos']
+  notes                             text [not null, note: 'Notas adicionales del SLA']
+
+  Note: '''
+  SLA configurado por tipo de adquisición:
+  Compra Local:    1-3 días
+  Compra Foránea:  5-7 días
+  Importación:     14-56 días (2-8 semanas), requiere GG + Gte.Proyecto + Control Costos + Gte.Admin
+  Fabricación:     7-15 días (+7d extensión máxima), talleres PCC u otros
+  Alquiler:        3-15 días (+ tiempo de homologación/permisos)
+  Calibración:     7-10 días (laboratorios INACAL Lima)
+  '''
+}
+
+Table workflow_steps {
+  id                    bigint      [pk, increment]
+  flow                  varchar(20) [not null, note: 'OPERATIONS o ADMINISTRATIVE']
+  step_order            int         [not null, note: 'Orden del paso dentro del flujo (correlativo)']
+  step_code             varchar(50) [not null, note: 'Código único del paso, ej: OPS_TECHNICAL_REVIEW']
+  step_name             varchar(200) [not null, note: 'Nombre descriptivo del paso']
+  responsible_role      varchar(30) [not null, note: 'Rol responsable de ejecutar este paso (ver enum role)']
+  from_status           varchar(30) [not null, note: 'Estado requerido en el RQ para poder ejecutar este paso']
+  to_status_approve     varchar(30) [not null, note: 'Estado resultante si aprueba o completa el paso']
+  to_status_reject      varchar(30) [note: 'Estado resultante si rechaza (null = este paso no tiene rechazo)']
+  is_conditional        bool        [not null, note: 'true si el paso solo aplica bajo cierta condición (ej: solo si es adicional)']
+  condition_description text        [not null, note: 'Descripción de la condición que activa el paso']
+  is_terminal_on_reject bool        [not null, note: 'true si el rechazo en este paso termina el proceso definitivamente']
+  phase                 int         [not null, note: 'Fase del lifecycle: 1=Solicitud, 2=Validación, 3=Logística, 4=Recepción, 5=Cierre']
+
+  indexes {
+    (flow, step_order) [unique]
+    (flow, step_code)  [unique]
+  }
+
+  Note: '''
+  ════════════════════════════════════════════════════════════
+  FLUJO OPERACIONES (Proyectos / Obra)
+  ════════════════════════════════════════════════════════════
+
+  FASE 1: SOLICITUD Y VALIDACIÓN TÉCNICA
+  ────────────────────────────────────────
+  Paso 1:   [REQUESTER]              Usuario genera RQ en formato vigente
+            DRAFT → SUBMITTED
+
+  Paso 2:   [PROJECT_RESIDENT]       Residente verifica/actualiza especificaciones técnicas
+            SUBMITTED → TECHNICAL_REVIEW
+
+  Paso 3:   [PROJECT_RESIDENT]       Residente aprueba o rechaza el RQ
+            TECHNICAL_REVIEW → TECHNICAL_APPROVED
+            TECHNICAL_REVIEW → TECHNICAL_REJECTED (→ FIN)
+
+  Paso 4:   [PROJECT_CONTROL]        Control de Proyecto revisa RQ vs presupuesto
+            TECHNICAL_APPROVED → BUDGET_REVIEW
+
+  FASE 2: EVALUACIÓN DE PRESUPUESTO Y AUTORIZACIÓN GERENCIAL
+  ────────────────────────────────────────
+  Paso 5:   [PROJECT_CONTROL]        Determina: dentro de propuesta o adicional
+            BUDGET_REVIEW → WITHIN_PROPOSAL (→ Paso 6)
+            BUDGET_REVIEW → ADDITIONAL_REQ  (→ Paso 5.1)
+
+  Paso 5.1: [PROJECT_CONTROL]        Si adicional: solicita evaluación a GG
+            ADDITIONAL_REQ → GM_REVIEW
+
+  Paso 5.3: [GENERAL_MANAGER]        GG revisa y valida la necesidad adicional
+            GM_REVIEW → GM_APPROVED
+
+  Paso 5.4: [GENERAL_MANAGER]        GG decide: aprueba o rechaza
+            GM_REVIEW → GM_REJECTED (→ FIN)
+
+  Paso 6:   [SISTEMA]                Requerimiento queda validado
+            WITHIN_PROPOSAL → VALIDATED
+            GM_APPROVED → VALIDATED
+
+  FASE 3: GESTIÓN DE SUMINISTRO (STOCK O COMPRA)
+  ────────────────────────────────────────
+  Paso 7:   [LOGISTICS_COORDINATOR]  Coord. Logístico verifica disponibilidad en inventario
+            VALIDATED → STOCK_CHECK
+
+  Paso 8:   [LOGISTICS_COORDINATOR]  Decisión de stock
+            STOCK_CHECK → IN_STOCK        (→ Paso 9)
+            STOCK_CHECK → REQUIRES_PURCHASE (→ Paso 10)
+
+  Paso 9:   [LOGISTICS_COORDINATOR]  Hay stock: genera pedido y deriva atención
+            IN_STOCK → RECEIVING (salta a Fase 4)
+
+  Paso 10:  [LOGISTICS_COORDINATOR]  No hay stock: solicita cotizaciones a proveedores
+            REQUIRES_PURCHASE → QUOTING
+
+  Paso 11:  [LOGISTICS_COORDINATOR]  Comparativo de propuestas y selección de proveedor
+            QUOTING → QUOTE_SELECTED
+
+  Paso 12:  [LOGISTICS_COORDINATOR]  Verifica si cotización está dentro del presupuesto
+            QUOTE_SELECTED → PO_GENERATED      (si OK → Paso 13)
+            QUOTE_SELECTED → COST_OVERRUN_REVIEW (si excede)
+
+  Paso 12.1:[GENERAL_MANAGER]        GG revisa, valida y aprueba cotización
+            COST_OVERRUN_REVIEW → COST_OVERRUN_APPROVED
+            COST_OVERRUN_REVIEW → COST_OVERRUN_REJECTED (→ FIN)
+
+  Paso 13:  [LOGISTICS_COORDINATOR]  Genera Orden de Compra (OC)
+            COST_OVERRUN_APPROVED → PO_GENERATED
+
+  FASE 4: RECEPCIÓN, ENTREGA Y CONFORMIDAD
+  ────────────────────────────────────────
+  Paso 14:  [CENTRAL_WAREHOUSE]      Almacén Central recibe el requerimiento/bienes
+            PO_GENERATED → RECEIVING
+
+  Paso 15:  [CENTRAL_WAREHOUSE]      Verifica conformidad de la recepción (QC)
+            RECEIVING → QUALITY_CHECK → QUALITY_APPROVED
+
+  Paso 15.1:[CENTRAL_WAREHOUSE]      Si no conforme: reclamo al proveedor y gestión de cambio
+            QUALITY_CHECK → QUALITY_REJECTED → RECEPTION_CLAIM
+
+  Paso 16:  [CENTRAL_WAREHOUSE]      Almacén Central entrega/despacha a obra
+            QUALITY_APPROVED → DISPATCHED_TO_SITE
+
+  Paso 16.1:[SITE_WAREHOUSE]         Almacén de Obra actualiza registros ingreso/salida
+            DISPATCHED_TO_SITE → WAREHOUSE_UPDATED → DELIVERED
+
+  Paso 17:  [REQUESTER]              Usuario recibe y firma conformidad
+            DELIVERED → USER_CONFORMITY (→ Paso 19)
+
+  Paso 18:  [REQUESTER]              Verificación final de conformidad
+            DELIVERED → USER_CLAIM (si no conforme → Paso 18.1)
+
+  Paso 18.1:[REQUESTER]              Usuario genera reclamo
+            USER_CLAIM → CLAIM_IN_REVIEW
+
+  Paso 18.2:[LOGISTICS_COORDINATOR]  Coord. Logístico solicita revisión y cambio del producto
+            CLAIM_IN_REVIEW → CLAIM_RESOLVED → DELIVERED
+
+  Paso 19:  [LOGISTICS_COORDINATOR]  Actualiza estatus final del RQ, proceso finaliza
+            USER_CONFORMITY → CLOSED
+
+
+  ════════════════════════════════════════════════════════════
+  FLUJO ADMINISTRACIÓN (Oficina)
+  ════════════════════════════════════════════════════════════
+
+  FASE 1: SOLICITUD Y VALIDACIÓN ADMINISTRATIVA
+  ────────────────────────────────────────
+  Paso 1:   [REQUESTER]              Usuario genera RQ en formato vigente
+            DRAFT → SUBMITTED
+
+  Paso 2:   [DIRECT_SUPERVISOR]      Jefe Directo verifica y valida el RQ
+            SUBMITTED → SUPERVISOR_REVIEW
+
+  Paso 3:   [DIRECT_SUPERVISOR]      Jefe Directo aprueba o rechaza
+            SUPERVISOR_REVIEW → SUPERVISOR_APPROVED
+            SUPERVISOR_REVIEW → SUPERVISOR_REJECTED (→ FIN)
+
+  Paso 4:   [ADMIN_MANAGER]          Gte. Administrativo revisa RQ vs presupuesto/Plan Anual
+            SUPERVISOR_APPROVED → ADMIN_BUDGET_REVIEW
+
+  Paso 5:   [ADMIN_MANAGER]          Evalúa si está dentro del Plan Anual (PA)
+            ADMIN_BUDGET_REVIEW → WITHIN_ANNUAL_PLAN (→ Paso 6)
+            ADMIN_BUDGET_REVIEW → OUT_OF_ANNUAL_PLAN (→ Paso 5.1)
+
+  FASE 2: EVALUACIÓN DE PRESUPUESTO Y AUTORIZACIÓN GERENCIAL
+  ────────────────────────────────────────
+  Paso 5.1: [ADMIN_MANAGER]          Si NO está en PA: solicita evaluar necesidad a GG
+            OUT_OF_ANNUAL_PLAN → GM_REVIEW
+
+  Paso 5.3: [GENERAL_MANAGER]        GG revisa y valida el requerimiento fuera de plan
+            GM_REVIEW → GM_APPROVED
+
+  Paso 5.4: [GENERAL_MANAGER]        GG decide: aprueba o rechaza
+            GM_REVIEW → GM_REJECTED (→ FIN)
+
+  Paso 6:   [SISTEMA]                Requerimiento queda validado
+            WITHIN_ANNUAL_PLAN → VALIDATED
+            GM_APPROVED → VALIDATED
+
+  FASE 3: GESTIÓN DE LOGÍSTICA E INVENTARIO
+  ────────────────────────────────────────
+  Paso 7:   [LOGISTICS_SUPERVISOR]   Sup. Logístico verifica disponibilidad en inventario
+            VALIDATED → STOCK_CHECK
+
+  Paso 8:   [LOGISTICS_SUPERVISOR]   Decisión de stock
+            STOCK_CHECK → IN_STOCK          (→ Paso 9)
+            STOCK_CHECK → REQUIRES_PURCHASE (→ Paso 10)
+
+  Paso 9:   [LOGISTICS_SUPERVISOR]   Hay stock: genera pedido y deriva atención
+            IN_STOCK → RECEIVING (salta a Fase 4)
+
+  Paso 10:  [LOGISTICS_SUPERVISOR]   No hay stock: solicita cotizaciones a proveedores
+            REQUIRES_PURCHASE → QUOTING
+
+  Paso 11:  [LOGISTICS_CHIEF]        Jefe Logístico compara propuestas y selecciona proveedor
+            QUOTING → QUOTE_COMPARISON → QUOTE_SELECTED
+
+  FASE 3B: CONTROL DE GASTOS Y ADQUISICIÓN
+  ────────────────────────────────────────
+  Paso 12:  [LOGISTICS_SUPERVISOR]   Verifica si cotización está dentro del presupuesto
+            QUOTE_SELECTED → PO_GENERATED         (si OK → Paso 13)
+            QUOTE_SELECTED → COST_OVERRUN_REVIEW  (si excede)
+
+  Paso 12.1:[GENERAL_MANAGER]        GG revisa, valida y aprueba cotización
+            COST_OVERRUN_REVIEW → COST_OVERRUN_APPROVED
+            COST_OVERRUN_REVIEW → COST_OVERRUN_REJECTED (→ FIN)
+
+  Paso 13:  [LOGISTICS_SUPERVISOR]   Sup. Logístico genera Orden de Compra (OC)
+            COST_OVERRUN_APPROVED → PO_GENERATED
+
+  FASE 4: RECEPCIÓN, DISTRIBUCIÓN Y CIERRE
+  ────────────────────────────────────────
+  Paso 14:  [LOGISTICS_SUPERVISOR]   Sup. Logístico realiza la recepción del requerimiento
+            PO_GENERATED → RECEIVING
+
+  Paso 15:  [LOGISTICS_SUPERVISOR]   Verifica conformidad de la recepción
+            RECEIVING → RECEPTION_CONFORMITY
+
+  Paso 15.1:[LOGISTICS_SUPERVISOR]   Si NO conforme: reclamo al proveedor y gestión de cambio
+            RECEIVING → RECEPTION_CLAIM → (proveedor cambia) → RECEIVING
+
+  Paso 16:  [LOGISTICS_SUPERVISOR]   Realiza la entrega del requerimiento al usuario
+            RECEPTION_CONFORMITY → DELIVERED
+
+  Paso 16.1:[CENTRAL_WAREHOUSE]      Almacén Central actualiza registros de ingreso/salida
+            DELIVERED → WAREHOUSE_UPDATED
+
+  Paso 17:  [REQUESTER]              Usuario recibe y firma conformidad
+            WAREHOUSE_UPDATED → USER_CONFORMITY (→ Paso 19)
+
+  Paso 18:  [REQUESTER]              Verificación final de conformidad
+            WAREHOUSE_UPDATED → USER_CLAIM (si no conforme → Paso 18.1)
+
+  Paso 18.1:[REQUESTER]              Usuario genera reclamo y solicita cambio
+            USER_CLAIM → CLAIM_IN_REVIEW
+
+  Paso 18.2:[LOGISTICS_SUPERVISOR]   Sup. Logístico gestiona revisión y cambio del producto
+            CLAIM_IN_REVIEW → CLAIM_RESOLVED → WAREHOUSE_UPDATED
+
+  Paso 19:  [LOGISTICS_SUPERVISOR]   Actualiza estatus final de los RQs, proceso finaliza
+            USER_CONFORMITY → CLOSED
+  '''
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 4: RQ — Aprobaciones y Auditoría
+// ────────────────────────────────────────────────────────────
+
+Table approvals {
+  id               bigint    [pk, increment]
+  request_id       bigint    [not null, ref: > requests.id,       note: 'RQ sobre el que se ejecutó la acción']
+  workflow_step_id bigint    [ref: > workflow_steps.id,           note: 'Paso del workflow que se ejecutó (puede ser null para acciones de sistema)']
+  action           varchar(30) [not null,                         note: 'Acción ejecutada (ver enum approval_action)']
+  performed_by_id  bigint    [not null, ref: > users.id,          note: 'Usuario que ejecutó la acción']
+  role             varchar(30) [not null,                         note: 'Rol con el que actuó el usuario al momento de la acción']
+  previous_status  varchar(30) [not null,                         note: 'Estado del RQ antes de la acción']
+  new_status       varchar(30) [not null,                         note: 'Estado del RQ después de la acción']
+  comments         text        [not null,                         note: 'Comentarios del aprobador o revisor']
+  performed_at     timestamp   [not null,                         note: 'Fecha y hora exacta de la acción']
+
+  indexes {
+    request_id
+    performed_by_id
+    performed_at
+  }
+
+  Note: 'Historial inmutable de todas las decisiones tomadas sobre un RQ. No se eliminan registros.'
+}
+
+Table activity_log {
+  id         bigint      [pk, increment]
+  request_id bigint      [not null, ref: > requests.id, note: 'RQ sobre el que se registra la actividad']
+  user_id    bigint      [not null, ref: > users.id,    note: 'Usuario que generó la actividad']
+  action     varchar(100) [not null,                    note: 'Tipo de acción realizada, ej: COMMENT_ADDED, FILE_UPLOADED']
+  detail     text         [not null,                    note: 'Descripción detallada de la actividad']
+  ip_address varchar(45)  [note: 'IP desde la que se realizó la acción (IPv4 o IPv6)']
+  created_at timestamp    [not null]
+
+  indexes {
+    request_id
+    user_id
+    created_at
+  }
+
+  Note: 'Log de auditoría para todas las acciones sobre RQs, incluyendo comentarios, cargas de archivo y cambios de estado.'
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 5: Proveedores, Cotizaciones, Órdenes de Compra
+// ────────────────────────────────────────────────────────────
+
+Table suppliers {
+  id            bigint       [pk, increment]
+  ruc           varchar(11)  [unique, not null, note: 'RUC del proveedor (11 dígitos, válido SUNAT)']
+  business_name varchar(200) [not null, note: 'Razón social del proveedor']
+  trade_name    varchar(200) [not null, note: 'Nombre comercial o marca']
+  contact_name  varchar(100) [not null, note: 'Nombre del contacto comercial']
+  contact_email varchar(100) [not null]
+  contact_phone varchar(20)  [not null]
+  address       varchar(300) [not null]
+  city          varchar(100) [not null]
+  category      varchar(100) [not null, note: 'Rubro del proveedor, ej: materiales, equipos, servicios, instrumentos']
+  is_active     bool         [not null, note: 'Proveedor habilitado para recibir solicitudes de cotización']
+  created_at    timestamp    [not null]
+
+  Note: 'Registro maestro de proveedores. Los campos de texto libre permiten registrar proveedores nacionales e internacionales.'
+}
+
+Table quotations {
+  id              bigint        [pk, increment]
+  request_id      bigint        [not null, ref: > requests.id,  note: 'RQ para el que se solicitó esta cotización']
+  supplier_id     bigint        [not null, ref: > suppliers.id, note: 'Proveedor que presentó la cotización']
+  quotation_number varchar(50)  [not null, note: 'Número de la cotización del proveedor']
+  total_amount    decimal(15,2) [not null, note: 'Monto total cotizado']
+  currency        varchar(3)    [not null, default: 'PEN', note: 'Moneda: PEN (soles), USD, EUR']
+  delivery_days   int           [note: 'Días de entrega ofrecidos por el proveedor']
+  payment_terms   varchar(200)  [not null, note: 'Condiciones de pago, ej: 30 días, contado, 50% adelanto']
+  validity_days   int           [note: 'Días de vigencia de la cotización']
+  notes           text          [not null, note: 'Observaciones o condiciones especiales']
+  document_url    varchar(500)  [not null, note: 'URL del documento PDF de la cotización']
+  is_selected     bool          [not null, default: false, note: 'true = cotización ganadora seleccionada']
+  selected_by_id  bigint        [ref: > users.id, note: 'OPS: Coord. Logístico / ADM: Jefe Logístico que seleccionó']
+  selected_at     timestamp     [note: 'Fecha y hora de selección de la cotización']
+  quoted_at       timestamp     [not null, note: 'Fecha en que el proveedor presentó la cotización']
+  created_at      timestamp     [not null]
+
+  indexes {
+    request_id
+    supplier_id
+    is_selected
+  }
+
+  Note: 'Por cada RQ se pueden tener múltiples cotizaciones de distintos proveedores. Solo una puede tener is_selected = true.'
+}
+
+Table quotation_items {
+  id              bigint        [pk, increment]
+  quotation_id    bigint        [not null, ref: > quotations.id,     note: 'Cotización a la que pertenece este ítem']
+  request_item_id bigint        [not null, ref: > request_items.id,  note: 'Ítem del RQ al que corresponde']
+  unit_price      decimal(15,2) [not null]
+  quantity        decimal(12,3) [not null, note: 'Cantidad cotizada (puede diferir de la solicitada)']
+  total_price     decimal(15,2) [not null, note: 'unit_price × quantity']
+  brand           varchar(100)  [not null, note: 'Marca del producto ofertado']
+  model           varchar(100)  [not null, note: 'Modelo del producto ofertado']
+  notes           text          [not null, note: 'Observaciones del ítem (ej: disponibilidad parcial)']
+  created_at      timestamp     [not null]
+}
+
+Table purchase_orders {
+  id                     bigint        [pk, increment]
+  created_at             timestamp     [not null, note: 'Auto-gestionado por TimeStampedModel']
+  updated_at             timestamp     [not null, note: 'Auto-gestionado por TimeStampedModel']
+  po_number              varchar(20)   [unique, not null, note: 'Número único de la OC, ej: OC-2026-0001']
+  request_id             bigint        [not null, ref: > requests.id,    note: 'RQ que origina esta OC']
+  quotation_id           bigint        [not null, ref: > quotations.id,  note: 'Cotización seleccionada que origina la OC']
+  supplier_id            bigint        [not null, ref: > suppliers.id,   note: 'Proveedor al que se emite la OC']
+  generated_by_id        bigint        [not null, ref: > users.id,       note: 'OPS: Coord. Logístico / ADM: Sup. Logístico que generó la OC']
+  status                 varchar(20)   [not null, note: 'DRAFT, SENT, CONFIRMED, PARTIALLY_RECEIVED, FULLY_RECEIVED, CANCELLED']
+  total_amount           decimal(15,2) [not null]
+  currency               varchar(3)    [not null, default: 'PEN']
+  payment_terms          varchar(200)  [not null]
+  expected_delivery_date date          [note: 'Fecha de entrega pactada con el proveedor']
+  actual_delivery_date   date          [note: 'Fecha real de entrega del proveedor']
+  document_url           varchar(500)  [not null, note: 'URL del documento PDF de la OC']
+  notes                  text          [not null]
+
+  indexes {
+    request_id
+    supplier_id
+    status
+  }
+
+  Note: 'Orden de Compra oficial. Se genera a partir de la cotización ganadora. Su estado se actualiza conforme se reciben los materiales.'
+}
+
+Table purchase_order_items {
+  id                  bigint        [pk, increment]
+  purchase_order_id   bigint        [not null, ref: > purchase_orders.id,  note: 'OC a la que pertenece este ítem']
+  request_item_id     bigint        [not null, ref: > request_items.id,    note: 'Ítem del RQ original']
+  quotation_item_id   bigint        [ref: > quotation_items.id,            note: 'Ítem de cotización de origen (puede ser null si es OC manual)']
+  description         varchar(300)  [not null]
+  quantity            decimal(12,3) [not null]
+  unit                varchar(30)   [not null]
+  unit_price          decimal(15,2) [not null]
+  total_price         decimal(15,2) [not null]
+  created_at          timestamp     [not null]
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 6: Reclamos, Adjuntos, Notificaciones
+// ────────────────────────────────────────────────────────────
+
+Table claims {
+  id           bigint      [pk, increment]
+  request_id   bigint      [not null, ref: > requests.id, note: 'RQ al que está asociado el reclamo']
+  claim_type   varchar(20) [not null, note: 'SUPPLIER_CLAIM = reclamo al proveedor / USER_CLAIM = reclamo del usuario']
+  raised_by_id bigint      [not null, ref: > users.id,    note: 'Usuario que levantó el reclamo']
+  managed_by_id bigint     [ref: > users.id,              note: 'OPS: Coord. Logístico / ADM: Sup. Logístico que gestiona']
+  status       varchar(20) [not null, note: 'OPEN, IN_REVIEW, RESOLVED, CLOSED']
+  description  text        [not null, note: 'Descripción del problema o no conformidad']
+  resolution   text        [not null, note: 'Descripción de la resolución aplicada']
+  resolved_by_id bigint    [ref: > users.id,              note: 'Usuario que marcó el reclamo como resuelto']
+  created_at   timestamp   [not null]
+  resolved_at  timestamp   [note: 'Fecha y hora de resolución del reclamo']
+
+  Note: 'Gestión de no conformidades en recepción (SUPPLIER_CLAIM) o en entrega final al usuario (USER_CLAIM).'
+}
+
+Table attachments {
+  id            bigint      [pk, increment]
+  request_id    bigint      [not null, ref: > requests.id, note: 'RQ al que pertenece el adjunto']
+  uploaded_by_id bigint     [not null, ref: > users.id,    note: 'Usuario que subió el archivo']
+  file_name     varchar(255) [not null, note: 'Nombre original del archivo']
+  file_path     varchar(500) [not null, note: 'Ruta relativa del archivo en el servidor']
+  file_type     varchar(50)  [not null, note: 'MIME type o extensión, ej: application/pdf, image/jpeg']
+  file_size     int          [note: 'Tamaño del archivo en bytes']
+  category      varchar(50)  [not null, note: 'Tipo de documento: cotizacion, guia, oc, foto, plano, excel_rq, etc.']
+  description   varchar(300) [not null, note: 'Descripción breve del contenido del archivo']
+  uploaded_at   timestamp    [not null, note: 'Fecha y hora de carga del archivo']
+
+  Note: 'Documentos adjuntos al RQ: Excel original, cotizaciones, guías de remisión, OC, fotos, planos, etc.'
+}
+
+Table notifications {
+  id         bigint      [pk, increment]
+  user_id    bigint      [not null, ref: > users.id,    note: 'Usuario destinatario de la notificación']
+  request_id bigint      [ref: > requests.id,           note: 'RQ relacionado (puede ser null para notificaciones generales)']
+  title      varchar(200) [not null,                    note: 'Título corto de la notificación']
+  message    text         [not null,                    note: 'Cuerpo completo de la notificación']
+  is_read    bool         [not null, default: false,    note: 'false = no leída, true = leída']
+  created_at timestamp    [not null]
+
+  indexes {
+    user_id
+    is_read
+    created_at
+  }
+
+  Note: 'Notificaciones internas del sistema. Se generan automáticamente en cada transición de estado del workflow.'
+}
+
+// ────────────────────────────────────────────────────────────
+// SECCIÓN 7: WAREHOUSE — Inventario, Recepción, Despacho
+// ────────────────────────────────────────────────────────────
+
+Table inventory {
+  id           bigint        [pk, increment]
+  product_code varchar(50)   [unique, not null, note: 'Código único del producto en el catálogo de inventario']
+  description  varchar(300)  [not null, note: 'Descripción del producto']
+  unit         varchar(30)   [not null, note: 'Unidad de medida base, ej: und, kg, m, gln']
+  category     varchar(100)  [not null, note: 'Categoría del producto, ej: herramientas, consumibles, equipos']
+  min_stock    decimal(12,3) [not null, default: 0, note: 'Stock mínimo de seguridad para alertas de reposición']
+  created_at   timestamp     [not null]
+
+  Note: 'Catálogo maestro de productos de inventario. Cada producto puede tener stock en múltiples almacenes (ver inventory_stock).'
+}
+
+Table inventory_stock {
+  id            bigint        [pk, increment]
+  inventory_id  bigint        [not null, ref: > inventory.id,    note: 'Producto del catálogo']
+  warehouse_type varchar(20)  [not null, note: 'CENTRAL (Almacén Central) / SITE (Almacén de Obra) / OFFICE (Bodega Oficina)']
+  project_id    bigint        [ref: > projects.id,               note: 'Solo para warehouse_type=SITE: proyecto de obra']
+  department_id bigint        [ref: > departments.id,            note: 'Solo para warehouse_type=OFFICE: departamento']
+  quantity      decimal(12,3) [not null, default: 0,             note: 'Cantidad disponible en este almacén']
+  last_updated  timestamp     [not null,                         note: 'Última actualización del stock']
+
+  Note: 'Stock por almacén. Un producto puede tener registros en múltiples almacenes simultáneamente.'
+}
+
+Table warehouse_receipts {
+  id                      bigint      [pk, increment]
+  request_id              bigint      [not null, ref: > requests.id,       note: 'RQ que origina esta recepción']
+  purchase_order_id       bigint      [ref: > purchase_orders.id,          note: 'OC asociada (null si es despacho de stock existente)']
+  received_by_id          bigint      [not null, ref: > users.id,          note: 'OPS: Almacén Central / ADM: Sup. Logístico que recibió']
+  receipt_number          varchar(50) [not null, note: 'Número interno de la guía de recepción']
+  supplier_guide_number   varchar(50) [not null, note: 'Número de guía de remisión del proveedor']
+  received_at             timestamp   [not null, note: 'Fecha y hora de recepción física']
+  conformity_passed       bool        [note: 'true = conforme, false = no conforme, null = pendiente de revisión']
+  conformity_checked_by_id bigint     [ref: > users.id,                    note: 'Usuario que realizó la verificación de conformidad']
+  conformity_checked_at   timestamp   [note: 'Fecha y hora de la verificación de conformidad']
+  conformity_notes        text        [not null, note: 'Observaciones del control de calidad o conformidad']
+  notes                   text        [not null, note: 'Notas generales de la recepción']
+
+  indexes {
+    request_id
+    purchase_order_id
+  }
+
+  Note: 'Registro de recepción física de materiales. OPS: aplica control de calidad (QUALITY_CHECK). ADM: aplica conformidad de recepción (RECEPTION_CONFORMITY).'
+}
+
+Table warehouse_receipt_items {
+  id                    bigint        [pk, increment]
+  receipt_id            bigint        [not null, ref: > warehouse_receipts.id,   note: 'Recepción a la que pertenece este ítem']
+  request_item_id       bigint        [not null, ref: > request_items.id,        note: 'Ítem del RQ original']
+  purchase_order_item_id bigint       [ref: > purchase_order_items.id,           note: 'Ítem de OC de referencia']
+  quantity_received     decimal(12,3) [not null, note: 'Cantidad físicamente recibida del proveedor']
+  quantity_accepted     decimal(12,3) [note: 'Cantidad que pasó control de calidad y se acepta']
+  quantity_rejected     decimal(12,3) [not null, default: 0, note: 'Cantidad rechazada por no conformidad']
+  rejection_reason      text          [not null, note: 'Motivo de rechazo (ej: daño, especificación incorrecta)']
+  notes                 text          [not null]
+  created_at            timestamp     [not null]
+}
+
+Table warehouse_dispatches {
+  id                      bigint      [pk, increment]
+  request_id              bigint      [not null, ref: > requests.id,       note: 'RQ que origina este despacho']
+  receipt_id              bigint      [ref: > warehouse_receipts.id,       note: 'Recepción de origen (null si sale directo del stock)']
+  dispatched_by_id        bigint      [not null, ref: > users.id,          note: 'Usuario de almacén que realizó el despacho']
+  dispatch_number         varchar(50) [not null, note: 'Número interno del despacho']
+  origin                  varchar(20) [not null, note: 'CENTRAL (Almacén Central) o SITE (Almacén de Obra)']
+  destination_project_id  bigint      [ref: > projects.id,                 note: 'OPS: proyecto destino del despacho']
+  destination_department_id bigint    [ref: > departments.id,              note: 'ADM: departamento destino del despacho']
+  dispatch_guide_number   varchar(50) [not null, note: 'Número de guía de remisión interna']
+  dispatched_at           timestamp   [not null, note: 'Fecha y hora del despacho']
+  delivered_at            timestamp   [note: 'Fecha y hora de entrega confirmada en destino']
+  accepted_by_id          bigint      [ref: > users.id,                    note: 'OPS: Almacén de Obra / ADM: Usuario final que confirma recepción']
+  notes                   text        [not null]
+
+  Note: 'Registro de despacho desde almacén hacia destino (obra o departamento). accepted_by_id confirma que el destino recibió conforme.'
+}
+
+Table warehouse_dispatch_items {
+  id                  bigint        [pk, increment]
+  dispatch_id         bigint        [not null, ref: > warehouse_dispatches.id, note: 'Despacho al que pertenece este ítem']
+  request_item_id     bigint        [not null, ref: > request_items.id,        note: 'Ítem del RQ original']
+  quantity_dispatched decimal(12,3) [not null, note: 'Cantidad despachada desde el almacén']
+  quantity_delivered  decimal(12,3) [note: 'Cantidad confirmada como recibida en destino']
+  created_at          timestamp     [not null]
+}
+
+// ────────────────────────────────────────────────────────────
+// RELACIONES (Refs — derivadas de schema_actual.dbml)
+// ────────────────────────────────────────────────────────────
+
+// Usuarios y Roles
+Ref: user_roles.user_id           > users.id
+Ref: user_roles.project_id        > projects.id
+Ref: user_roles.department_obj_id > departments.id
+
+// Departamentos
+Ref: departments.manager_id > users.id
+
+// Proyectos
+Ref: project_budget_lines.project_id > projects.id
+
+// Plan Anual
+Ref: annual_plans.department_id  > departments.id
+Ref: annual_plans.approved_by_id > users.id
+Ref: annual_plan_lines.annual_plan_id > annual_plans.id
+
+// Requerimientos
+Ref: requests.project_id           > projects.id
+Ref: requests.department_id        > departments.id
+Ref: requests.requested_by_id      > users.id
+Ref: requests.current_step_id      > workflow_steps.id
+Ref: requests.budget_line_id       > project_budget_lines.id
+Ref: requests.annual_plan_line_id  > annual_plan_lines.id
+Ref: request_items.request_id      > requests.id
+
+// Aprobaciones y Auditoría
+Ref: approvals.request_id       > requests.id
+Ref: approvals.workflow_step_id > workflow_steps.id
+Ref: approvals.performed_by_id  > users.id
+Ref: activity_log.request_id    > requests.id
+Ref: activity_log.user_id       > users.id
+
+// Proveedores y Cotizaciones
+Ref: quotations.request_id     > requests.id
+Ref: quotations.supplier_id    > suppliers.id
+Ref: quotations.selected_by_id > users.id
+Ref: quotation_items.quotation_id    > quotations.id
+Ref: quotation_items.request_item_id > request_items.id
+
+// Órdenes de Compra
+Ref: purchase_orders.request_id      > requests.id
+Ref: purchase_orders.quotation_id    > quotations.id
+Ref: purchase_orders.supplier_id     > suppliers.id
+Ref: purchase_orders.generated_by_id > users.id
+Ref: purchase_order_items.purchase_order_id  > purchase_orders.id
+Ref: purchase_order_items.request_item_id    > request_items.id
+Ref: purchase_order_items.quotation_item_id  > quotation_items.id
+
+// Almacén — Recepción
+Ref: warehouse_receipts.request_id               > requests.id
+Ref: warehouse_receipts.purchase_order_id        > purchase_orders.id
+Ref: warehouse_receipts.received_by_id           > users.id
+Ref: warehouse_receipts.conformity_checked_by_id > users.id
+Ref: warehouse_receipt_items.receipt_id             > warehouse_receipts.id
+Ref: warehouse_receipt_items.request_item_id        > request_items.id
+Ref: warehouse_receipt_items.purchase_order_item_id > purchase_order_items.id
+
+// Almacén — Despacho
+Ref: warehouse_dispatches.request_id               > requests.id
+Ref: warehouse_dispatches.receipt_id               > warehouse_receipts.id
+Ref: warehouse_dispatches.dispatched_by_id         > users.id
+Ref: warehouse_dispatches.destination_project_id   > projects.id
+Ref: warehouse_dispatches.destination_department_id > departments.id
+Ref: warehouse_dispatches.accepted_by_id           > users.id
+Ref: warehouse_dispatch_items.dispatch_id       > warehouse_dispatches.id
+Ref: warehouse_dispatch_items.request_item_id   > request_items.id
+
+// Inventario
+Ref: inventory_stock.inventory_id  > inventory.id
+Ref: inventory_stock.project_id    > projects.id
+Ref: inventory_stock.department_id > departments.id
+
+// Reclamos
+Ref: claims.request_id     > requests.id
+Ref: claims.raised_by_id   > users.id
+Ref: claims.managed_by_id  > users.id
+Ref: claims.resolved_by_id > users.id
+
+// Adjuntos
+Ref: attachments.request_id     > requests.id
+Ref: attachments.uploaded_by_id > users.id
+
+// Notificaciones
+Ref: notifications.user_id    > users.id
+Ref: notifications.request_id > requests.id

@@ -1,0 +1,133 @@
+# ============================================================
+# SYSPCCLOG - Docker Compose (Development)
+# ============================================================
+# Usage:
+#   docker compose --env-file .env.docker up --build
+#
+# Hot reload:
+#   - Backend: backend/ is mounted; Django runserver reloads on .py changes
+#   - Frontend: frontend/src and frontend/public are mounted; Vite HMR works
+#
+# Access:
+#   - Frontend:  http://localhost:5173
+#   - Backend:   http://localhost:8000
+#   - API docs:  http://localhost:8000/api/schema/swagger-ui/
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # Redis — cache, Celery broker, and Celery result backend
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: syspcclog_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # Backend — Django development server
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: syspcclog_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount the entire backend source for hot reload
+      - ./backend:/app
+      # SQLite database lives in a named volume so it persists
+      # across container rebuilds but stays out of the source tree
+      - sqlite_data:/app/data
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Frontend — Vite development server
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: syspcclog_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source and public for Vite HMR
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      # Keep node_modules from the image — do NOT mount the host's
+      # node_modules over the container's because they may differ
+      # (e.g. native binaries for linux vs macOS).
+      - /app/node_modules
+    env_file:
+      - .env.docker
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Celery Worker — processes async tasks
+  # ----------------------------------------------------------
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: syspcclog_celery_worker
+    command: celery -A config worker -l info
+    volumes:
+      - ./backend:/app
+      - sqlite_data:/app/data
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Celery Beat — periodic task scheduler
+  # ----------------------------------------------------------
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: syspcclog_celery_beat
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./backend:/app
+      - sqlite_data:/app/data
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+
+# ============================================================
+# Volumes
+# ============================================================
+volumes:
+  redis_data:
+    driver: local
+  sqlite_data:
+    driver: local

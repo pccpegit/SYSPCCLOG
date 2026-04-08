@@ -34,7 +34,7 @@ DEMO_USERS = [
         'position': 'Ingeniero de Campo',
         'department': 'Proyectos',
         'roles': [
-            {'role': 'REQUESTER', 'flow': 'OPERATIONS', 'is_primary': True},
+            {'role': 'REQUESTER', 'is_primary': True},
         ],
     },
     {
@@ -45,7 +45,7 @@ DEMO_USERS = [
         'position': 'Residente de Proyecto',
         'department': 'Proyectos',
         'roles': [
-            {'role': 'PROJECT_RESIDENT', 'flow': 'OPERATIONS', 'is_primary': True},
+            {'role': 'PROJECT_RESIDENT', 'is_primary': True},
         ],
     },
     {
@@ -56,7 +56,7 @@ DEMO_USERS = [
         'position': 'Jefe de Control',
         'department': 'Control de Proyecto',
         'roles': [
-            {'role': 'PROJECT_CONTROL', 'flow': 'OPERATIONS', 'is_primary': True},
+            {'role': 'PROJECT_CONTROL', 'is_primary': True},
         ],
     },
     {
@@ -67,7 +67,7 @@ DEMO_USERS = [
         'position': 'Gerente General',
         'department': 'Gerencia',
         'roles': [
-            {'role': 'GENERAL_MANAGER', 'flow': None, 'is_primary': True},
+            {'role': 'GENERAL_MANAGER', 'is_primary': True},
         ],
     },
     {
@@ -78,7 +78,7 @@ DEMO_USERS = [
         'position': 'Coord. Logístico',
         'department': 'Logística',
         'roles': [
-            {'role': 'LOGISTICS_COORDINATOR', 'flow': 'OPERATIONS', 'is_primary': True},
+            {'role': 'LOGISTICS_COORDINATOR', 'is_primary': True},
         ],
     },
     {
@@ -89,7 +89,7 @@ DEMO_USERS = [
         'position': 'Jefe de Almacén Central',
         'department': 'Almacén',
         'roles': [
-            {'role': 'CENTRAL_WAREHOUSE', 'flow': None, 'is_primary': True},
+            {'role': 'CENTRAL_WAREHOUSE', 'is_primary': True},
         ],
     },
     {
@@ -100,7 +100,7 @@ DEMO_USERS = [
         'position': 'Almacenera de Obra',
         'department': 'Almacén',
         'roles': [
-            {'role': 'SITE_WAREHOUSE', 'flow': 'OPERATIONS', 'is_primary': True},
+            {'role': 'SITE_WAREHOUSE', 'is_primary': True},
         ],
     },
     {
@@ -111,7 +111,7 @@ DEMO_USERS = [
         'position': 'Analista Administrativo',
         'department': 'Administración',
         'roles': [
-            {'role': 'REQUESTER', 'flow': 'ADMINISTRATIVE', 'is_primary': True},
+            {'role': 'REQUESTER', 'is_primary': True},
         ],
     },
     {
@@ -122,7 +122,7 @@ DEMO_USERS = [
         'position': 'Jefa de RRHH',
         'department': 'Recursos Humanos',
         'roles': [
-            {'role': 'DIRECT_SUPERVISOR', 'flow': 'ADMINISTRATIVE', 'is_primary': True},
+            {'role': 'DIRECT_SUPERVISOR', 'is_primary': True},
         ],
     },
     {
@@ -133,7 +133,7 @@ DEMO_USERS = [
         'position': 'Gerente Administrativo',
         'department': 'Administración',
         'roles': [
-            {'role': 'ADMIN_MANAGER', 'flow': 'ADMINISTRATIVE', 'is_primary': True},
+            {'role': 'ADMIN_MANAGER', 'is_primary': True},
         ],
     },
     {
@@ -144,7 +144,7 @@ DEMO_USERS = [
         'position': 'Supervisor Logístico',
         'department': 'Logística',
         'roles': [
-            {'role': 'LOGISTICS_SUPERVISOR', 'flow': 'ADMINISTRATIVE', 'is_primary': True},
+            {'role': 'LOGISTICS_SUPERVISOR', 'is_primary': True},
         ],
     },
     {
@@ -155,7 +155,7 @@ DEMO_USERS = [
         'position': 'Jefe Logístico',
         'department': 'Logística',
         'roles': [
-            {'role': 'LOGISTICS_CHIEF', 'flow': 'ADMINISTRATIVE', 'is_primary': True},
+            {'role': 'LOGISTICS_CHIEF', 'is_primary': True},
         ],
     },
 ]
@@ -558,7 +558,6 @@ class Command(BaseCommand):
                     project=None,
                     department_obj=None,
                     defaults={
-                        'flow': role_entry['flow'],
                         'is_primary': role_entry['is_primary'],
                     },
                 )
@@ -571,7 +570,7 @@ class Command(BaseCommand):
                 role='GENERAL_MANAGER',
                 project=None,
                 department_obj=None,
-                defaults={'flow': None, 'is_primary': False},
+                defaults={'is_primary': False},
             )
             users_map['admin'] = admin_user
             self.stdout.write('  Assigned GENERAL_MANAGER role to superuser admin.')

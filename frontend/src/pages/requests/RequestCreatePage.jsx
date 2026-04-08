@@ -85,16 +85,18 @@ export default function RequestCreatePage() {
 
   // Determine user's primary role info
   const primaryRoleObj = currentUser?.roles?.find((r) => r.is_primary) ?? currentUser?.roles?.[0];
-  const userFlow = primaryRoleObj?.flow ?? null;
   const userProjectId = primaryRoleObj?.project ?? null;
   const userProjectName = primaryRoleObj?.project_name ?? '';
   const userProjectFrente = primaryRoleObj?.project_frente ?? '';
   const userDepartmentId = primaryRoleObj?.department_obj ?? null;
   const userDepartmentName = primaryRoleObj?.department_name ?? '';
-  const userDepartmentFrente = primaryRoleObj?.department_frente ?? 'OFICINA CENTRAL';
+  const userDepartmentFrente = primaryRoleObj?.department_frente ?? '';
 
-  const isOps = userFlow === 'OPERATIONS' || (!userFlow && userProjectId);
-  const hasGlobalAccess = !userFlow && !userProjectId && !userDepartmentId;
+  // If user has a project assigned → OPS user (locked to that project)
+  // If user has department only → ADM user (can choose any frente/project)
+  // If neither → global access
+  const isOps = !!userProjectId;
+  const hasGlobalAccess = !userProjectId && !userDepartmentId;
   const autoFrente = isOps ? userProjectFrente : userDepartmentFrente;
   const userProjectCode = primaryRoleObj?.project_code ?? '';
   const autoServicio = isOps
@@ -103,11 +105,12 @@ export default function RequestCreatePage() {
 
   const [projects,    setProjects]    = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [frentes,     setFrentes]     = useState([]);
   const [form, setForm] = useState({
     rqNumber:           '',
     // destinationKey format: "proj-{id}" or "dept-{id}"
     destinationKey:     userProjectId ? `proj-${userProjectId}` : (userDepartmentId ? `dept-${userDepartmentId}` : ''),
-    area:               '',
+    area:               currentUser?.department || '',
     frente:             autoFrente,
     servicio:           autoServicio,
     usoEspecifico:      '',
@@ -137,7 +140,13 @@ export default function RequestCreatePage() {
         setProjects(projList);
         setDepartments(deptList);
 
-        // If user has a project assigned, auto-fill
+        // Build unique frentes from projects and departments
+        const frenteSet = new Set();
+        projList.forEach((p) => { if (p.frente) frenteSet.add(p.frente); });
+        deptList.forEach((d) => { if (d.frente) frenteSet.add(d.frente); });
+        setFrentes([...frenteSet].sort());
+
+        // If user has a project assigned (OPS), auto-fill and lock
         if (userProjectId) {
           const proj = projList.find((p) => p.id === userProjectId);
           if (proj) {
@@ -154,8 +163,8 @@ export default function RequestCreatePage() {
             setForm((f) => ({
               ...f,
               destinationKey: `dept-${dept.id}`,
-              frente: dept.frente || 'OFICINA CENTRAL',
-              servicio: dept.name,
+              frente: dept.frente || '',
+              servicio: dept.name || '',
             }));
           }
         }
@@ -168,6 +177,18 @@ export default function RequestCreatePage() {
 
   const selectedProject = destType === 'project' ? projects.find((p) => p.id === destId) : null;
   const selectedDepartment = destType === 'department' ? departments.find((d) => d.id === destId) : null;
+
+  // Services available for the selected frente
+  const serviciosForFrente = form.frente
+    ? [
+        ...projects.filter((p) => p.frente === form.frente).map((p) => ({
+          key: `proj-${p.id}`, label: `${p.code} — ${p.name}`, type: 'project',
+        })),
+        ...departments.filter((d) => d.frente === form.frente).map((d) => ({
+          key: `dept-${d.id}`, label: d.name, type: 'department',
+        })),
+      ]
+    : [];
   const rqNumber = `REQ-${form.rqNumber}`;
 
   const currentDate = formatDateDisplay(today());
@@ -179,22 +200,39 @@ export default function RequestCreatePage() {
     const { name, value } = e.target;
     setForm((prev) => {
       const next = { ...prev, [name]: value };
-      // Auto-update frente and servicio when destination changes
-      if (name === 'destinationKey') {
-        if (value === 'dept-oficina') {
-          next.frente = 'OFICINA CENTRAL';
-          next.servicio = 'OFICINA CENTRAL';
-        } else if (value.startsWith('proj-')) {
+      // When frente changes, reset servicio and proyecto
+      if (name === 'frente') {
+        const hasProjects = projects.some((p) => p.frente === value);
+        if (!hasProjects && userDepartmentId) {
+          // No projects for this frente → auto-fill with user's department
+          next.servicio = currentUser?.department || '';
+          next.destinationKey = `dept-${userDepartmentId}`;
+        } else {
+          next.servicio = '';
+          next.destinationKey = '';
+        }
+      }
+      // When servicio changes, auto-fill proyecto
+      if (name === 'servicio') {
+        next.destinationKey = value; // value is "proj-{id}" or "dept-{id}"
+        if (value.startsWith('proj-')) {
           const proj = projects.find((p) => p.id === Number(value.split('-')[1]));
-          next.frente = proj?.frente ?? 'MINERA YANACOCHA';
+          if (proj) next.servicio = `${proj.code} — ${proj.name}`;
+        } else if (value.startsWith('dept-')) {
+          const dept = departments.find((d) => d.id === Number(value.split('-')[1]));
+          if (dept) next.servicio = dept.name;
+        }
+      }
+      // Legacy: direct destinationKey changes
+      if (name === 'destinationKey') {
+        if (value.startsWith('proj-')) {
+          const proj = projects.find((p) => p.id === Number(value.split('-')[1]));
+          next.frente = proj?.frente ?? '';
           next.servicio = proj ? `${proj.code} — ${proj.name}` : '';
         } else if (value.startsWith('dept-')) {
           const dept = departments.find((d) => d.id === Number(value.split('-')[1]));
-          next.frente = dept?.frente ?? 'OFICINA CENTRAL';
+          next.frente = dept?.frente ?? '';
           next.servicio = dept?.name ?? '';
-        } else {
-          next.frente = '';
-          next.servicio = '';
         }
       }
       return next;
@@ -229,7 +267,8 @@ export default function RequestCreatePage() {
   function validate() {
     const errs = {};
     if (!form.rqNumber.trim()) errs.rqNumber = 'Ingrese el N° de Requerimiento.';
-    if (!form.destinationKey)  errs.destinationKey = 'Seleccione un proyecto o destino.';
+    if (!form.frente)          errs.frente        = 'Seleccione el frente.';
+    if (!form.destinationKey)  errs.destinationKey = 'Seleccione un servicio.';
     if (!form.area)            errs.area         = 'Seleccione el área.';
     if (!form.fechaEntrega)    errs.fechaEntrega = 'Ingrese la fecha de entrega.';
     const filledItems = items.filter((i) => i.descripcion.trim());
@@ -269,7 +308,7 @@ export default function RequestCreatePage() {
       const isProject = form.destinationKey?.startsWith('proj-');
       const isOficina = form.destinationKey === 'dept-oficina';
       const parsedDestId = isOficina ? null : destId;
-      // For OFICINA CENTRAL, find the ADM department
+      // For Oficina Central, find the ADM department
       const adminDept = departments.find((d) => d.code === 'ADM');
       const deptIdToSend = isOficina ? (adminDept?.id ?? null) : (isProject ? null : parsedDestId);
       const payload = {
@@ -504,17 +543,23 @@ export default function RequestCreatePage() {
                   <RequiredLabel>Área:</RequiredLabel>
                 </td>
                 <td className="border-r border-gray-300 px-2 py-2">
-                  <select
-                    name="area"
-                    value={form.area}
-                    onChange={handleChange}
-                    className={fieldCls(errors.area)}
-                  >
-                    <option value="">-- Seleccione --</option>
-                    {AREAS.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
+                  {currentUser?.department ? (
+                    <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
+                      {form.area}
+                    </span>
+                  ) : (
+                    <select
+                      name="area"
+                      value={form.area}
+                      onChange={handleChange}
+                      className={fieldCls(errors.area)}
+                    >
+                      <option value="">-- Seleccione --</option>
+                      {AREAS.map((a) => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </select>
+                  )}
                   {errors.area && (
                     <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
                       <AlertCircle size={11} />
@@ -523,12 +568,32 @@ export default function RequestCreatePage() {
                   )}
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600">
-                  Frente:
+                  <RequiredLabel>Frente:</RequiredLabel>
                 </td>
                 <td className="px-2 py-2">
-                  <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
-                    {form.frente || '—'}
-                  </span>
+                  {userProjectId && !hasGlobalAccess ? (
+                    <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
+                      {form.frente || '—'}
+                    </span>
+                  ) : (
+                    <select
+                      name="frente"
+                      value={form.frente}
+                      onChange={handleChange}
+                      className={fieldCls(errors.frente)}
+                    >
+                      <option value="">-- Seleccione --</option>
+                      {frentes.map((f) => (
+                        <option key={f} value={f}>{f}</option>
+                      ))}
+                    </select>
+                  )}
+                  {errors.frente && (
+                    <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                      <AlertCircle size={11} />
+                      {errors.frente}
+                    </p>
+                  )}
                 </td>
               </tr>
 
@@ -553,12 +618,39 @@ export default function RequestCreatePage() {
                   )}
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600">
-                  Servicio:
+                  <RequiredLabel>Servicio:</RequiredLabel>
                 </td>
                 <td className="px-2 py-2">
-                  <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
-                    {form.servicio || '—'}
-                  </span>
+                  {userProjectId && !hasGlobalAccess ? (
+                    <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
+                      {form.servicio || '—'}
+                    </span>
+                  ) : form.frente && !projects.some((p) => p.frente === form.frente) ? (
+                    <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
+                      {form.servicio || '—'}
+                    </span>
+                  ) : (
+                    <>
+                      <select
+                        name="servicio"
+                        value={form.destinationKey}
+                        onChange={handleChange}
+                        className={fieldCls(errors.servicio)}
+                        disabled={!form.frente}
+                      >
+                        <option value="">{form.frente ? '-- Seleccione servicio --' : '-- Seleccione frente primero --'}</option>
+                        {serviciosForFrente.map((s) => (
+                          <option key={s.key} value={s.key}>{s.label}</option>
+                        ))}
+                      </select>
+                      {errors.servicio && (
+                        <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                          <AlertCircle size={11} />
+                          {errors.servicio}
+                        </p>
+                      )}
+                    </>
+                  )}
                 </td>
               </tr>
 
@@ -568,34 +660,13 @@ export default function RequestCreatePage() {
                   <RequiredLabel>Proyecto:</RequiredLabel>
                 </td>
                 <td colSpan={3} className="px-2 py-2">
-                  {(userProjectId || userDepartmentId) && !hasGlobalAccess ? (
-                    <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block max-w-xl">
-                      {selectedProject
-                        ? `${selectedProject.code} — ${selectedProject.name}`
-                        : selectedDepartment
-                        ? `OFICINA CENTRAL — ${selectedDepartment.name}`
-                        : '—'}
-                    </span>
-                  ) : (
-                    <select
-                      name="destinationKey"
-                      value={form.destinationKey}
-                      onChange={handleChange}
-                      className={`${fieldCls(errors.destinationKey)} max-w-xl`}
-                    >
-                      <option value="">-- Seleccione un proyecto --</option>
-                      <optgroup label="Operaciones">
-                        {projects.map((p) => (
-                          <option key={`proj-${p.id}`} value={`proj-${p.id}`}>
-                            {p.code} — {p.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Administración">
-                        <option value="dept-oficina">OFICINA CENTRAL</option>
-                      </optgroup>
-                    </select>
-                  )}
+                  <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block max-w-xl">
+                    {selectedProject
+                      ? `${selectedProject.code} — ${selectedProject.name}`
+                      : selectedDepartment
+                      ? `${selectedDepartment.name}`
+                      : form.destinationKey ? form.servicio : '— Seleccione frente y servicio —'}
+                  </span>
                   {errors.destinationKey && (
                     <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
                       <AlertCircle size={11} />

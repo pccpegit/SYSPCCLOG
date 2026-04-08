@@ -157,8 +157,8 @@ function computeStats(requests, role) {
 
   switch (role) {
     case ROLES.PROJECT_RESIDENT:
-      pending    = requests.filter((r) => r.status === STATUS.SUBMITTED).length;
-      inProgress = requests.filter((r) => ![STATUS.SUBMITTED, STATUS.CLOSED, STATUS.CANCELLED, STATUS.TECHNICAL_REJECTED].includes(r.status)).length;
+      pending    = requests.filter((r) => [STATUS.SUBMITTED, STATUS.ADDITIONAL_REQ].includes(r.status)).length;
+      inProgress = requests.filter((r) => ![STATUS.SUBMITTED, STATUS.ADDITIONAL_REQ, STATUS.CLOSED, STATUS.CANCELLED, STATUS.TECHNICAL_REJECTED].includes(r.status)).length;
       break;
     case ROLES.PROJECT_CONTROL:
       pending = requests.filter((r) => [STATUS.TECHNICAL_APPROVED, STATUS.QUOTE_SELECTED].includes(r.status)).length;
@@ -199,7 +199,7 @@ function getTableConfig(role, allRequests) {
     case ROLES.PROJECT_RESIDENT:
       return {
         title: 'Pendientes de Revisión Técnica',
-        rows:  allRequests.filter((r) => r.status === STATUS.SUBMITTED).slice(0, 8),
+        rows:  allRequests.filter((r) => [STATUS.SUBMITTED, STATUS.ADDITIONAL_REQ].includes(r.status)).slice(0, 8),
       };
     case ROLES.PROJECT_CONTROL:
       return {

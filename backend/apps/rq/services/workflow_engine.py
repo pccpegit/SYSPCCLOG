@@ -103,8 +103,15 @@ TRANSITIONS: list[dict] = [
         'action': ApprovalActionChoices.GM_APPROVED,
         'required_role': RoleChoices.GENERAL_MANAGER,
         'to_status': RQStatusChoices.GM_APPROVED,
-        'to_status_reject': RQStatusChoices.GM_REJECTED,
-        'terminal_on_reject': True,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.OPERATIONS,
+        'from_status': RQStatusChoices.GM_REVIEW,
+        'action': ApprovalActionChoices.GM_REJECTED,
+        'required_role': RoleChoices.GENERAL_MANAGER,
+        'to_status': RQStatusChoices.GM_REJECTED,
+        'to_status_reject': None,
     },
     # WITHIN_PROPOSAL or GM_APPROVED → VALIDATED
     {
@@ -167,8 +174,15 @@ TRANSITIONS: list[dict] = [
         'action': ApprovalActionChoices.GM_APPROVED,
         'required_role': RoleChoices.GENERAL_MANAGER,
         'to_status': RQStatusChoices.GM_APPROVED,
-        'to_status_reject': RQStatusChoices.GM_REJECTED,
-        'terminal_on_reject': True,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.GM_REVIEW,
+        'action': ApprovalActionChoices.GM_REJECTED,
+        'required_role': RoleChoices.GENERAL_MANAGER,
+        'to_status': RQStatusChoices.GM_REJECTED,
+        'to_status_reject': None,
     },
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
@@ -851,7 +865,7 @@ class WorkflowEngine:
             return RQStatusChoices.WITHIN_PROPOSAL
         elif classification == BudgetClassificationChoices.BC_ADDITIONAL:
             self.request.budget_classification = BudgetClassificationChoices.BC_ADDITIONAL
-            return RQStatusChoices.GM_REVIEW
+            return RQStatusChoices.ADDITIONAL_REQ
         else:
             raise WorkflowError(
                 'classification debe ser BC_WITHIN_PROPOSAL o BC_ADDITIONAL en extra_data.'

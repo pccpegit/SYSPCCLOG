@@ -164,7 +164,14 @@ export default function ManagerApprovalPage() {
   const rqNumber   = req.rq_number   ?? req.rqNumber;
   const items      = req.items       ?? [];
   const reqCost    = req.estimated_cost ?? req.estimatedCost ?? 0;
-  const budgClass  = req.budget_classification ?? req.budgetClassification;
+  const budgClassRaw = req.budget_classification ?? req.budgetClassification;
+  const CLASSIFICATION_LABELS = {
+    'BC_WITHIN_PROPOSAL': 'Dentro de la propuesta',
+    'BC_ADDITIONAL': 'Requerimiento adicional',
+    'BC_WITHIN_ANNUAL_PLAN': 'Dentro del Plan Anual',
+    'BC_OUT_OF_ANNUAL_PLAN': 'Fuera del Plan Anual',
+  };
+  const budgClass = CLASSIFICATION_LABELS[budgClassRaw] ?? budgClassRaw;
 
   // Budget impact
   const totalBudget  = project?.total_budget  ?? project?.totalBudget  ?? 0;
@@ -175,7 +182,7 @@ export default function ManagerApprovalPage() {
   const projectedPct = totalBudget > 0 ? Math.min(Math.round((newSpent / totalBudget) * 100), 100) : 0;
   const overBudget   = newSpent > totalBudget;
 
-  const isAdditional         = budgClass === 'Requerimiento Adicional' || budgClass === 'ADDITIONAL';
+  const isAdditional         = budgClassRaw === 'BC_ADDITIONAL' || budgClassRaw === 'BC_OUT_OF_ANNUAL_PLAN';
   const isCostOverrun        = req.status === 'COST_OVERRUN_REVIEW';
   const classificationLabel  = isAdditional ? 'REQUERIMIENTO ADICIONAL' : 'SOBRECOSTO';
   const bannerColor = isAdditional

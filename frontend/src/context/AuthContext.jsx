@@ -56,12 +56,11 @@ export function AuthProvider({ children }) {
 
   // ─── Role helpers ────────────────────────────────────────────────────────────
   // The API returns currentUser.roles as an array of role objects:
-  // [{ role: 'REQUESTER', flow: 'OPERATIONS', project__code: '...', is_primary: true }]
+  // [{ role: 'REQUESTER', project: 5, department_obj: null, is_primary: true }]
   //
   // primaryRole  — string of the primary role (e.g. 'REQUESTER')
   // userRoles    — array of role strings
   // hasRole(r)   — true if user holds the given role
-  // userFlow     — flow string of the primary role ('OPERATIONS' | 'ADMINISTRATIVE')
 
   const primaryRole = currentUser?.roles?.find((r) => r.is_primary)?.role
     ?? currentUser?.roles?.[0]?.role
@@ -73,10 +72,6 @@ export function AuthProvider({ children }) {
     (role) => userRoles.includes(role),
     [userRoles]
   );
-
-  const userFlow = currentUser?.roles?.find((r) => r.is_primary)?.flow
-    ?? currentUser?.roles?.[0]?.flow
-    ?? null;
 
   return (
     <AuthContext.Provider
@@ -90,7 +85,6 @@ export function AuthProvider({ children }) {
         primaryRole,
         userRoles,
         hasRole,
-        userFlow,
       }}
     >
       {children}

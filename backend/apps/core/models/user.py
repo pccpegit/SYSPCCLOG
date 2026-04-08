@@ -7,7 +7,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 
-from apps.core.enums import RoleChoices, RQFlowChoices
+from apps.core.enums import RoleChoices
 
 
 class User(AbstractUser):
@@ -49,12 +49,9 @@ class User(AbstractUser):
         """Return all active roles assigned to this user."""
         return self.user_roles.select_related('project', 'department_obj')
 
-    def has_role(self, role: str, flow: str | None = None) -> bool:
-        """Check if the user has a specific role, optionally for a specific flow."""
-        qs = self.user_roles.filter(role=role)
-        if flow is not None:
-            qs = qs.filter(models.Q(flow=flow) | models.Q(flow__isnull=True))
-        return qs.exists()
+    def has_role(self, role: str) -> bool:
+        """Check if the user has a specific role."""
+        return self.user_roles.filter(role=role).exists()
 
 
 class UserRole(models.Model):
@@ -73,14 +70,6 @@ class UserRole(models.Model):
         _('rol'),
         max_length=30,
         choices=RoleChoices.choices,
-    )
-    flow = models.CharField(
-        _('flujo'),
-        max_length=20,
-        choices=RQFlowChoices.choices,
-        null=True,
-        blank=True,
-        help_text=_('A qué flujo pertenece este rol. Null = ambos flujos'),
     )
     project = models.ForeignKey(
         'core.Project',
@@ -114,13 +103,10 @@ class UserRole(models.Model):
         unique_together = [('user', 'role', 'project', 'department_obj')]
         indexes = [
             models.Index(fields=['user', 'role']),
-            models.Index(fields=['role', 'flow']),
         ]
 
     def __str__(self) -> str:
         parts = [f'{self.user.username} - {self.get_role_display()}']
-        if self.flow:
-            parts.append(f'({self.get_flow_display()})')
         if self.project:
             parts.append(f'[{self.project.code}]')
         if self.department_obj:

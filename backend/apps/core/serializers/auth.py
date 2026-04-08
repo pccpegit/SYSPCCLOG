@@ -30,19 +30,20 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         raw_roles = user.user_roles.select_related('project', 'department_obj').all()
         roles = []
         for ur in raw_roles:
-            roles.append({
-                'role': ur.role,
-                'flow': ur.flow,
-                'is_primary': ur.is_primary,
-                'project': ur.project_id,
-                'project_code': ur.project.code if ur.project else None,
-                'project_name': ur.project.name if ur.project else None,
-                'project_frente': ur.project.frente if ur.project else None,
-                'department_obj': ur.department_obj_id,
-                'department_code': ur.department_obj.code if ur.department_obj else None,
-                'department_name': ur.department_obj.name if ur.department_obj else None,
-                'department_frente': ur.department_obj.frente if ur.department_obj else None,
-            })
+            roles.append(
+                {
+                    'role': ur.role,
+                    'is_primary': ur.is_primary,
+                    'project': ur.project_id,
+                    'project_code': ur.project.code if ur.project else None,
+                    'project_name': ur.project.name if ur.project else None,
+                    'project_frente': ur.project.frente if ur.project else None,
+                    'department_obj': ur.department_obj_id,
+                    'department_code': ur.department_obj.code if ur.department_obj else None,
+                    'department_name': ur.department_obj.name if ur.department_obj else None,
+                    'department_frente': ur.department_obj.frente if ur.department_obj else None,
+                }
+            )
 
         data['user'] = {
             'id': user.id,

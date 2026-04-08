@@ -145,7 +145,7 @@ export default function BudgetReviewPage() {
         successMsg = approved
           ? `Clasificación presupuestal: ${classLabel}. ${
               classification === 'additional'
-                ? 'Pasará a revisión del Gerente General.'
+                ? 'Pasará al Residente de Proyecto para reevaluar. Si aprueba, se enviará al Gerente General.'
                 : 'Avanza a Logística.'
             }`
           : 'Rechazado presupuestalmente.';
@@ -425,10 +425,10 @@ export default function BudgetReviewPage() {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <PlusCircle size={15} className="text-orange-600" />
-                    <span className="text-sm font-semibold text-orange-800">No, es un adicional</span>
+                    <span className="text-sm font-semibold text-orange-800">No, es un requerimiento adicional</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Este requerimiento NO estaba contemplado en la propuesta original. Requiere aprobación del Gerente General.
+                    Este requerimiento NO estaba contemplado en la propuesta original. Se enviará al Residente de Proyecto para que evalúe si es necesario.
                   </p>
                 </div>
               </label>
@@ -513,14 +513,14 @@ export default function BudgetReviewPage() {
                     title:        'Confirmar Clasificación',
                     message:      classification === 'within'
                       ? '¿Confirma que este requerimiento ESTABA contemplado en la propuesta del proyecto? Avanzará a Logística para su gestión.'
-                      : '¿Confirma que este requerimiento NO estaba en la propuesta original? Se enviará al Gerente General para autorización.',
-                    confirmText:  classification === 'within' ? 'Sí, está en la propuesta' : 'Sí, es un adicional',
+                      : '¿Confirma que este requerimiento NO estaba en la propuesta original? Se enviará al Residente de Proyecto para que evalúe si es necesario.',
+                    confirmText:  classification === 'within' ? 'Sí, está en la propuesta' : 'Sí, clasificar como adicional',
                     confirmColor: classification === 'within' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600',
                     icon:         CheckCircle2,
                     onConfirm:    () => handleDecision(true),
                   })}
                   disabled={submitting || !classification}
-                  className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 text-white text-base font-bold rounded-xl transition-all duration-200 shadow-md ${
+                  className={`w-full flex flex-col items-center justify-center gap-1 px-4 py-4 text-white rounded-xl transition-all duration-200 shadow-md ${
                     !classification
                       ? 'bg-gray-300 cursor-not-allowed'
                       : classification === 'within'
@@ -528,8 +528,13 @@ export default function BudgetReviewPage() {
                       : 'bg-amber-500 hover:bg-amber-600 hover:shadow-lg'
                   } disabled:opacity-50`}
                 >
-                  <CheckCircle2 size={20} />
-                  {submitting ? 'Guardando...' : !classification ? 'Seleccione una opción arriba' : classification === 'within' ? 'Confirmar — Está en la Propuesta' : 'Confirmar — Es un Adicional (enviar a GG)'}
+                  <CheckCircle2 size={22} />
+                  <span className="text-base font-bold leading-tight text-center">
+                    {submitting ? 'Guardando...' : !classification ? 'Seleccione una opción arriba' : classification === 'within' ? 'Confirmar — Está en la Propuesta' : 'Clasificar como Adicional'}
+                  </span>
+                  {!submitting && classification === 'additional' && (
+                    <span className="text-xs font-medium opacity-90">Enviar a Residente de Proyecto</span>
+                  )}
                 </button>
               </>
             )}
@@ -537,7 +542,7 @@ export default function BudgetReviewPage() {
             {!isQuoteCostReview && classification === 'additional' && (
               <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
                 <p className="text-xs text-orange-700 font-medium">
-                  Al aprobar como "Adicional", el requerimiento se enviará automáticamente al Gerente General.
+                  Al clasificar como adicional, el requerimiento volverá al Residente de Proyecto para reevaluar si es necesario o no. Si el Residente lo aprueba, pasará al Gerente General para una revisión minuciosa.
                 </p>
               </div>
             )}

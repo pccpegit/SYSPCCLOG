@@ -12,7 +12,7 @@ from apps.core.models import User, UserRole, Project, ProjectBudgetLine, Departm
 class UserRoleInline(admin.TabularInline):
     model = UserRole
     extra = 0
-    fields = ['role', 'flow', 'project', 'department_obj', 'is_primary']
+    fields = ['role', 'project', 'department_obj', 'is_primary']
     autocomplete_fields = ['project', 'department_obj']
 
 
@@ -41,8 +41,8 @@ class UserAdmin(BaseUserAdmin):
 
 @admin.register(UserRole)
 class UserRoleAdmin(admin.ModelAdmin):
-    list_display = ['user', 'role', 'flow', 'project', 'department_obj', 'is_primary', 'assigned_at']
-    list_filter = ['role', 'flow', 'is_primary']
+    list_display = ['user', 'role', 'project', 'department_obj', 'is_primary', 'assigned_at']
+    list_filter = ['role', 'is_primary']
     search_fields = ['user__username', 'user__email']
     autocomplete_fields = ['user', 'project', 'department_obj']
 

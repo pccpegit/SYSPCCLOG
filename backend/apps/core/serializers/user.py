@@ -8,7 +8,6 @@ from apps.core.models import User, UserRole
 
 class UserRoleSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source='get_role_display', read_only=True)
-    flow_display = serializers.CharField(source='get_flow_display', read_only=True)
     project_code = serializers.CharField(source='project.code', read_only=True, allow_null=True)
     project_name = serializers.CharField(source='project.name', read_only=True, allow_null=True)
     project_frente = serializers.CharField(source='project.frente', read_only=True, allow_null=True)
@@ -22,8 +21,6 @@ class UserRoleSerializer(serializers.ModelSerializer):
             'id',
             'role',
             'role_display',
-            'flow',
-            'flow_display',
             'project',
             'project_code',
             'project_name',

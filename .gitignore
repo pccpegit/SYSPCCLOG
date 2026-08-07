@@ -64,7 +64,10 @@ pnpm-debug.log*
 # Do not ignore docker-compose.yml or Dockerfiles
 
 # ── Claude Code ──
-.claude/
+# Ignorar lo personal/local de .claude, pero versionar lo compartido del equipo
+.claude/*
+!.claude/skills/
+!.claude/agents/
 
 # ── Personal ──
 cv_pcc.md

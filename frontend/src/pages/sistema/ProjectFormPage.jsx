@@ -162,7 +162,7 @@ export default function ProjectFormPage() {
         await createProject(payload);
         showToast({ type: 'success', message: 'Proyecto creado correctamente.' });
       }
-      navigate('/admin/proyectos');
+      navigate('/sistema/proyectos');
     } catch (err) {
       const errs = extractFieldErrors(err);
       if (Object.keys(errs).length) {
@@ -201,7 +201,7 @@ export default function ProjectFormPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => navigate('/admin/proyectos')}
+          onClick={() => navigate('/sistema/proyectos')}
           className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
           aria-label="Volver a Proyectos"
         >
@@ -357,7 +357,7 @@ export default function ProjectFormPage() {
                 <Users size={15} className="text-gray-400" aria-hidden="true" /> Residentes asignados
               </p>
               <Link
-                to={`/admin/usuarios?project=${id}`}
+                to={`/sistema/usuarios?project=${id}`}
                 className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold"
               >
                 Ver en Usuarios
@@ -389,7 +389,7 @@ export default function ProjectFormPage() {
         <div className="flex justify-end gap-3">
           <button
             type="button"
-            onClick={() => navigate('/admin/proyectos')}
+            onClick={() => navigate('/sistema/proyectos')}
             disabled={saving}
             className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
           >

@@ -15,7 +15,7 @@ import { createUser, updateUser } from '../../api/users';
 import { useToast } from '../../context/ToastContext';
 import { ROLES, ROLE_LABELS } from '../../data/constants';
 import { extractFieldErrors, extractErrorMessage } from '../../utils/apiErrors';
-import TemporaryPasswordModal from '../../components/admin/TemporaryPasswordModal';
+import TemporaryPasswordModal from '../../components/sistema/TemporaryPasswordModal';
 
 const EMPTY_FORM = {
   username: '',
@@ -220,7 +220,7 @@ export default function UserFormPage() {
       if (isEdit) {
         await updateUser(id, payload);
         showToast({ type: 'success', message: 'Usuario actualizado correctamente.' });
-        navigate('/admin/usuarios');
+        navigate('/sistema/usuarios');
       } else {
         const { data } = await createUser(payload);
         setTempPasswordModal({ username: data.username, temporaryPassword: data.temporary_password });
@@ -266,7 +266,7 @@ export default function UserFormPage() {
         {/* Header */}
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/admin/usuarios')}
+            onClick={() => navigate('/sistema/usuarios')}
             className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
             aria-label="Volver a Usuarios"
           >
@@ -480,7 +480,7 @@ export default function UserFormPage() {
           <div className="flex justify-end gap-3">
             <button
               type="button"
-              onClick={() => navigate('/admin/usuarios')}
+              onClick={() => navigate('/sistema/usuarios')}
               disabled={saving}
               className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
@@ -505,7 +505,7 @@ export default function UserFormPage() {
         <TemporaryPasswordModal
           username={tempPasswordModal.username}
           temporaryPassword={tempPasswordModal.temporaryPassword}
-          onClose={() => { setTempPasswordModal(null); navigate('/admin/usuarios'); }}
+          onClose={() => { setTempPasswordModal(null); navigate('/sistema/usuarios'); }}
         />
       )}
     </>

@@ -21,7 +21,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ROLES, ROLE_LABELS } from '../../data/constants';
 import { extractErrorMessage } from '../../utils/apiErrors';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import TemporaryPasswordModal from '../../components/admin/TemporaryPasswordModal';
+import TemporaryPasswordModal from '../../components/sistema/TemporaryPasswordModal';
 
 const STATUS_OPTIONS = [
   { value: '',      label: 'Todos'      },
@@ -206,7 +206,7 @@ export default function UsersPage() {
             </p>
           </div>
           <button
-            onClick={() => navigate('/admin/usuarios/nuevo')}
+            onClick={() => navigate('/sistema/usuarios/nuevo')}
             className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-lg shadow-indigo-600/20 w-full sm:w-auto"
           >
             <Plus size={16} aria-hidden="true" /> Nuevo usuario
@@ -339,7 +339,7 @@ export default function UsersPage() {
                       <td className="px-4 py-3.5">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={() => navigate(`/admin/usuarios/${u.id}`)}
+                            onClick={() => navigate(`/sistema/usuarios/${u.id}`)}
                             disabled={actionBusyId === u.id}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-40"
                             title="Editar"

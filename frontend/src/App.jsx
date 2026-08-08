@@ -15,10 +15,11 @@ import PasajesPage        from './pages/admin/PasajesPage';
 import PagosPage          from './pages/admin/PagosPage';
 import PoliticasPage      from './pages/admin/PoliticasPage';
 import ProveedoresPage    from './pages/admin/ProveedoresPage';
-import UsersPage          from './pages/admin/UsersPage';
-import UserFormPage       from './pages/admin/UserFormPage';
-import ProjectsPage       from './pages/admin/ProjectsPage';
-import ProjectFormPage    from './pages/admin/ProjectFormPage';
+import SystemAdminShell   from './components/layout/SystemAdminShell';
+import UsersPage          from './pages/sistema/UsersPage';
+import UserFormPage       from './pages/sistema/UserFormPage';
+import ProjectsPage       from './pages/sistema/ProjectsPage';
+import ProjectFormPage    from './pages/sistema/ProjectFormPage';
 import RoleRoute from './components/auth/RoleRoute';
 import SuperUserRoute from './components/auth/SuperUserRoute';
 import RequirePasswordChangeLayout from './components/auth/RequirePasswordChangeLayout';
@@ -175,7 +176,6 @@ export default function App() {
             element={
               <RoleRoute
                 requiredRoles={['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER']}
-                allowSuperuser
                 redirectTo="/"
               >
                 <AdminMenuPage />
@@ -189,7 +189,6 @@ export default function App() {
             element={
               <RoleRoute
                 requiredRoles={['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER']}
-                allowSuperuser
                 redirectTo="/"
               >
                 <AdminShell />
@@ -201,34 +200,28 @@ export default function App() {
             <Route path="pagos"       element={<PagosPage />}       />
             <Route path="politicas"   element={<PoliticasPage />}   />
             <Route path="proveedores" element={<ProveedoresPage />} />
+          </Route>
 
-            {/* SYSPCC-018 — Usuarios/Proyectos: strictly superuser-only,
-                independent of the RoleRoute business-role check above (a
-                PASAJES_MANAGER can reach /admin but must NOT reach these). */}
-            <Route
-              path="usuarios"
-              element={<SuperUserRoute><UsersPage /></SuperUserRoute>}
-            />
-            <Route
-              path="usuarios/nuevo"
-              element={<SuperUserRoute><UserFormPage /></SuperUserRoute>}
-            />
-            <Route
-              path="usuarios/:id"
-              element={<SuperUserRoute><UserFormPage /></SuperUserRoute>}
-            />
-            <Route
-              path="proyectos"
-              element={<SuperUserRoute><ProjectsPage /></SuperUserRoute>}
-            />
-            <Route
-              path="proyectos/nuevo"
-              element={<SuperUserRoute><ProjectFormPage /></SuperUserRoute>}
-            />
-            <Route
-              path="proyectos/:id"
-              element={<SuperUserRoute><ProjectFormPage /></SuperUserRoute>}
-            />
+          {/* Administración del Sistema — /sistema, exclusive to Django
+              is_superuser (no business SUPERADMIN role exists). Separate
+              module from /admin (business admin: Pasajes/Pagos/etc.) — the
+              whole shell is gated by a single SuperUserRoute, so pages
+              underneath don't need their own per-route guard. */}
+          <Route
+            path="/sistema"
+            element={
+              <SuperUserRoute>
+                <SystemAdminShell />
+              </SuperUserRoute>
+            }
+          >
+            <Route index element={<Navigate to="usuarios" replace />} />
+            <Route path="usuarios"        element={<UsersPage />} />
+            <Route path="usuarios/nuevo"  element={<UserFormPage />} />
+            <Route path="usuarios/:id"    element={<UserFormPage />} />
+            <Route path="proyectos"       element={<ProjectsPage />} />
+            <Route path="proyectos/nuevo" element={<ProjectFormPage />} />
+            <Route path="proyectos/:id"   element={<ProjectFormPage />} />
           </Route>
 
           {/* Support System — /soporte */}

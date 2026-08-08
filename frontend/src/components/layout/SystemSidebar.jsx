@@ -1,37 +1,38 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  Plane,
-  CreditCard,
-  Shield,
+  Users,
   Building2,
   ChevronLeft,
   X,
-  Briefcase,
+  ShieldCheck,
   Settings,
 } from 'lucide-react';
 
+// SYSPCC-018 (rediseño) — "Administración del Sistema" is its own module
+// under /sistema, exclusive to Django `is_superuser` (no business SUPERADMIN
+// role exists). Only 2 resources today; unlike AdminSidebar this list is
+// static and does not depend on role — the whole /sistema tree is already
+// gated by <SuperUserRoute> at the route level (see App.jsx), so nothing
+// here needs to read auth state to decide what to show.
 const NAV_ITEMS = [
-  { label: 'Pasajes',   to: '/admin/pasajes',   icon: Plane,           end: false },
-  { label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard, end: false },
-  { section: 'Gestión' },
-  { label: 'Pagos',       to: '/admin/pagos',       icon: CreditCard, end: false },
-  { label: 'Politicas',   to: '/admin/politicas',   icon: Shield,     end: false },
-  { label: 'Proveedores', to: '/admin/proveedores', icon: Building2,  end: false },
+  { label: 'Usuarios',  to: '/sistema/usuarios',  icon: Users,     end: false },
+  { label: 'Proyectos', to: '/sistema/proyectos', icon: Building2, end: false },
 ];
 
+// Distinct accent (rose) from AdminSidebar's indigo — signals to the
+// superadmin that this is a different, higher-privilege area of the app.
 const ACCENT = {
-  activeBg: 'bg-indigo-500/12',
-  activeText: 'text-indigo-400',
-  activeIcon: 'text-indigo-400',
-  activeBar: 'bg-indigo-400',
-  activeIconBg: 'bg-indigo-500/20',
-  dot: 'bg-indigo-400',
-  dotGlow: 'shadow-[0_0_8px_2px_rgba(129,140,248,0.35)]',
-  brandGradient: 'from-indigo-500 to-blue-600',
+  activeBg: 'bg-rose-500/12',
+  activeText: 'text-rose-400',
+  activeIcon: 'text-rose-400',
+  activeBar: 'bg-rose-400',
+  activeIconBg: 'bg-rose-500/20',
+  dot: 'bg-rose-400',
+  dotGlow: 'shadow-[0_0_8px_2px_rgba(251,113,133,0.35)]',
+  brandGradient: 'from-rose-500 to-red-600',
 };
 
-export default function AdminSidebar({ isOpen, onClose }) {
+export default function SystemSidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
 
   return (
@@ -83,11 +84,11 @@ export default function AdminSidebar({ isOpen, onClose }) {
           {/* Module badge */}
           <div className="px-5 pb-4 flex items-center gap-2.5">
             <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${ACCENT.brandGradient} flex items-center justify-center shadow-md`}>
-              <Briefcase size={15} className="text-white" strokeWidth={2} />
+              <ShieldCheck size={15} className="text-white" strokeWidth={2} />
             </div>
             <div className="leading-tight">
-              <p className="text-[13px] font-bold text-white/90 tracking-tight font-display">Pasajes</p>
-              <p className="text-[10px] text-white/25 font-medium">Módulo Administrativo</p>
+              <p className="text-[13px] font-bold text-white/90 tracking-tight font-display">Administración del Sistema</p>
+              <p className="text-[10px] text-white/25 font-medium">Acceso exclusivo de superadmin</p>
             </div>
           </div>
         </div>
@@ -95,17 +96,7 @@ export default function AdminSidebar({ isOpen, onClose }) {
         {/* ── Navigation ── */}
         <nav className="flex-1 overflow-y-auto px-3 pt-3 pb-4">
           <ul className="flex flex-col gap-0.5">
-            {NAV_ITEMS.map((item, idx) => {
-              if (item.section) {
-                return (
-                  <li key={`section-${idx}`} className="pt-5 pb-1.5 px-3">
-                    <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] font-display">
-                      {item.section}
-                    </p>
-                  </li>
-                );
-              }
-
+            {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               return (
                 <li key={item.to}>
@@ -172,14 +163,17 @@ export default function AdminSidebar({ isOpen, onClose }) {
             <span className="font-display">Configuracion</span>
           </button>
 
+          {/* No AdminMenuPage equivalent for /sistema (only 2 resources,
+              gated as a whole by SuperUserRoute) — "back" goes straight to
+              the system selector, same destination as the logo above. */}
           <button
-            onClick={() => { onClose(); navigate('/admin'); }}
+            onClick={() => { onClose(); navigate('/'); }}
             className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-white/30 hover:bg-white/[0.04] hover:text-white/65 active:scale-[0.97] active:brightness-90 transition-all duration-150"
           >
             <div className="w-8 h-8 rounded-lg bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all duration-200">
               <ChevronLeft size={16} className="text-white/25 group-hover:text-white/50" strokeWidth={1.6} />
             </div>
-            <span className="font-display">Módulos Admin</span>
+            <span className="font-display">Menú principal</span>
           </button>
 
           <div className="mx-2 mt-1">
@@ -188,7 +182,7 @@ export default function AdminSidebar({ isOpen, onClose }) {
           <div className="px-3 py-2.5 flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${ACCENT.dot} ${ACCENT.dotGlow}`} />
             <p className="text-[10px] text-white/15 font-medium font-display">
-              Módulo Admin &middot; v1.0
+              Administración del Sistema &middot; v1.0
             </p>
           </div>
         </div>

@@ -13,9 +13,9 @@ vi.mock('../../api/projects');
 function renderRoute(initialEntry) {
   return renderWithProviders(
     <Routes>
-      <Route path="/admin/proyectos/nuevo" element={<ProjectFormPage />} />
-      <Route path="/admin/proyectos/:id" element={<ProjectFormPage />} />
-      <Route path="/admin/proyectos" element={<div>Listado de proyectos</div>} />
+      <Route path="/sistema/proyectos/nuevo" element={<ProjectFormPage />} />
+      <Route path="/sistema/proyectos/:id" element={<ProjectFormPage />} />
+      <Route path="/sistema/proyectos" element={<div>Listado de proyectos</div>} />
     </Routes>,
     { initialEntries: [initialEntry] },
   );
@@ -28,7 +28,7 @@ beforeEach(() => {
 describe('ProjectFormPage — crear', () => {
   it('valida localmente los campos obligatorios sin llamar a la API', async () => {
     const user = userEvent.setup();
-    renderRoute('/admin/proyectos/nuevo');
+    renderRoute('/sistema/proyectos/nuevo');
 
     await user.click(screen.getByRole('button', { name: /crear proyecto/i }));
 
@@ -40,7 +40,7 @@ describe('ProjectFormPage — crear', () => {
     const user = userEvent.setup();
     projectsApi.createProject.mockResolvedValue({ data: { id: 9, code: 'PRY-009' } });
 
-    renderRoute('/admin/proyectos/nuevo');
+    renderRoute('/sistema/proyectos/nuevo');
 
     await user.type(screen.getByLabelText(/código/i), 'PRY-009');
     await user.type(screen.getByLabelText(/^nombre/i), 'Proyecto Nuevo');
@@ -61,7 +61,7 @@ describe('ProjectFormPage — crear', () => {
       },
     });
 
-    renderRoute('/admin/proyectos/nuevo');
+    renderRoute('/sistema/proyectos/nuevo');
 
     await user.type(screen.getByLabelText(/código/i), 'PRY-DUP');
     await user.type(screen.getByLabelText(/^nombre/i), 'Proyecto Duplicado');
@@ -89,7 +89,7 @@ describe('ProjectFormPage — editar', () => {
       },
     });
 
-    renderRoute('/admin/proyectos/3');
+    renderRoute('/sistema/proyectos/3');
 
     expect(await screen.findByText('Residente Uno')).toBeInTheDocument();
     expect(screen.getByText('@resi')).toBeInTheDocument();

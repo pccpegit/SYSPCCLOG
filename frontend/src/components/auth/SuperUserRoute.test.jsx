@@ -5,22 +5,25 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import SuperUserRoute from './SuperUserRoute';
 import { useAuth } from '../../context/AuthContext';
 
-// SYSPCC-018 — SuperUserRoute is the strict gate for the Usuarios/Proyectos
-// admin pages: Django `is_superuser` only, no business role stands in for
-// it. `useAuth` is mocked directly (not the real AuthProvider) so each case
-// can drive `isLoading`/`isAuthenticated`/`isSuperUser` independently
-// without touching real CSRF-bootstrap/getMe network calls.
+// SYSPCC-018 (rediseño) — SuperUserRoute ahora gatea el módulo separado
+// /sistema completo (Usuarios + Proyectos viven bajo un único shell,
+// SystemAdminShell), no páginas sueltas de AdminShell: Django `is_superuser`
+// únicamente, ningún rol de negocio lo sustituye. El default de
+// `redirectTo` cambió de '/admin' a '/' (SystemSelectPage) porque /sistema
+// ya no cuelga de /admin. `useAuth` se mockea directo (no el AuthProvider
+// real) para poder variar `isLoading`/`isAuthenticated`/`isSuperUser` por
+// caso sin tocar el bootstrap CSRF/getMe real.
 vi.mock('../../context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
-function renderProtectedRoute(initialEntry = '/admin/usuarios') {
+function renderProtectedRoute(initialEntry = '/sistema/usuarios') {
   return renderWithProviders(
     <Routes>
       <Route path="/login" element={<div>Pantalla de login</div>} />
-      <Route path="/admin" element={<div>Menu de administracion</div>} />
+      <Route path="/" element={<div>Selector de sistemas</div>} />
       <Route
-        path="/admin/usuarios"
+        path="/sistema/usuarios"
         element={
           <SuperUserRoute>
             <div>Contenido protegido</div>
@@ -53,12 +56,12 @@ describe('SuperUserRoute', () => {
     expect(await screen.findByText('Pantalla de login')).toBeInTheDocument();
   });
 
-  it('redirige a /admin si está autenticado pero no es superusuario', async () => {
+  it('redirige a / si está autenticado pero no es superusuario', async () => {
     useAuth.mockReturnValue({ isLoading: false, isAuthenticated: true, isSuperUser: false });
 
     renderProtectedRoute();
 
-    expect(await screen.findByText('Menu de administracion')).toBeInTheDocument();
+    expect(await screen.findByText('Selector de sistemas')).toBeInTheDocument();
   });
 
   it('renderiza los children si es superusuario', async () => {

@@ -11,7 +11,7 @@ import { useAuth } from '../../context/AuthContext';
  * permission on every write action of UserViewSet/ProjectViewSet) — this
  * guard is UX only, hiding the page shell, not a security boundary.
  */
-export default function SuperUserRoute({ children, redirectTo = '/admin' }) {
+export default function SuperUserRoute({ children, redirectTo = '/' }) {
   const { isLoading, isAuthenticated, isSuperUser } = useAuth();
 
   // While the session is being restored, render nothing to avoid a flash

@@ -14,7 +14,6 @@ function baseAuth(overrides = {}) {
     isAuthenticated: true,
     isLoading: false,
     logout: vi.fn(),
-    isSuperUser: false,
     ...overrides,
   };
 }
@@ -23,25 +22,22 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('AdminMenuPage — tiles condicionados a isSuperUser', () => {
-  it('muestra los tiles Usuarios y Proyectos cuando isSuperUser es true', async () => {
-    useAuth.mockReturnValue(baseAuth({ isSuperUser: true }));
+// SYSPCC-018 (rediseño) — Usuarios/Proyectos se movieron al módulo separado
+// /sistema (ver SystemSelectPage/SystemAdminShell). AdminMenuPage volvió a
+// su forma pre-ticket: MODULES es siempre [PASAJES_MODULE, ...PLACEHOLDER_MODULES],
+// sin leer isSuperUser (el componente ya no lo desestructura de useAuth).
+describe('AdminMenuPage', () => {
+  it('muestra el tile Pasajes y tiles "Próximamente", sin Usuarios ni Proyectos', async () => {
+    useAuth.mockReturnValue(baseAuth());
 
     renderWithProviders(<AdminMenuPage />);
 
-    expect(await screen.findByRole('button', { name: /usuarios/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /proyectos/i })).toBeInTheDocument();
-  });
-
-  it('muestra tiles "Próximamente" en vez de Usuarios/Proyectos cuando isSuperUser es false', async () => {
-    useAuth.mockReturnValue(baseAuth({ isSuperUser: false }));
-
-    renderWithProviders(<AdminMenuPage />);
-
-    // "Pasajes" is always present regardless of role.
     expect(await screen.findByRole('button', { name: /pasajes/i })).toBeInTheDocument();
+    expect(screen.getAllByText('Próximamente').length).toBeGreaterThan(0);
+
+    // Regresión: Usuarios/Proyectos ahora viven en /sistema, no deben
+    // reaparecer aquí.
     expect(screen.queryByRole('button', { name: /^usuarios/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^proyectos/i })).not.toBeInTheDocument();
-    expect(screen.getAllByText('Próximamente').length).toBeGreaterThan(0);
   });
 });

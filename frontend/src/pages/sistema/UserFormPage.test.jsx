@@ -13,9 +13,9 @@ vi.mock('../../api/users');
 function renderRoute(initialEntry) {
   return renderWithProviders(
     <Routes>
-      <Route path="/admin/usuarios/nuevo" element={<UserFormPage />} />
-      <Route path="/admin/usuarios/:id" element={<UserFormPage />} />
-      <Route path="/admin/usuarios" element={<div>Listado de usuarios</div>} />
+      <Route path="/sistema/usuarios/nuevo" element={<UserFormPage />} />
+      <Route path="/sistema/usuarios/:id" element={<UserFormPage />} />
+      <Route path="/sistema/usuarios" element={<div>Listado de usuarios</div>} />
     </Routes>,
     { initialEntries: [initialEntry] },
   );
@@ -45,7 +45,7 @@ describe('UserFormPage — crear', () => {
       },
     });
 
-    renderRoute('/admin/usuarios/nuevo');
+    renderRoute('/sistema/usuarios/nuevo');
 
     await user.type(screen.getByLabelText(/^usuario/i), 'jdoe');
     await user.type(screen.getByLabelText(/^email/i), 'no-es-un-email');
@@ -59,7 +59,7 @@ describe('UserFormPage — crear', () => {
 
   it('valida localmente los campos obligatorios sin llamar a la API', async () => {
     const user = userEvent.setup();
-    renderRoute('/admin/usuarios/nuevo');
+    renderRoute('/sistema/usuarios/nuevo');
 
     await user.click(screen.getByRole('button', { name: /crear usuario/i }));
 
@@ -73,7 +73,7 @@ describe('UserFormPage — crear', () => {
       data: { id: 5, username: 'nuevo', temporary_password: 'xK9-mQ2pAbcd' },
     });
 
-    renderRoute('/admin/usuarios/nuevo');
+    renderRoute('/sistema/usuarios/nuevo');
 
     await user.type(screen.getByLabelText(/^usuario/i), 'nuevo');
     await user.type(screen.getByLabelText(/^email/i), 'nuevo@test.com');
@@ -108,7 +108,7 @@ describe('UserFormPage — editar', () => {
     coreApi.getUser.mockResolvedValue({ data: existingUser() });
     usersApi.updateUser.mockResolvedValue({ data: { id: 7 } });
 
-    renderRoute('/admin/usuarios/7');
+    renderRoute('/sistema/usuarios/7');
 
     // Wait for the two existing role rows to load.
     await screen.findByLabelText('Rol (fila 1)');
@@ -133,7 +133,7 @@ describe('UserFormPage — editar', () => {
     coreApi.getUser.mockResolvedValue({ data: existingUser() });
     usersApi.updateUser.mockResolvedValue({ data: { id: 7 } });
 
-    renderRoute('/admin/usuarios/7');
+    renderRoute('/sistema/usuarios/7');
 
     await screen.findByLabelText('Rol (fila 1)');
     await user.click(screen.getByRole('button', { name: /guardar cambios/i }));

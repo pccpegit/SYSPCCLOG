@@ -1,38 +1,27 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import AdminSidebar from './AdminSidebar';
-import { useAuth } from '../../context/AuthContext';
 
-// SYSPCC-018 — nav is UX only (the backend independently gates every
-// write action with `IsSuperUser`); this just proves the "Usuarios" /
-// "Proyectos" entries don't render for a non-superuser admin.
-vi.mock('../../context/AuthContext', () => ({
-  useAuth: vi.fn(),
-}));
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
+// SYSPCC-018 (rediseño) — Usuarios/Proyectos ya no viven bajo AdminShell
+// (movidos al módulo separado /sistema, ver SystemSidebar). AdminSidebar
+// volvió a su forma pre-ticket: NAV_ITEMS estático, sin leer useAuth ni
+// condicionar nada por isSuperUser. Este test solo confirma que el nav de
+// negocio (Pasajes, Dashboard, Pagos, Politicas, Proveedores) sigue ahí y
+// que Usuarios/Proyectos no reaparecen por regresión.
 describe('AdminSidebar', () => {
-  it('muestra los enlaces Usuarios y Proyectos cuando isSuperUser es true', () => {
-    useAuth.mockReturnValue({ isSuperUser: true });
-
+  it('muestra el nav de negocio y no incluye Usuarios ni Proyectos', () => {
     renderWithProviders(<AdminSidebar isOpen onClose={vi.fn()} />);
 
-    expect(screen.getByRole('link', { name: 'Usuarios' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Proyectos' })).toBeInTheDocument();
-  });
+    expect(screen.getByRole('link', { name: 'Pasajes' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Pagos' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Politicas' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Proveedores' })).toBeInTheDocument();
 
-  it('no muestra los enlaces Usuarios ni Proyectos cuando isSuperUser es false', () => {
-    useAuth.mockReturnValue({ isSuperUser: false });
-
-    renderWithProviders(<AdminSidebar isOpen onClose={vi.fn()} />);
-
+    // Regresión: Usuarios/Proyectos ahora viven en /sistema (SystemSidebar),
+    // no deben reaparecer aquí.
     expect(screen.queryByRole('link', { name: 'Usuarios' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Proyectos' })).not.toBeInTheDocument();
-    // The base nav (available to everyone) still renders.
-    expect(screen.getByRole('link', { name: 'Pasajes' })).toBeInTheDocument();
   });
 });

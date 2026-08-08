@@ -311,6 +311,66 @@ SPECTACULAR_SETTINGS = {
 
 
 # ============================================================
+# ONEDRIVE INTEGRATION (SYSPCC-016)
+# ============================================================
+# Implementation: apps/warehouse/services/onedrive.py, apps/warehouse/views.py.
+
+# Public "Microsoft Office" client ID — works with personal Microsoft
+# accounts, no Azure AD app registration required. Override once the company
+# registers its own Azure AD app (see ONEDRIVE_TENANT below).
+ONEDRIVE_CLIENT_ID = config(
+    'ONEDRIVE_CLIENT_ID', default='14d82eec-204b-4c2f-b7e8-296a70dab67e',
+)
+
+# Selects the Microsoft identity platform authority used for the device-code
+# flow (https://login.microsoftonline.com/<ONEDRIVE_TENANT>/...):
+#   - 'consumers'     -> personal Microsoft accounts only (current default,
+#                        matches the public client ID above).
+#   - 'organizations' -> any Azure AD / Microsoft 365 work-or-school account.
+#   - '<tenant-guid-or-domain>' -> a specific company tenant, once PCC
+#                        registers its own Azure AD app for OneDrive for
+#                        Business / SharePoint.
+# NOT validated against PCC's real tenant here — no Microsoft 365 admin
+# credentials are available in this environment. Left configurable so the
+# company can point it at their tenant without a code change.
+ONEDRIVE_TENANT = config('ONEDRIVE_TENANT', default='consumers')
+
+# Scope sent to Microsoft Graph's `createLink` when generating a share link
+# for an uploaded document (apps/warehouse/services/onedrive.py::_create_share_link):
+#   - 'organization' (default): link only opens for someone signed into the
+#     same Microsoft tenant. Requires a OneDrive for Business / SharePoint
+#     drive, i.e. ONEDRIVE_TENANT pointed at a real org/tenant — it is NOT
+#     supported for personal ('consumers') accounts and will fail there
+#     (the code degrades to the item's own webUrl in that case, it does not
+#     fall back to a public link).
+#   - 'anonymous': link is public to anyone with the URL, no auth required.
+#     Matches how a personal ('consumers') account is normally used. This
+#     must be a deliberate, explicit config choice — never a silent default
+#     — because every warehouse document (RQ numbers, suppliers, pricing)
+#     becomes link-accessible to anyone who obtains the URL.
+#
+# Decision matrix: personal account (ONEDRIVE_TENANT='consumers') -> normally
+# 'anonymous'. Corporate account (ONEDRIVE_TENANT='organizations' or a real
+# tenant id) -> 'organization'.
+ONEDRIVE_SHARE_SCOPE = config('ONEDRIVE_SHARE_SCOPE', default='organization')
+
+# ============================================================
+# ENCRYPTION AT REST — OneDrive tokens (SYSPCC-016)
+# ============================================================
+# Fernet key (cryptography.fernet) used by apps.core.fields.EncryptedTextField
+# to encrypt OneDriveToken.access_token / refresh_token at rest. Generate a
+# dedicated key with:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#
+# If unset, apps.core.fields derives a deterministic key from SECRET_KEY so
+# the app works without extra config in dev. PRODUCTION MUST set this
+# explicitly to a dedicated key — SECRET_KEY also signs JWTs/sessions, so
+# reusing it means rotating SECRET_KEY silently breaks decryption of every
+# stored token, and a SECRET_KEY leak would also compromise these tokens.
+ONEDRIVE_TOKEN_ENCRYPTION_KEY = config('ONEDRIVE_TOKEN_ENCRYPTION_KEY', default='')
+
+
+# ============================================================
 # SUNAT RUC API (apisperu.com)
 # ============================================================
 

@@ -5,26 +5,28 @@ Only one active token is kept (singleton pattern via get_token / save_token).
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from apps.core.fields import EncryptedTextField
+
 
 class OneDriveToken(models.Model):
     """
     Stores the OneDrive OAuth2 credentials (single row).
 
-    # TODO(security) SYSPCC-011: access_token/refresh_token are stored in
-    # plaintext TextField columns. Anyone with DB read access (a leaked backup,
-    # a compromised read replica, an over-privileged internal tool) gets a
-    # live credential for the connected Microsoft account, not just a hash.
-    # Mitigation deferred: encrypting these at rest (e.g. cryptography.fernet
-    # with a key from settings/env, encrypt in save_token()/decrypt in
-    # get_token()) needs the `cryptography` package, which is not currently
-    # in requirements.txt / installed in the runtime image — adding a new
-    # dependency and a migration for this was judged out of scope for this
-    # ticket. Until then: restrict DB/backup access tightly, and treat this
-    # table as equivalent in sensitivity to a plaintext credential store.
+    SYSPCC-016 FOLLOW-UP 2: access_token/refresh_token are encrypted at rest
+    via EncryptedTextField (apps.core.fields), instead of a plaintext
+    TextField. Anyone with DB read access (a leaked backup, a compromised
+    read replica, an over-privileged internal tool) would otherwise get a
+    live credential for the connected Microsoft account, not just a hash.
+
+    Legacy rows written before this change contain plaintext — that is
+    handled transparently by EncryptedTextField.from_db_value() (decrypt
+    fails -> falls back to the raw value, logs a one-time warning). They get
+    re-encrypted automatically the next time save_token() is called; no data
+    migration was required for this change. See apps/core/fields.py.
     """
 
-    access_token = models.TextField(_('access token'))
-    refresh_token = models.TextField(_('refresh token'))
+    access_token = EncryptedTextField(_('access token'))
+    refresh_token = EncryptedTextField(_('refresh token'))
     expires_at = models.DateTimeField(_('token expiry'))
     account_name = models.CharField(
         _('cuenta'),

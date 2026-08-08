@@ -40,6 +40,9 @@ reportlab==4.2.5
 # HTTP client (OneDrive integration)
 requests==2.32.3
 
+# Encryption at rest (OneDrive token storage — SYSPCC-016)
+cryptography==43.0.3
+
 # Development / Testing
 pytest==8.3.4
 pytest-django==4.9.0

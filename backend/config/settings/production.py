@@ -53,3 +53,18 @@ STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesSto
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_AGE = 3600  # 1 hour session lifetime
 CSRF_COOKIE_HTTPONLY = True
+
+# SYSPCC-011 (CSRF hardening, evaluated): Django already defaults both of
+# these to 'Lax', matching the SameSite='Lax' already set on the access_token/
+# refresh_token cookies in apps/core/views/auth.py. Pinning them explicitly
+# here is a no-op behavior-wise but stops a future Django default change (or a
+# stray override) from silently weakening this. This is NOT a substitute for
+# real CSRF-token enforcement — CookieJWTAuthentication still never calls
+# enforce_csrf (see apps/core/authentication.py), so a same-site form POST from
+# a malicious page could still ride the cookies for state-changing requests.
+# Turning enforce_csrf on requires the React client to start sending
+# X-CSRFToken on every mutating request, which it does not do today — that is
+# a coordinated frontend+backend change and is deferred as a follow-up ticket
+# rather than done here, to avoid breaking the app in production.
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'

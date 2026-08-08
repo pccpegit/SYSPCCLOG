@@ -63,6 +63,12 @@ class ClaimViewSet(viewsets.ModelViewSet):
             raised_by=user
         ) | base_qs.filter(request__requested_by=user)
 
+    def perform_create(self, serializer):
+        # SYSPCC-006 FIX 3: `raised_by` is always the authenticated user — never
+        # trust a client-supplied value (impersonation). Also enforced by
+        # ClaimSerializer.get_fields() marking it read-only on POST.
+        serializer.save(raised_by=self.request.user)
+
 
 @extend_schema_view(
     list=extend_schema(tags=['notifications'], summary='List my notifications'),
@@ -123,12 +129,27 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class AttachmentViewSet(viewsets.ModelViewSet):
-    queryset = Attachment.objects.select_related('request', 'uploaded_by').all()
+    """
+    SYSPCC-006 FIX 2: `get_queryset()` scopes attachments the same way as
+    ClaimViewSet/ActivityLogViewSet — the previous unscoped `queryset = ...all()`
+    let any authenticated user GET or DELETE an attachment belonging to a
+    request they had no access to (IDOR), just by guessing/enumerating the pk.
+    """
+
     serializer_class = AttachmentSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['request', 'category']
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        user = self.request.user
+        base_qs = Attachment.objects.select_related('request', 'uploaded_by')
+        # Staff and logistics roles see all attachments
+        if user.is_staff or user.user_roles.filter(role__in=LOGISTICS_ROLES).exists():
+            return base_qs.all()
+        # Regular users see only attachments on requests they own
+        return base_qs.filter(request__requested_by=user)
 
     def perform_create(self, serializer):
         serializer.save(uploaded_by=self.request.user)

@@ -19,13 +19,21 @@ logger = logging.getLogger(__name__)
     bind=True,
     max_retries=3,
     default_retry_delay=60,
+    retry_backoff=True,
+    retry_jitter=True,
     acks_late=True,
 )
 def upload_group_pdf_task(self, group_id: int):
     """
     Generate a multi-item PDF for a MovementGroup and upload it to OneDrive.
-    Retries up to 3 times (60 s apart) on transient errors.
+    Retries up to 3 times (backed off, jittered) on transient errors.
     Stores the sharing URL back on the group's document_url field.
+
+    Idempotent: if `document_url` is already set (a previous run of this same
+    task already succeeded — e.g. the caller enqueued it twice, or a retry
+    fired after the upload actually succeeded but before the task reported
+    success), skip re-uploading. Avoids duplicate files in OneDrive and a
+    wasted ~seconds-long HTTP round trip on every redundant retry.
     """
     from apps.warehouse.models import MovementGroup
     from apps.warehouse.services.pdf_generator import (
@@ -35,6 +43,8 @@ def upload_group_pdf_task(self, group_id: int):
     )
     from apps.warehouse.services.onedrive import OneDriveService
 
+    ctx = {'group_id': group_id, 'task_id': self.request.id, 'retries': self.request.retries}
+
     try:
         group = (
             MovementGroup.objects
@@ -43,7 +53,14 @@ def upload_group_pdf_task(self, group_id: int):
             .get(pk=group_id)
         )
     except MovementGroup.DoesNotExist:
-        logger.error('upload_group_pdf_task: MovementGroup %s not found — skipping', group_id)
+        logger.warning('upload_group_pdf_task.not_found', extra=ctx)
+        return
+
+    if group.document_url:
+        logger.info(
+            'upload_group_pdf_task.already_uploaded',
+            extra=ctx | {'group_number': group.group_number, 'document_url': group.document_url},
+        )
         return
 
     if not OneDriveService.is_connected():
@@ -212,7 +229,14 @@ def check_low_stock_alerts():
             fail_silently=False,
         )
         logger.info('check_low_stock_alerts: Email sent to %s (%d items)', recipients, len(items))
-    except Exception as exc:
-        logger.error('check_low_stock_alerts: Failed to send email: %s', exc)
+    except Exception:
+        # Last barrier for the email send: full stack + context so infra
+        # issues (bad SMTP creds, DNS, timeout) are visible in monitoring
+        # instead of a bare one-line message. Non-fatal — items were already
+        # logged individually above, so the low-stock signal isn't fully lost.
+        logger.exception(
+            'check_low_stock_alerts.email_failed',
+            extra={'recipients': recipients, 'item_count': len(items)},
+        )
 
     return f'{len(items)} items with low stock — email sent to {recipients}'

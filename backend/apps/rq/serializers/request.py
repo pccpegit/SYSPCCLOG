@@ -2,9 +2,15 @@
 Request and RequestItem serializers.
 """
 
+import logging
+
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
+
 from apps.rq.models import Request, RequestItem
 from apps.core.serializers.user import UserListSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class RequestItemSerializer(serializers.ModelSerializer):
@@ -32,6 +38,25 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = ['request', 'total_price', 'created_at']
+
+
+class UpdateItemPayloadSerializer(serializers.Serializer):
+    """
+    SYSPCC-011 FIX 2: one line of the update-items payload. Validates types so
+    a malformed request body returns 400 instead of reaching the raw
+    Case/When queryset update in RequestViewSet.update_items.
+    """
+
+    item_id = serializers.IntegerField()
+    supply_source = serializers.ChoiceField(
+        choices=RequestItem._meta.get_field('supply_source').choices
+    )
+
+
+class UpdateItemsSerializer(serializers.Serializer):
+    """Payload for PATCH /api/v1/requests/{id}/update-items/."""
+
+    items = UpdateItemPayloadSerializer(many=True)
 
 
 class RequestListSerializer(serializers.ModelSerializer):
@@ -171,6 +196,11 @@ class RequestCreateSerializer(serializers.ModelSerializer):
             'fecha_necesidad',
             'items',
         ]
+        # SYSPCC-007: rq_number is generated server-side (RQNumberGenerator, which
+        # locks the latest RQ row). Making it read-only closes the TOCTOU window where
+        # a client-supplied number could collide with one generated concurrently, and
+        # stops clients from spoofing/forging the RQ number.
+        read_only_fields = ['rq_number']
 
     def validate(self, attrs):
         flow = attrs.get('flow')
@@ -180,36 +210,47 @@ class RequestCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'department': 'El flujo Administración requiere un departamento.'})
         return attrs
 
-    def validate_rq_number(self, value):
-        if not value or not value.strip():
-            raise serializers.ValidationError('El N° de Requerimiento es obligatorio.')
-        if Request.objects.filter(rq_number=value.strip()).exists():
-            raise serializers.ValidationError(f'Ya existe un requerimiento con el número "{value}".')
-        return value.strip()
-
     def create(self, validated_data):
         from apps.rq.models import Approval
+        from apps.rq.services.number_generator import RQNumberGenerator
 
         items_data = validated_data.pop('items', [])
         user = self.context['request'].user
+        validated_data.pop('rq_number', None)  # ignore any client-supplied value
         validated_data['requested_by'] = user
         validated_data['status'] = 'SUBMITTED'
 
-        request_obj = Request.objects.create(**validated_data)
+        try:
+            with transaction.atomic():
+                # RQNumberGenerator.generate() locks the latest RQ row for the
+                # current year (select_for_update) so two concurrent submissions
+                # cannot compute the same rq_number.
+                validated_data['rq_number'] = RQNumberGenerator.generate()
+                request_obj = Request.objects.create(**validated_data)
 
-        for idx, item_data in enumerate(items_data, start=1):
-            item_data['line_number'] = idx
-            RequestItem.objects.create(request=request_obj, **item_data)
+                for idx, item_data in enumerate(items_data, start=1):
+                    item_data['line_number'] = idx
+                    RequestItem.objects.create(request=request_obj, **item_data)
 
-        # Register the submission in the approval chain
-        Approval.objects.create(
-            request=request_obj,
-            action='SUBMITTED',
-            performed_by=user,
-            role=user.user_roles.first().role if user.user_roles.exists() else 'REQUESTER',
-            previous_status='DRAFT',
-            new_status='SUBMITTED',
-            comments='Requerimiento enviado para revisión.',
-        )
+                # Register the submission in the approval chain
+                Approval.objects.create(
+                    request=request_obj,
+                    action='SUBMITTED',
+                    performed_by=user,
+                    role=user.user_roles.first().role if user.user_roles.exists() else 'REQUESTER',
+                    previous_status='DRAFT',
+                    new_status='SUBMITTED',
+                    comments='Requerimiento enviado para revisión.',
+                )
+        except IntegrityError:
+            # Last barrier: the DB-level unique constraint on rq_number caught a
+            # collision the lock should have prevented (or an item/approval FK
+            # violation). Nothing was persisted — the atomic block rolled back.
+            logger.warning(
+                'request.create.integrity_error', extra={'user_id': getattr(user, 'id', None)},
+            )
+            raise serializers.ValidationError(
+                {'rq_number': 'No se pudo generar el número de requerimiento, intente nuevamente.'}
+            )
 
         return request_obj

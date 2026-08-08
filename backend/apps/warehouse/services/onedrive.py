@@ -74,8 +74,11 @@ class OneDriveService:
                         timeout=10,
                     ).json()
                     account_name = me.get('userPrincipalName') or me.get('displayName', '')
-                except Exception:
-                    pass
+                except (requests.RequestException, ValueError):
+                    # ValueError covers resp.json() failing on a non-JSON body.
+                    # Non-fatal: the token is already valid, we just miss the
+                    # display name — log for observability, don't lose the token.
+                    logger.warning('OneDrive: failed to fetch account info after token grant', exc_info=True)
 
                 expires_at = timezone.now() + timedelta(seconds=data.get('expires_in', 3600))
                 OneDriveToken.save_token(
@@ -195,7 +198,34 @@ class OneDriveService:
 
     @staticmethod
     def _create_share_link(access_token, item_id):
-        """Create a view-only sharing link for the uploaded file."""
+        """
+        Create a view-only sharing link for the uploaded file.
+
+        SYSPCC-011 FIX 3: previously requested `scope: 'anonymous'`, which makes
+        Microsoft Graph mint a link that anyone on the internet can open with no
+        authentication at all — every warehouse receipt/dispatch PDF (RQ number,
+        supplier, pricing) was effectively public if the URL ever leaked (chat,
+        logs, browser history). Switched to `scope: 'organization'` so the link
+        only works for someone signed into the same Microsoft tenant.
+
+        KNOWN TRADE-OFF (documented per SYSPCC-011): this integration
+        authenticates via the device-code flow against the `consumers`
+        authority (see AUTHORITY above) — i.e. it connects a *personal*
+        Microsoft account, not an Azure AD / OneDrive-for-Business tenant.
+        Microsoft Graph's `organization` share-link scope is only supported for
+        OneDrive for Business / SharePoint drives; it does not apply to
+        personal accounts. In practice this call will likely fail (non-2xx) for
+        the current architecture, and `upload_file` falls back to the item's
+        own `webUrl`, which requires signing into the connected account —
+        so document links may stop being openable by warehouse staff.
+        We accept that regression here: prioritizing "no public link" over
+        "link works without further changes" per SYSPCC-011. Follow-up
+        (needs a real ticket, out of scope here): either migrate this
+        integration to an OneDrive for Business / SharePoint app registration
+        (where `organization` scope actually works), or stop relying on
+        OneDrive's own sharing entirely and proxy downloads through a
+        Django view that enforces our own RBAC.
+        """
         try:
             resp = requests.post(
                 f'{GRAPH_URL}/me/drive/items/{item_id}/createLink',
@@ -203,13 +233,19 @@ class OneDriveService:
                     'Authorization': f'Bearer {access_token}',
                     'Content-Type': 'application/json',
                 },
-                json={'type': 'view', 'scope': 'anonymous'},
+                json={'type': 'view', 'scope': 'organization'},
                 timeout=15,
             )
             if resp.status_code in (200, 201):
                 return resp.json().get('link', {}).get('webUrl', '')
-        except Exception:
-            pass
+            logger.warning(
+                'OneDrive createLink (scope=organization) failed (%s): %s. '
+                'See SYSPCC-011 note above — expected for personal MS accounts.',
+                resp.status_code, resp.text,
+            )
+        except (requests.RequestException, ValueError) as exc:
+            # ValueError covers resp.json() failing on a non-JSON response body.
+            logger.warning('OneDrive createLink error: %s', exc)
         return None
 
     @classmethod

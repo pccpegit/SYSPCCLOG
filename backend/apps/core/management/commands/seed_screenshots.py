@@ -23,6 +23,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from apps.core.management.seed_guard import abort_if_production
+
 DEMO_PASSWORD = 'Demo2026Pcc!'
 
 # ---------------------------------------------------------------------------
@@ -145,6 +147,10 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **opts):
+        # SYSPCC-011 FIX 4: refuse to run outside development — this seeds a
+        # shared, version-controlled password for every demo account.
+        abort_if_production()
+
         from apps.core.models import User, Project, Department
         from apps.core.models.user import UserRole
         from apps.core.models.project import ProjectBudgetLine

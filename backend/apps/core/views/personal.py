@@ -13,7 +13,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.core.models import Personal
-from apps.core.serializers.personal import PersonalDetailSerializer, PersonalListSerializer
+from apps.core.permissions import IsHRManager, IsPasajesStaff
+from apps.core.serializers.personal import (
+    PersonalDetailSerializer,
+    PersonalDNILookupSerializer,
+    PersonalListSerializer,
+)
+from apps.core.utils.excel import sanitize_excel_value, truncate_for_export
 
 
 @extend_schema_view(
@@ -28,8 +34,12 @@ class PersonalViewSet(viewsets.ModelViewSet):
     """
     Full CRUD for Personal (employee) records.
 
-    All authenticated users can read and search by DNI (needed by the pasajes module).
-    Write operations (create/update/delete) require staff privileges.
+    SYSPCC-006 FIX 1: `Personal` holds sensitive RRHH data (salary, banking,
+    address, emergency contact, family). `list`/`retrieve`/`export` are
+    restricted to RRHH-privileged roles (IsHRManager). `buscar_dni` stays
+    available to the pasajes module (IsPasajesStaff) but returns only
+    non-sensitive fields via PersonalDNILookupSerializer. Write operations
+    (create/update/delete) still require staff privileges.
     """
 
     queryset = Personal.objects.select_related('proyecto', 'user').all()
@@ -43,15 +53,23 @@ class PersonalViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'list':
             return PersonalListSerializer
+        if self.action == 'buscar_dni':
+            return PersonalDNILookupSerializer
         return PersonalDetailSerializer
 
     def get_permissions(self):
         """
-        Read actions (list, retrieve, buscar_dni) are open to all authenticated users.
-        Write actions require staff access.
+        SYSPCC-006 FIX 1:
+        - `buscar_dni` (pasajes autofill): PASAJES_MANAGER / ADMIN_MANAGER / staff.
+        - `list` / `retrieve` / `export` (full or near-full RRHH data): RRHH-privileged
+          roles only (IsHRManager) — non-RRHH authenticated users get 403.
+        - Write actions (create/update/partial_update/destroy): staff only.
         """
-        read_actions = ('list', 'retrieve', 'buscar_dni', 'export')
-        if self.action not in read_actions and not self.request.user.is_staff:
+        if self.action == 'buscar_dni':
+            return [IsAuthenticated(), IsPasajesStaff()]
+        if self.action in ('list', 'retrieve', 'export'):
+            return [IsAuthenticated(), IsHRManager()]
+        if not self.request.user.is_staff:
             from rest_framework.permissions import IsAdminUser
             return [IsAuthenticated(), IsAdminUser()]
         return [IsAuthenticated()]
@@ -85,7 +103,9 @@ class PersonalViewSet(viewsets.ModelViewSet):
                 {'detail': f'No se encontro personal con DNI {dni}.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        serializer = PersonalDetailSerializer(persona, context={'request': request})
+        # SYSPCC-006 FIX 1: only non-sensitive fields — this endpoint is reachable
+        # by PASAJES_MANAGER, which must never see salary/banking/address data.
+        serializer = PersonalDNILookupSerializer(persona, context={'request': request})
         return Response(serializer.data)
 
     @extend_schema(
@@ -108,6 +128,9 @@ class PersonalViewSet(viewsets.ModelViewSet):
             )
 
         queryset = self.filter_queryset(self.get_queryset())
+        # SYSPCC-013 FIX 2: cap the export at MAX_EXPORT_ROWS — truncate with
+        # a visible warning row rather than building an unbounded workbook.
+        queryset, was_truncated = truncate_for_export(queryset)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -124,32 +147,43 @@ class PersonalViewSet(viewsets.ModelViewSet):
         header_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
         header_font = Font(color='FFFFFF', bold=True)
 
+        header_row_idx = 1
+        if was_truncated:
+            ws.cell(
+                row=1, column=1,
+                value=(
+                    f'ADVERTENCIA: la exportación se truncó a las primeras '
+                    f'{len(queryset)} filas. Aplique filtros adicionales para ver el resto.'
+                ),
+            )
+            header_row_idx = 2
+
         for col_idx, header in enumerate(headers, start=1):
-            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell = ws.cell(row=header_row_idx, column=col_idx, value=header)
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center')
 
         # Data rows
-        for row_idx, persona in enumerate(queryset, start=2):
+        for row_idx, persona in enumerate(queryset, start=header_row_idx + 1):
             ws.cell(row=row_idx, column=1, value=persona.pk)
-            ws.cell(row=row_idx, column=2, value=persona.dni)
-            ws.cell(row=row_idx, column=3, value=persona.apellidos_nombres)
+            ws.cell(row=row_idx, column=2, value=sanitize_excel_value(persona.dni))
+            ws.cell(row=row_idx, column=3, value=sanitize_excel_value(persona.apellidos_nombres))
             ws.cell(row=row_idx, column=4, value=persona.get_sexo_display() if persona.sexo else '')
             ws.cell(row=row_idx, column=5, value=persona.get_estado_civil_display() if persona.estado_civil else '')
             ws.cell(row=row_idx, column=6, value=persona.fecha_nacimiento)
             ws.cell(row=row_idx, column=7, value=persona.edad)
-            ws.cell(row=row_idx, column=8, value=persona.celular)
-            ws.cell(row=row_idx, column=9, value=persona.email_personal)
+            ws.cell(row=row_idx, column=8, value=sanitize_excel_value(persona.celular))
+            ws.cell(row=row_idx, column=9, value=sanitize_excel_value(persona.email_personal))
             ws.cell(row=row_idx, column=10, value=persona.get_estado_display())
             ws.cell(row=row_idx, column=11, value=persona.fecha_ingreso)
             ws.cell(row=row_idx, column=12, value=persona.fecha_cese)
             ws.cell(row=row_idx, column=13, value=persona.proyecto.name if persona.proyecto else '')
-            ws.cell(row=row_idx, column=14, value=persona.sede)
-            ws.cell(row=row_idx, column=15, value=persona.puesto)
+            ws.cell(row=row_idx, column=14, value=sanitize_excel_value(persona.sede))
+            ws.cell(row=row_idx, column=15, value=sanitize_excel_value(persona.puesto))
             ws.cell(row=row_idx, column=16, value=persona.get_guardia_display() if persona.guardia else '')
             ws.cell(row=row_idx, column=17, value=persona.get_condicion_trabajo_display() if persona.condicion_trabajo else '')
-            ws.cell(row=row_idx, column=18, value=persona.numero_fotocheck)
+            ws.cell(row=row_idx, column=18, value=sanitize_excel_value(persona.numero_fotocheck))
 
         # Auto-width columns
         for col in ws.columns:

@@ -710,7 +710,15 @@ class WorkflowEngine:
         # Security: validate acting_role is actually held by the user before any other logic.
         self._validate_acting_role()
 
-        from apps.rq.models import Approval, WorkflowStep
+        from apps.rq.models import Approval, WorkflowStep, Request
+
+        # SYSPCC-007: self.request was loaded by the caller (the view) *before* this
+        # atomic block started, so it can be stale relative to another concurrent
+        # transition on the same RQ (lost update / double approval). Re-fetch with a
+        # row lock now that we're inside the transaction — every read/decision below
+        # (is_terminal, status, current_step, etc.) is then based on the locked,
+        # up-to-date row, and any concurrent transition blocks until this one commits.
+        self.request = Request.objects.select_for_update().get(pk=self.request.pk)
 
         if self.request.is_terminal and action != ApprovalActionChoices.CANCELLED:
             raise WorkflowError(
@@ -964,6 +972,22 @@ class WorkflowEngine:
             logger.info(
                 'RQ %s item "%s" has no matching inventory product — skipping movement.',
                 self.request.rq_number, item.description,
+            )
+        else:
+            # SYSPCC-013 FIX 8: this branch only runs when there was no direct
+            # FK match — `inv` was "guessed" via icontains/iexact on free-text
+            # description. That guess can silently move stock for the wrong
+            # product, so it must be traceable even though resolution
+            # succeeded (logic itself is unchanged — logging only).
+            logger.warning(
+                'workflow_engine.inventory_resolution.fuzzy_match',
+                extra={
+                    'rq_number': self.request.rq_number,
+                    'request_item_id': item.pk,
+                    'item_description': item.description,
+                    'matched_inventory_id': inv.pk,
+                    'matched_product_code': inv.product_code,
+                },
             )
         return inv
 

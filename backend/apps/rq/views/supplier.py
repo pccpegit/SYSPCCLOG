@@ -2,24 +2,43 @@
 Supplier, Quotation, and PurchaseOrder viewsets.
 """
 
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework.exceptions import APIException
 
 from apps.rq.models import Supplier, Quotation, QuotationItem, PurchaseOrder, PurchaseOrderItem
 from apps.rq.serializers.supplier import SupplierSerializer
 from apps.rq.serializers.quotation import QuotationSerializer, QuotationItemSerializer
 from apps.rq.serializers.purchase_order import PurchaseOrderSerializer, PurchaseOrderItemSerializer
 from apps.core.permissions import IsAdminOrReadOnly, IsLogisticsStaff
+from apps.rq.permissions import get_accessible_requests_queryset
 from apps.rq.services.number_generator import PONumberGenerator
+
+logger = logging.getLogger(__name__)
 
 # Safe (read-only) HTTP methods
 SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
+
+
+class NumberingConflict(APIException):
+    """
+    SYSPCC-007: raised when a document-numbering race (RQ/PO/movement number)
+    produces an IntegrityError despite the select_for_update() lock — e.g. the
+    very first number for a given prefix/year, where there is no existing row
+    to lock. Maps to 409 so the client can retry instead of seeing a 500.
+    """
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = 'Conflicto al generar el número de documento, intente nuevamente.'
+    default_code = 'numbering_conflict'
 
 
 @extend_schema_view(
@@ -33,6 +52,14 @@ class SupplierViewSet(viewsets.ModelViewSet):
     """
     FIX-08: Write operations (create/update/delete) require admin or logistics staff.
     All authenticated users may read supplier data.
+
+    SYSPCC-011 FIX 1 (evaluated, intentionally NOT scoped): Supplier is global
+    vendor master data (RUC/business name/contact) with no FK back to Request,
+    Quotation or PurchaseOrder — it's shared catalog data used across every RQ,
+    not something a single RQ "belongs" to. Unlike Quotation/PurchaseOrder there
+    is no per-RQ ownership to filter by, so read access intentionally stays
+    company-wide for any authenticated user (any role may need to look up a
+    vendor while drafting a request or comparing quotes).
     """
 
     queryset = Supplier.objects.all()
@@ -60,13 +87,23 @@ class SupplierViewSet(viewsets.ModelViewSet):
 class QuotationViewSet(viewsets.ModelViewSet):
     """
     FIX-08 + FIX-16: Write operations and the select action require logistics staff.
+    SYSPCC-011 FIX 1: reads are scoped by the Request the quotation belongs to,
+    via the same get_accessible_requests_queryset used by RequestViewSet — a
+    plain REQUESTER can no longer browse quotations for RQs outside their own.
     """
 
-    queryset = Quotation.objects.select_related('request', 'supplier', 'selected_by').prefetch_related('items__request_item').all()
     serializer_class = QuotationSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['request', 'supplier', 'is_selected', 'currency']
     search_fields = ['quotation_number', 'supplier__business_name']
+
+    def get_queryset(self):
+        accessible_requests = get_accessible_requests_queryset(self.request.user)
+        return (
+            Quotation.objects.select_related('request', 'supplier', 'selected_by')
+            .prefetch_related('items__request_item')
+            .filter(request__in=accessible_requests)
+        )
 
     def get_permissions(self):
         if self.request.method in SAFE_METHODS:
@@ -86,15 +123,26 @@ class QuotationViewSet(viewsets.ModelViewSet):
         """Mark this quotation as selected. Clears selection on other quotations for the same RQ."""
         quotation = self.get_object()
 
-        # Clear previously selected quotations for this request
-        Quotation.objects.filter(request=quotation.request, is_selected=True).update(
-            is_selected=False, selected_by=None, selected_at=None
-        )
+        # SYSPCC-007: lock every quotation for this RQ before touching is_selected so a
+        # concurrent select() for the same RQ can't interleave with the clear-then-set
+        # below and leave more than one quotation marked selected (or none).
+        with transaction.atomic():
+            sibling_quotations = list(
+                Quotation.objects.select_for_update()
+                .filter(request_id=quotation.request_id)
+                .order_by('pk')
+            )
+            quotation = next(q for q in sibling_quotations if q.pk == quotation.pk)
 
-        quotation.is_selected = True
-        quotation.selected_by = request.user
-        quotation.selected_at = timezone.now()
-        quotation.save()
+            # Clear previously selected quotations for this request
+            Quotation.objects.filter(request_id=quotation.request_id, is_selected=True).update(
+                is_selected=False, selected_by=None, selected_at=None
+            )
+
+            quotation.is_selected = True
+            quotation.selected_by = request.user
+            quotation.selected_at = timezone.now()
+            quotation.save(update_fields=['is_selected', 'selected_by', 'selected_at'])
 
         return Response(QuotationSerializer(quotation).data)
 
@@ -108,11 +156,11 @@ class QuotationViewSet(viewsets.ModelViewSet):
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """
     FIX-08: Write operations require logistics staff.
+    SYSPCC-011 FIX 1: reads are scoped by the Request the PO belongs to, same
+    as QuotationViewSet — a plain REQUESTER can no longer browse POs for RQs
+    outside their own.
     """
 
-    queryset = PurchaseOrder.objects.select_related(
-        'request', 'quotation', 'supplier', 'generated_by'
-    ).prefetch_related('items').all()
     serializer_class = PurchaseOrderSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['request', 'supplier', 'status', 'currency']
@@ -120,14 +168,35 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'status']
     ordering = ['-created_at']
 
+    def get_queryset(self):
+        accessible_requests = get_accessible_requests_queryset(self.request.user)
+        return (
+            PurchaseOrder.objects.select_related('request', 'quotation', 'supplier', 'generated_by')
+            .prefetch_related('items')
+            .filter(request__in=accessible_requests)
+        )
+
     def get_permissions(self):
         if self.request.method in SAFE_METHODS:
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsLogisticsStaff()]
 
     def perform_create(self, serializer):
-        po_number = PONumberGenerator.generate()
-        serializer.save(
-            po_number=po_number,
-            generated_by=self.request.user,
-        )
+        # SYSPCC-007: generate the PO number and persist the row in a single
+        # transaction so a rollback (e.g. serializer.save() failing validation
+        # at the DB level) can't leave a "burned" number with no PurchaseOrder,
+        # and so IntegrityError from a rare numbering collision is caught here
+        # instead of surfacing as a 500.
+        try:
+            with transaction.atomic():
+                po_number = PONumberGenerator.generate()
+                serializer.save(
+                    po_number=po_number,
+                    generated_by=self.request.user,
+                )
+        except IntegrityError:
+            logger.warning(
+                'purchase_order.create.integrity_error',
+                extra={'user_id': getattr(self.request.user, 'id', None)},
+            )
+            raise NumberingConflict('No se pudo generar la orden de compra, intente nuevamente.')

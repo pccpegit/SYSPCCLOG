@@ -7,6 +7,16 @@ from apps.rq.models import Request
 from apps.core.enums import RQFlowChoices, RQStatusChoices, PriorityChoices, AcquisitionTypeChoices
 
 
+class ChoiceInFilter(django_filters.BaseInFilter, django_filters.ChoiceFilter):
+    """
+    Comma-separated multi-value filter that also validates each value
+    against `choices` (django_filter's plain `BaseInFilter` does not
+    validate — a malformed value silently produces an always-empty
+    queryset instead of a 400).
+    """
+    pass
+
+
 class RequestFilter(django_filters.FilterSet):
     """
     Filterset for Request list endpoint.
@@ -17,7 +27,11 @@ class RequestFilter(django_filters.FilterSet):
     rq_number = django_filters.CharFilter(field_name='rq_number', lookup_expr='exact')
     flow = django_filters.ChoiceFilter(choices=RQFlowChoices.choices)
     status = django_filters.ChoiceFilter(choices=RQStatusChoices.choices)
-    status_in = django_filters.BaseInFilter(field_name='status', lookup_expr='in')
+    # SYSPCC-013 FIX 5: validated against RQStatusChoices — an unknown value
+    # (e.g. `?status_in=NOPE`) now raises a 400 instead of silently matching
+    # nothing (django-filter's DjangoFilterBackend.raise_exception=True turns
+    # the filterset form error into a DRF ValidationError automatically).
+    status_in = ChoiceInFilter(field_name='status', lookup_expr='in', choices=RQStatusChoices.choices)
     priority = django_filters.ChoiceFilter(choices=PriorityChoices.choices)
     acquisition_type = django_filters.ChoiceFilter(choices=AcquisitionTypeChoices.choices)
     project = django_filters.NumberFilter(field_name='project__id')

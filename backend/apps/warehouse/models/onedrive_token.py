@@ -7,7 +7,21 @@ from django.utils.translation import gettext_lazy as _
 
 
 class OneDriveToken(models.Model):
-    """Stores the OneDrive OAuth2 credentials (single row)."""
+    """
+    Stores the OneDrive OAuth2 credentials (single row).
+
+    # TODO(security) SYSPCC-011: access_token/refresh_token are stored in
+    # plaintext TextField columns. Anyone with DB read access (a leaked backup,
+    # a compromised read replica, an over-privileged internal tool) gets a
+    # live credential for the connected Microsoft account, not just a hash.
+    # Mitigation deferred: encrypting these at rest (e.g. cryptography.fernet
+    # with a key from settings/env, encrypt in save_token()/decrypt in
+    # get_token()) needs the `cryptography` package, which is not currently
+    # in requirements.txt / installed in the runtime image — adding a new
+    # dependency and a migration for this was judged out of scope for this
+    # ticket. Until then: restrict DB/backup access tightly, and treat this
+    # table as equivalent in sensitivity to a plaintext credential store.
+    """
 
     access_token = models.TextField(_('access token'))
     refresh_token = models.TextField(_('refresh token'))

@@ -34,6 +34,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.core.management.commands.seed_demo import DEMO_PASSWORD
+from apps.core.management.seed_guard import abort_if_production
 
 # ---------------------------------------------------------------------------
 # Extra users (8) — reuses the DEMO_PASSWORD shared by every demo account.
@@ -301,6 +302,10 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        # SYSPCC-011 FIX 4: refuse to run outside development — this seeds a
+        # shared, version-controlled password for every demo account.
+        abort_if_production()
+
         from apps.core.models import (
             User, UserRole, Project, ProjectBudgetLine, Department,
         )

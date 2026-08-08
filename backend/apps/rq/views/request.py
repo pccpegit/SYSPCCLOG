@@ -2,6 +2,8 @@
 Request (RQ) viewset - the central API resource.
 """
 
+import logging
+
 from django.db.models import Case, When, Value, CharField
 
 from rest_framework import viewsets, status
@@ -17,6 +19,7 @@ from apps.rq.serializers.request import (
     RequestListSerializer,
     RequestDetailSerializer,
     RequestCreateSerializer,
+    UpdateItemsSerializer,
 )
 from apps.rq.serializers.approval import ApprovalSerializer, WorkflowActionSerializer
 from apps.rq.serializers.activity_log import ActivityLogSerializer
@@ -24,7 +27,11 @@ from apps.rq.serializers.attachment import AttachmentSerializer
 from apps.rq.serializers.notification import NotificationSerializer
 from apps.rq.services.workflow_engine import WorkflowEngine
 from apps.core.exceptions import WorkflowError, PermissionDeniedForAction
+from apps.core.permissions import IsLogisticsStaff
 from apps.rq.filters import RequestFilter
+from apps.rq.permissions import get_accessible_requests_queryset, CanPerformWorkflowAction
+
+logger = logging.getLogger(__name__)
 
 
 @extend_schema_view(
@@ -49,39 +56,24 @@ class RequestViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Request.objects.select_related(
+        # SYSPCC-011 FIX 1: scoping now lives in a single place —
+        # apps.rq.permissions.get_accessible_requests_queryset — so it can't
+        # drift from the scoping used by Quotation/PurchaseOrder/Claim
+        # visibility. See that function's docstring for the exact rules.
+        return get_accessible_requests_queryset(self.request.user).select_related(
             'project', 'department', 'requested_by', 'current_step',
             'budget_line', 'annual_plan_line',
         ).prefetch_related('items')
 
-        # Superusers and staff see all
-        if user.is_staff or user.is_superuser:
-            return qs
-
-        # Regular users see requests they created or that are in their scope
-        roles = list(user.user_roles.values_list('role', flat=True))
-        from apps.core.enums import RoleChoices
-
-        # Requester: own requests only
-        # Approvers: requests in their project/department scope
-        # Logistics/GM: all requests
-        wide_access_roles = [
-            RoleChoices.GENERAL_MANAGER,
-            RoleChoices.LOGISTICS_COORDINATOR,
-            RoleChoices.LOGISTICS_SUPERVISOR,
-            RoleChoices.LOGISTICS_CHIEF,
-            RoleChoices.CENTRAL_WAREHOUSE,
-        ]
-        if any(r in wide_access_roles for r in roles):
-            return qs
-
-        from django.db.models import Q
-        return qs.filter(
-            Q(requested_by=user)
-            | Q(project__in=user.user_roles.values('project'))
-            | Q(department__in=user.user_roles.values('department_obj'))
-        )
+    def get_permissions(self):
+        # SYSPCC-011 FIX 2: only logistics roles may rewrite item supply_source.
+        if self.action == 'update_items':
+            return [IsAuthenticated(), IsLogisticsStaff()]
+        # SYSPCC-011 FIX 5: defense-in-depth HTTP-layer rejection in addition to
+        # WorkflowEngine's own acting_role validation (see execute_action below).
+        if self.action == 'execute_action':
+            return [IsAuthenticated(), CanPerformWorkflowAction()]
+        return [permission() for permission in self.permission_classes]
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -133,6 +125,12 @@ class RequestViewSet(viewsets.ModelViewSet):
             acting_role=data['acting_role'],
         )
 
+        action_ctx = {
+            'rq_id': rq_instance.pk,
+            'user_id': request.user.id,
+            'action': data['action'],
+        }
+
         try:
             approval = engine.execute(
                 action=data['action'],
@@ -140,9 +138,18 @@ class RequestViewSet(viewsets.ModelViewSet):
                 extra_data=data.get('extra_data', {}),
             )
         except WorkflowError as e:
+            # Expected: invalid transition for the current state — warning only.
+            logger.warning('rq.action.invalid', extra=action_ctx | {'reason': str(e.message)})
             return Response({'detail': str(e.message)}, status=status.HTTP_400_BAD_REQUEST)
         except PermissionDeniedForAction as e:
+            logger.warning('rq.action.forbidden', extra=action_ctx | {'reason': str(e.message)})
             return Response({'detail': str(e.message)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception:
+            # Last barrier: unexpected failure inside WorkflowEngine.execute —
+            # log full stack with context for production traceability, then
+            # re-raise so DRF's exception handler returns a 500 as usual.
+            logger.exception('rq.action.unexpected', extra=action_ctx)
+            raise
 
         return Response(ApprovalSerializer(approval).data, status=status.HTTP_200_OK)
 
@@ -193,22 +200,35 @@ class RequestViewSet(viewsets.ModelViewSet):
         serializer = AttachmentSerializer(attachments, many=True)
         return Response(serializer.data)
 
-    @extend_schema(tags=['requests'], summary='Update supply source for request items')
+    @extend_schema(
+        tags=['requests'],
+        summary='Update supply source for request items',
+        request=UpdateItemsSerializer,
+    )
     @action(detail=True, methods=['patch'], url_path='update-items')
     def update_items(self, request, pk=None):
-        """Update supply_source for each item (set by logistics during stock check)."""
+        """
+        Update supply_source for each item (set by logistics during stock check).
+        SYSPCC-011 FIX 2: restricted to logistics roles (see get_permissions) and
+        payload is validated by UpdateItemsSerializer — item_id must be an
+        integer and supply_source must be a valid choice, so a malformed
+        payload returns 400 instead of failing inside the Case/When update.
+        """
         rq_instance = self.get_object()
-        items_data = request.data.get('items', [])
-        VALID_SOURCES = {'STOCK', 'PURCHASE'}
+        serializer = UpdateItemsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        items_data = serializer.validated_data['items']
+
         cases = []
         item_ids = []
         for item_update in items_data:
-            item_id = item_update.get('item_id')
-            supply_source = item_update.get('supply_source')
-            if item_id and supply_source in VALID_SOURCES:
-                cases.append(When(id=item_id, then=Value(supply_source)))
-                item_ids.append(item_id)
+            item_id = item_update['item_id']
+            supply_source = item_update['supply_source']
+            cases.append(When(id=item_id, then=Value(supply_source)))
+            item_ids.append(item_id)
         if cases:
+            # Scoped to rq_instance.items so an item_id belonging to a
+            # different Request can never be touched from this endpoint.
             rq_instance.items.filter(id__in=item_ids).update(
                 supply_source=Case(*cases, output_field=CharField())
             )

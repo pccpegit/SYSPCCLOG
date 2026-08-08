@@ -2,6 +2,8 @@
 User and UserRole viewsets.
 """
 
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -19,6 +21,13 @@ from apps.core.serializers.user import (
     ChangePasswordSerializer,
 )
 from apps.core.permissions import IsAdminOrReadOnly
+
+logger = logging.getLogger(__name__)
+
+# Signature photos are small handwritten images — 5 MB is generous headroom
+# over any real camera/phone capture and keeps us from decoding an enormous
+# file into memory via Pillow before we've even validated it's an image.
+MAX_SIGNATURE_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
 
 @extend_schema_view(
@@ -107,12 +116,29 @@ class UserViewSet(viewsets.ModelViewSet):
 
         # ── POST ──
         from django.core.files.base import ContentFile
+        from PIL import UnidentifiedImageError
         from apps.core.services.signature import process_signature_image, process_base64_signature
 
         # Option 1: File upload (photo from camera/gallery)
         if 'file' in request.FILES:
+            uploaded = request.FILES['file']
+
+            # Reject oversized files BEFORE handing them to Pillow — Image.open()
+            # + the per-pixel processing in process_signature_image() would
+            # otherwise decode the whole file into memory first.
+            if uploaded.size > MAX_SIGNATURE_FILE_SIZE_BYTES:
+                return Response(
+                    {
+                        'detail': (
+                            'El archivo supera el tamaño máximo permitido de '
+                            f'{MAX_SIGNATURE_FILE_SIZE_BYTES // (1024 * 1024)} MB.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             try:
-                processed = process_signature_image(request.FILES['file'])
+                processed = process_signature_image(uploaded)
                 user.signature.save(
                     f'signature_{user.username}.png',
                     ContentFile(processed.read()),
@@ -122,15 +148,42 @@ class UserViewSet(viewsets.ModelViewSet):
                     'detail': 'Firma guardada correctamente.',
                     'signature': user.signature.url,
                 })
-            except Exception as exc:
+            except (UnidentifiedImageError, ValueError):
+                # Expected: not a real/decodable image — user error, not ours.
+                logger.warning(
+                    'signature.upload.invalid_image',
+                    extra={'user_id': user.id},
+                )
                 return Response(
-                    {'detail': f'Error al procesar la imagen: {str(exc)}'},
+                    {'detail': 'El archivo enviado no es una imagen válida.'},
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception:
+                logger.exception(
+                    'signature.upload.unexpected',
+                    extra={'user_id': user.id},
+                )
+                return Response(
+                    {'detail': 'No se pudo procesar la imagen. Intente nuevamente.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
         # Option 2: Base64 from canvas drawing
         signature_data = request.data.get('signature_data')
         if signature_data:
+            # Rough size guard on the base64 payload before decoding — base64
+            # inflates size ~33%, so this stays conservative vs. the raw limit.
+            if len(signature_data) > MAX_SIGNATURE_FILE_SIZE_BYTES * 2:
+                return Response(
+                    {
+                        'detail': (
+                            'Los datos de la firma superan el tamaño máximo permitido de '
+                            f'{MAX_SIGNATURE_FILE_SIZE_BYTES // (1024 * 1024)} MB.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             try:
                 processed = process_base64_signature(signature_data)
                 user.signature.save(
@@ -142,10 +195,25 @@ class UserViewSet(viewsets.ModelViewSet):
                     'detail': 'Firma guardada correctamente.',
                     'signature': user.signature.url,
                 })
-            except Exception as exc:
+            except (UnidentifiedImageError, ValueError):
+                # ValueError also covers base64.b64decode() rejecting malformed
+                # input (binascii.Error is a ValueError subclass).
+                logger.warning(
+                    'signature.upload.invalid_base64',
+                    extra={'user_id': user.id},
+                )
                 return Response(
-                    {'detail': f'Error al procesar la firma: {str(exc)}'},
+                    {'detail': 'Los datos de la firma no son válidos.'},
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception:
+                logger.exception(
+                    'signature.upload.unexpected',
+                    extra={'user_id': user.id},
+                )
+                return Response(
+                    {'detail': 'No se pudo procesar la firma. Intente nuevamente.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
         return Response(

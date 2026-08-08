@@ -29,6 +29,18 @@ class Notification(models.Model):
     message = models.TextField(_('mensaje'))
     is_read = models.BooleanField(_('leída'), default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    dedup_key = models.CharField(
+        _('clave de deduplicación'),
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text=_(
+            'Clave determinística usada por tareas programadas (SLA, recordatorios) '
+            'para evitar notificaciones duplicadas si la tarea se reintenta o corre '
+            'más de una vez con el mismo estado. Nula para notificaciones creadas '
+            'por transiciones de workflow, que no requieren deduplicación.'
+        ),
+    )
 
     class Meta:
         db_table = 'notifications'
@@ -37,6 +49,13 @@ class Notification(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['user', 'is_read']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['dedup_key'],
+                condition=models.Q(dedup_key__isnull=False),
+                name='notification_dedup_key_unique_when_set',
+            ),
         ]
 
     def __str__(self) -> str:

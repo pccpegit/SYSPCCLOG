@@ -122,6 +122,25 @@ class Pasaje(models.Model):
     ]
 
     # ------------------------------------------------------------------
+    # Legacy import tracking
+    # ------------------------------------------------------------------
+
+    # Natural key from the legacy SQL Server export (`CodigoId` column).
+    # Nullable because rows created directly in the app (not via CSV import)
+    # have no legacy id; NULLs don't collide under a UNIQUE constraint in
+    # either PostgreSQL or SQLite. Used by `import_pasajes_csv` to make
+    # re-running the same CSV idempotent (update_or_create) instead of
+    # duplicating every row.
+    codigo_id_legado = models.CharField(
+        'Código ID (legado)',
+        max_length=50,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text='ID del registro en el sistema legado (SQL Server). Clave natural para reimportar el CSV histórico sin duplicar.',
+    )
+
+    # ------------------------------------------------------------------
     # Travel info
     # ------------------------------------------------------------------
 

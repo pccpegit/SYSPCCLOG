@@ -3,7 +3,10 @@ Request (RQ) and RequestItem models.
 The core entity of the SYSPCCLOG system.
 """
 
+from decimal import Decimal
+
 from django.db import models
+from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator
 
@@ -204,12 +207,16 @@ class Request(TimeStampedModel):
         return self.status in terminal
 
     @property
-    def total_items_cost(self) -> float:
-        """Sum of all items total_price."""
-        return sum(
-            float(item.total_price or 0)
-            for item in self.items.all()
-        )
+    def total_items_cost(self) -> Decimal:
+        """
+        Sum of all items' total_price.
+
+        SYSPCC-013 FIX 4: aggregate in the DB and keep the result a Decimal —
+        the previous `sum(float(item.total_price or 0) for item in ...)`
+        converted money to float (binary-rounding error, e.g. 0.1 + 0.2 !=
+        0.3) and pulled every item into Python just to add them up.
+        """
+        return self.items.aggregate(total=Sum('total_price'))['total'] or Decimal('0')
 
 
 class RequestItem(models.Model):

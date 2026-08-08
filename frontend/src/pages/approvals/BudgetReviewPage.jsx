@@ -9,17 +9,18 @@ import {
   Building2,
   User,
   Calendar,
-  TrendingUp,
   CheckCircle,
   PlusCircle,
 } from 'lucide-react';
-import { ROLES } from '../../data/constants';
+import { ROLES, STATUS } from '../../data/constants';
 import { useAuth } from '../../context/AuthContext';
-import { getRequests, getRequest, performAction } from '../../api/requests';
+import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import { getProject } from '../../api/core';
+// Quotation review is now in QuoteCostReviewPage
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import ApprovalChain from '../../components/requests/ApprovalChain';
 import { useToast } from '../../context/ToastContext';
 
 function formatCurrency(val) {
@@ -62,15 +63,15 @@ export default function BudgetReviewPage() {
 
   const [req,       setReq]       = useState(null);
   const [project,   setProject]   = useState(null);
+  const [approvals, setApprovals] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
   const [submitting,setSubmitting]= useState(false);
   const [error,     setError]     = useState(null);
 
-  const [estimatedCost,   setEstimatedCost]   = useState('');
-  const [classification,  setClassification]  = useState('within'); // 'within' | 'additional'
-  const [notes,           setNotes]           = useState('');
-  const [confirmModal,    setConfirmModal]    = useState(null);
+  const [classification,    setClassification]    = useState('within'); // 'within' | 'additional'
+  const [notes,             setNotes]             = useState('');
+  const [confirmModal,      setConfirmModal]      = useState(null);
 
   function requestConfirm({ title, message, confirmText, confirmColor, icon, onConfirm }) {
     setConfirmModal({ title, message, confirmText, confirmColor, icon, onConfirm });
@@ -99,17 +100,20 @@ export default function BudgetReviewPage() {
         }
 
         setReq(requestData);
-        setEstimatedCost(String(requestData.estimated_cost ?? requestData.estimatedCost ?? ''));
 
-        // Fetch project budget info
+        // Fetch project budget info and approvals in parallel
         const projectId = requestData.project ?? requestData.projectId;
-        if (projectId) {
-          try {
-            const { data: proj } = await getProject(projectId);
-            setProject(proj);
-          } catch (_) {
-            // Budget info unavailable — not fatal
-          }
+        const [projRes, approvalsRes] = await Promise.allSettled([
+          projectId ? getProject(projectId) : Promise.reject('no project'),
+          getApprovals(requestData.id),
+        ]);
+        if (projRes.status === 'fulfilled') setProject(projRes.value.data);
+        if (approvalsRes.status === 'fulfilled') setApprovals(approvalsRes.value.data.results ?? approvalsRes.value.data ?? []);
+
+        // If this RQ is QUOTE_SELECTED, redirect to the dedicated page
+        if (requestData.status === STATUS.QUOTE_SELECTED) {
+          navigate(`/rq/approvals/quote-cost-review/${id}`, { replace: true });
+          return;
         }
       } catch (err) {
         console.error('Error fetching request:', err);
@@ -121,26 +125,29 @@ export default function BudgetReviewPage() {
     fetchData();
   }, [id]);
 
-  // Detect if this is a quote cost review (QUOTE_SELECTED) or initial budget classification
-  const isQuoteCostReview = req?.status === 'QUOTE_SELECTED';
+  const isAdm = req?.flow === 'ADMINISTRATIVE';
 
   async function handleDecision(approved) {
     setSubmitting(true);
     setError(null);
     try {
-      let action, actingRole, successMsg;
+      let action, extraData, successMsg;
 
-      if (isQuoteCostReview) {
-        // Quote cost review — Control verifies if quoted price is within budget
-        action = approved ? 'QUOTE_COST_APPROVED' : 'QUOTE_COST_REJECTED';
-        actingRole = primaryRole;
+      if (isAdm) {
+        // Administrative flow: ADMIN_BUDGET_REVIEWED or ADMIN_BUDGET_REJECTED
+        action = approved ? 'ADMIN_BUDGET_REVIEWED' : 'ADMIN_BUDGET_REJECTED';
+        const classLabel = classification === 'within' ? 'Dentro del Plan Anual' : 'Fuera del Plan Anual';
         successMsg = approved
-          ? 'Cotización aprobada. Logística procederá a generar la Orden de Compra.'
-          : 'Cotización excede presupuesto. Se enviará al Gerente General para revisión.';
+          ? `Revisión presupuestal: ${classLabel}. ${
+              classification === 'additional'
+                ? 'Se enviará al Gerente General para su autorización.'
+                : 'Avanza a Logística.'
+            }`
+          : 'Rechazado por Gerente Administrativo.';
+        extraData = { within_plan: classification === 'within' };
       } else {
-        // Initial budget classification
+        // Operations flow: BUDGET_CLASSIFIED or BUDGET_REJECTED
         action = approved ? 'BUDGET_CLASSIFIED' : 'BUDGET_REJECTED';
-        actingRole = primaryRole;
         const classLabel = classification === 'within' ? 'Dentro de Propuesta' : 'Requerimiento Adicional';
         successMsg = approved
           ? `Clasificación presupuestal: ${classLabel}. ${
@@ -149,15 +156,12 @@ export default function BudgetReviewPage() {
                 : 'Avanza a Logística.'
             }`
           : 'Rechazado presupuestalmente.';
+        extraData = { classification: classification === 'within' ? 'BC_WITHIN_PROPOSAL' : 'BC_ADDITIONAL' };
       }
-
-      const extraData = isQuoteCostReview
-        ? {}
-        : { classification: classification === 'within' ? 'BC_WITHIN_PROPOSAL' : 'BC_ADDITIONAL' };
 
       await performAction(req.id, {
         action,
-        acting_role: actingRole,
+        acting_role: primaryRole,
         comments: notes.trim() || successMsg,
         extra_data: extraData,
       });
@@ -193,14 +197,7 @@ export default function BudgetReviewPage() {
   const itemsTotal  = items.reduce((s, i) => s + (i.estimated_cost ?? i.estimatedCost ?? 0), 0);
   const reqCost     = req.estimated_cost ?? req.estimatedCost ?? 0;
 
-  // Budget numbers
-  const totalBudget  = project?.total_budget  ?? project?.totalBudget  ?? 0;
-  const spentBudget  = project?.spent_budget  ?? project?.spentBudget  ?? 0;
-  const available    = totalBudget - spentBudget;
-  const usedPct      = totalBudget > 0 ? Math.min(Math.round((spentBudget / totalBudget) * 100), 100) : 0;
-  const costNum      = parseFloat(estimatedCost) || 0;
-  const projectedPct = totalBudget > 0 ? Math.min(Math.round(((spentBudget + costNum) / totalBudget) * 100), 100) : 0;
-  const barColor     = usedPct >= 90 ? 'bg-red-500' : usedPct >= 70 ? 'bg-amber-500' : 'bg-green-500';
+
 
   const projectCode = req.project_code ?? req.projectCode ?? project?.code ?? '';
 
@@ -229,7 +226,7 @@ export default function BudgetReviewPage() {
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900 flex items-center gap-2">
             <DollarSign size={26} className="text-purple-500" />
-            Revisión Presupuestal
+            {isAdm ? 'Revisión vs Plan Anual' : 'Revisión Presupuestal'}
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             <span className="font-mono font-semibold text-blue-700">{rqNumber}</span>
@@ -249,7 +246,7 @@ export default function BudgetReviewPage() {
           {/* Info card */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-4">Información del Requerimiento</h2>
-            <InfoRow icon={Building2} label="Proyecto"        value={`${req.project_code ?? req.projectCode ?? ''} — ${req.project_name ?? req.projectName ?? ''}`} />
+            <InfoRow icon={Building2} label="Proyecto"        value={(req.project_code ?? req.projectCode) ? `${req.project_code ?? req.projectCode} — ${req.project_name ?? req.projectName}` : req.flow === 'ADMINISTRATIVE' ? 'Oficina Central' : '—'} />
             <InfoRow icon={User}      label="Solicitante"     value={req.requested_by_name ?? req.requestedByName} />
             <InfoRow icon={Calendar}  label="Fecha Requerida" value={formatDate(req.required_date ?? req.requiredDate)} />
             {req.justification && (
@@ -310,86 +307,18 @@ export default function BudgetReviewPage() {
               </table>
             </div>
           </div>
+
         </div>
 
         {/* RIGHT: Budget panel + actions */}
         <div className="lg:col-span-2 space-y-5">
-          {/* Budget summary + cost input — only for quote cost review (step 12) */}
-          {isQuoteCostReview && totalBudget > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <TrendingUp size={16} className="text-purple-500" />
-                Resumen Presupuestal — {projectCode}
-              </h2>
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-400 mb-1">Presupuesto</p>
-                  <p className="text-sm font-bold text-gray-800">{formatCurrency(totalBudget)}</p>
-                </div>
-                <div className="text-center p-3 bg-amber-50 rounded-lg border border-amber-100">
-                  <p className="text-xs text-amber-600 mb-1">Ejecutado</p>
-                  <p className="text-sm font-bold text-amber-700">{formatCurrency(spentBudget)}</p>
-                </div>
-                <div className={`text-center p-3 rounded-lg ${available > 0 ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
-                  <p className={`text-xs mb-1 ${available > 0 ? 'text-green-600' : 'text-red-600'}`}>Disponible</p>
-                  <p className={`text-sm font-bold ${available > 0 ? 'text-green-700' : 'text-red-700'}`}>
-                    {formatCurrency(available)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mb-1 flex justify-between text-xs text-gray-500">
-                <span>Ejecución actual: {usedPct}%</span>
-                {costNum > 0 && (
-                  <span className="text-purple-600 font-medium">Con este RQ: {projectedPct}%</span>
-                )}
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-3 relative overflow-hidden">
-                <div className={`${barColor} h-3 rounded-full transition-all duration-300`} style={{ width: `${usedPct}%` }} />
-                {costNum > 0 && (
-                  <div
-                    className="absolute top-0 h-3 bg-purple-400 opacity-50 rounded-r-full"
-                    style={{ left: `${usedPct}%`, width: `${Math.min(projectedPct - usedPct, 100 - usedPct)}%` }}
-                  />
-                )}
-              </div>
-              {costNum > available && (
-                <p className="mt-2 text-xs text-red-600 font-medium">
-                  Este requerimiento supera el presupuesto disponible por {formatCurrency(costNum - available)}.
-                </p>
-              )}
-            </div>
-          )}
-
-          {isQuoteCostReview && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                Monto de la Cotización Seleccionada (S/)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-semibold">S/</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={estimatedCost}
-                  onChange={(e) => setEstimatedCost(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 hover:border-gray-400 transition-colors text-right font-medium"
-                  placeholder="0.00"
-                />
-              </div>
-              <p className="mt-1 text-xs text-gray-400">
-                Costo estimado original del RQ: {formatCurrency(reqCost)}
-              </p>
-            </div>
-          )}
 
           {/* Classification */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <h2 className="text-sm font-semibold text-gray-800 mb-3">
-              {isQuoteCostReview
-                ? '¿La cotización está dentro del presupuesto?'
+              {isAdm
+                ? '¿Este requerimiento está contemplado en el Plan Anual?'
                 : '¿Este requerimiento estaba contemplado en la propuesta del proyecto?'}
             </h2>
             <div className="space-y-3">
@@ -405,10 +334,14 @@ export default function BudgetReviewPage() {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <CheckCircle size={15} className="text-green-600" />
-                    <span className="text-sm font-semibold text-green-800">Sí, está en la propuesta</span>
+                    <span className="text-sm font-semibold text-green-800">
+                      {isAdm ? 'Sí, está en el Plan Anual' : 'Sí, está en la propuesta'}
+                    </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Los materiales/servicios solicitados estaban contemplados en la propuesta original del proyecto.
+                    {isAdm
+                      ? 'El gasto estaba contemplado en el Plan Anual del departamento.'
+                      : 'Los materiales/servicios solicitados estaban contemplados en la propuesta original del proyecto.'}
                   </p>
                 </div>
               </label>
@@ -425,10 +358,14 @@ export default function BudgetReviewPage() {
                 <div>
                   <div className="flex items-center gap-1.5">
                     <PlusCircle size={15} className="text-orange-600" />
-                    <span className="text-sm font-semibold text-orange-800">No, es un requerimiento adicional</span>
+                    <span className="text-sm font-semibold text-orange-800">
+                      {isAdm ? 'No, está fuera del Plan Anual' : 'No, es un requerimiento adicional'}
+                    </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Este requerimiento NO estaba contemplado en la propuesta original. Se enviará al Residente de Proyecto para que evalúe si es necesario.
+                    {isAdm
+                      ? 'Este gasto NO estaba contemplado en el Plan Anual. Se enviará al Gerente General para su autorización.'
+                      : 'Este requerimiento NO estaba contemplado en la propuesta original. Se enviará al Residente de Proyecto para que evalúe si es necesario.'}
                   </p>
                 </div>
               </label>
@@ -438,7 +375,7 @@ export default function BudgetReviewPage() {
           {/* Notes */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <label className="block text-sm font-semibold text-gray-800 mb-2">
-              Notas de Control de Proyecto
+              {isAdm ? 'Notas del Gerente Administrativo' : 'Notas de Control de Proyecto'}
             </label>
             <textarea
               value={notes}
@@ -451,70 +388,22 @@ export default function BudgetReviewPage() {
 
           {/* Action buttons */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-3">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">
-              {isQuoteCostReview ? 'Verificación de Costos' : 'Clasificación del Requerimiento'}
-            </h2>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Clasificación del Requerimiento</h2>
 
-            {isQuoteCostReview ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => requestConfirm({
-                    title:        'Confirmar Aprobación de Cotización',
-                    message:      '¿Está seguro de aprobar esta cotización como dentro del presupuesto? Logística procederá a generar la Orden de Compra.',
-                    confirmText:  'Sí, Aprobar',
-                    confirmColor: 'bg-green-600 hover:bg-green-700',
-                    icon:         CheckCircle2,
-                    onConfirm:    () => handleDecision(true),
-                  })}
-                  disabled={submitting || classification !== 'within'}
-                  className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 text-white text-base font-bold rounded-xl transition-all duration-200 shadow-md ${
-                    classification === 'within'
-                      ? 'bg-green-600 hover:bg-green-700 hover:shadow-lg'
-                      : 'bg-gray-300 cursor-not-allowed'
-                  } disabled:opacity-50`}
-                >
-                  <CheckCircle2 size={20} />
-                  {submitting ? 'Guardando...' : 'Dentro de Presupuesto — Generar Orden de Compra'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => requestConfirm({
-                    title:        'Confirmar Exceso de Presupuesto',
-                    message:      '¿Está seguro de que esta cotización excede el presupuesto aprobado? Se enviará al Gerente General para su revisión.',
-                    confirmText:  'Sí, Enviar a Gerencia',
-                    confirmColor: 'bg-amber-500 hover:bg-amber-600',
-                    icon:         AlertCircle,
-                    onConfirm:    () => handleDecision(false),
-                  })}
-                  disabled={submitting || classification !== 'additional'}
-                  className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 text-white text-base font-bold rounded-xl transition-all duration-200 shadow-md ${
-                    classification === 'additional'
-                      ? 'bg-amber-500 hover:bg-amber-600 hover:shadow-lg'
-                      : 'bg-gray-300 cursor-not-allowed'
-                  } disabled:opacity-50`}
-                >
-                  <AlertCircle size={20} />
-                  {submitting ? 'Guardando...' : 'Excede Presupuesto — Enviar a Gerencia'}
-                </button>
-
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-700 font-medium">
-                    Seleccione arriba la clasificación presupuestal para habilitar la acción correspondiente.
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
                 <button
                   type="button"
                   onClick={() => requestConfirm({
                     title:        'Confirmar Clasificación',
                     message:      classification === 'within'
-                      ? '¿Confirma que este requerimiento ESTABA contemplado en la propuesta del proyecto? Avanzará a Logística para su gestión.'
-                      : '¿Confirma que este requerimiento NO estaba en la propuesta original? Se enviará al Residente de Proyecto para que evalúe si es necesario.',
-                    confirmText:  classification === 'within' ? 'Sí, está en la propuesta' : 'Sí, clasificar como adicional',
+                      ? isAdm
+                        ? '¿Confirma que este requerimiento está dentro del Plan Anual? Avanzará a Logística.'
+                        : '¿Confirma que este requerimiento ESTABA contemplado en la propuesta del proyecto? Avanzará a Logística para su gestión.'
+                      : isAdm
+                        ? '¿Confirma que este requerimiento está FUERA del Plan Anual? Se enviará al Gerente General para su autorización.'
+                        : '¿Confirma que este requerimiento NO estaba en la propuesta original? Se enviará al Residente de Proyecto para que evalúe si es necesario.',
+                    confirmText:  classification === 'within'
+                      ? isAdm ? 'Sí, dentro del Plan Anual' : 'Sí, está en la propuesta'
+                      : isAdm ? 'Sí, fuera del Plan Anual' : 'Sí, clasificar como adicional',
                     confirmColor: classification === 'within' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600',
                     icon:         CheckCircle2,
                     onConfirm:    () => handleDecision(true),
@@ -530,24 +419,33 @@ export default function BudgetReviewPage() {
                 >
                   <CheckCircle2 size={22} />
                   <span className="text-base font-bold leading-tight text-center">
-                    {submitting ? 'Guardando...' : !classification ? 'Seleccione una opción arriba' : classification === 'within' ? 'Confirmar — Está en la Propuesta' : 'Clasificar como Adicional'}
+                    {submitting ? 'Guardando...' : !classification ? 'Seleccione una opción arriba' : classification === 'within'
+                      ? isAdm ? 'Confirmar — Dentro del Plan Anual' : 'Confirmar — Está en la Propuesta'
+                      : isAdm ? 'Clasificar — Fuera del Plan Anual' : 'Clasificar como Adicional'}
                   </span>
                   {!submitting && classification === 'additional' && (
-                    <span className="text-xs font-medium opacity-90">Enviar a Residente de Proyecto</span>
+                    <span className="text-xs font-medium opacity-90">
+                      {isAdm ? 'Enviar a Gerente General' : 'Enviar a Residente de Proyecto'}
+                    </span>
                   )}
                 </button>
-              </>
-            )}
-
-            {!isQuoteCostReview && classification === 'additional' && (
+            {classification === 'additional' && (
               <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
                 <p className="text-xs text-orange-700 font-medium">
-                  Al clasificar como adicional, el requerimiento volverá al Residente de Proyecto para reevaluar si es necesario o no. Si el Residente lo aprueba, pasará al Gerente General para una revisión minuciosa.
+                  {isAdm
+                    ? 'Al clasificar como fuera del Plan Anual, el requerimiento se enviará directamente al Gerente General para su autorización.'
+                    : 'Al clasificar como adicional, el requerimiento volverá al Residente de Proyecto para reevaluar si es necesario o no. Si el Residente lo aprueba, pasará al Gerente General para una revisión minuciosa.'}
                 </p>
               </div>
             )}
           </div>
         </div>
+      </div>
+
+      {/* Historial section - full width */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 className="text-base font-semibold text-gray-800 mb-4">Historial del Requerimiento</h2>
+        <ApprovalChain approvals={approvals} />
       </div>
     </div>
 

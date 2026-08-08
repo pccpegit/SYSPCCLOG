@@ -9,18 +9,21 @@ import {
   Clock,
   AlertCircle,
   ChevronRight,
+  CheckCircle2,
+  XCircle,
   DollarSign,
   FileText,
   Printer,
 } from 'lucide-react';
-import { STATUS_CONFIG, ROLES } from '../../data/constants';
+import { STATUS_CONFIG, ROLES, STATUS } from '../../data/constants';
 import { useAuth } from '../../context/AuthContext';
-import { getRequests, getRequest, getApprovals, getActivity } from '../../api/requests';
+import { useToast } from '../../context/ToastContext';
+import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import LifecycleBar from '../../components/requests/LifecycleBar';
 import ApprovalChain from '../../components/requests/ApprovalChain';
-import ActivityLog from '../../components/requests/ActivityLog';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,7 +105,7 @@ function NextAction({ status }) {
     CANCELLED:            'Requerimiento cancelado.',
   };
   return (
-    <p className="text-sm text-gray-600 leading-relaxed">
+    <p className="text-sm text-gray-500 leading-relaxed">
       {messages[status] ?? 'Estado en procesamiento.'}
     </p>
   );
@@ -447,12 +450,16 @@ export default function RequestDetailPage() {
   const { id }          = useParams();
   const navigate        = useNavigate();
   const { primaryRole } = useAuth();
+  const { showToast }  = useToast();
 
   const [req,       setReq]       = useState(null);
   const [approvals, setApprovals] = useState([]);
-  const [activity,  setActivity]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [showClaimForm, setShowClaimForm] = useState(false);
+  const [claimText, setClaimText] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -519,18 +526,9 @@ export default function RequestDetailPage() {
         };
         setReq(normalized);
 
-        // Fetch approvals and activity in parallel
-        const [approvalsRes, activityRes] = await Promise.allSettled([
-          getApprovals(requestData.id),
-          getActivity(requestData.id),
-        ]);
-
-        if (approvalsRes.status === 'fulfilled') {
-          setApprovals(approvalsRes.value.data.results ?? approvalsRes.value.data ?? []);
-        }
-        if (activityRes.status === 'fulfilled') {
-          setActivity(activityRes.value.data.results ?? activityRes.value.data ?? []);
-        }
+        // Fetch approvals
+        const approvalsRes = await getApprovals(requestData.id);
+        setApprovals(approvalsRes.data.results ?? approvalsRes.data ?? []);
       } catch (err) {
         console.error('Error fetching request detail:', err);
         if (err?.response?.status === 404) {
@@ -546,7 +544,7 @@ export default function RequestDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600" />
       </div>
     );
   }
@@ -555,13 +553,13 @@ export default function RequestDetailPage() {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-96 text-center">
         <AlertCircle size={48} className="text-red-300 mb-4" />
-        <h2 className="text-xl font-bold text-gray-800">Requerimiento no encontrado</h2>
+        <h2 className="text-xl font-extrabold text-gray-800 font-display">Requerimiento no encontrado</h2>
         <p className="text-gray-500 mt-2 text-sm">
           El ID "{id}" no corresponde a ningún requerimiento.
         </p>
         <button
           onClick={() => navigate('/rq/requests')}
-          className="mt-5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+          className="mt-5 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 font-display"
         >
           Volver a la lista
         </button>
@@ -617,6 +615,7 @@ export default function RequestDetailPage() {
   }
 
   return (
+    <>
     <div className="max-w-7xl mx-auto space-y-5">
 
       {/* ── Top bar: back + print ── */}
@@ -639,7 +638,7 @@ export default function RequestDetailPage() {
       </div>
 
       {/* ── Status / Progress header card ── */}
-      <div className="bg-white rounded-xl border-2 border-gray-200 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6">
         <div className="flex flex-col lg:flex-row lg:items-start gap-4">
           {/* Left: RQ number + badges + title */}
           <div className="flex-1 min-w-0">
@@ -649,13 +648,15 @@ export default function RequestDetailPage() {
               </span>
               <PriorityBadge priority={req.priority} />
             </div>
-            <h1 className="text-2xl font-extrabold text-gray-900 mt-2 leading-tight">
+            <h1 className="text-2xl font-extrabold text-gray-900 mt-2 leading-tight font-display">
               {req.description}
             </h1>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-gray-500">
               <span className="flex items-center gap-1.5">
                 <Building2 size={14} className="text-gray-400" />
-                {req.projectCode} — {req.projectName}
+                {req.projectCode
+                  ? `${req.projectCode} — ${req.projectName}`
+                  : req.flow === 'ADMINISTRATIVE' ? 'Oficina Central' : '—'}
               </span>
               <span className="flex items-center gap-1.5">
                 <User size={14} className="text-gray-400" />
@@ -679,12 +680,196 @@ export default function RequestDetailPage() {
 
         {/* Lifecycle bar */}
         <div className="mt-6 pt-5 border-t border-gray-100">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-4 font-display">
             Progreso del Requerimiento
           </p>
           <LifecycleBar currentStatus={req.status} />
         </div>
       </div>
+
+      {/* ── Conformity Panel (Step 17-18) — shown to REQUESTER when DELIVERED ── */}
+      {role === ROLES.REQUESTER && req.status === STATUS.DELIVERED && !showClaimForm && (
+        <div className="bg-white rounded-xl border-2 border-teal-300 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 bg-teal-50 border-b border-teal-200 flex items-center gap-3">
+            <Package size={20} className="text-teal-600" />
+            <div>
+              <h2 className="text-base font-bold text-teal-800">Recepción y Conformidad del RQ</h2>
+              <p className="text-xs text-teal-600 mt-0.5">Los materiales han sido entregados. ¿Está todo conforme?</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Verifique que los materiales recibidos coincidan con lo solicitado en cantidad,
+              calidad y especificaciones. Si todo está correcto, confirme la conformidad.
+              Si hay algún problema, registre un reclamo.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmModal({
+                  title:        'Confirmar Conformidad',
+                  message:      '¿Confirma que los materiales recibidos son conformes con lo solicitado? Esta acción cerrará el proceso de entrega.',
+                  confirmText:  'Sí, Todo Conforme',
+                  confirmColor: 'bg-green-600 hover:bg-green-700',
+                  icon:         CheckCircle2,
+                  onConfirm:    async () => {
+                    setSubmitting(true);
+                    try {
+                      await performAction(req.id, {
+                        action: 'USER_CONFIRMED',
+                        acting_role: ROLES.REQUESTER,
+                        comments: 'Conformidad confirmada por el solicitante. Materiales recibidos correctamente.',
+                      });
+                      showToast({ type: 'success', message: 'Conformidad registrada. El requerimiento será cerrado por Logística.' });
+                      setTimeout(() => window.location.reload(), 500);
+                    } catch (err) {
+                      const detail = err?.response?.data?.detail ?? 'Error al procesar.';
+                      showToast({ type: 'error', message: typeof detail === 'string' ? detail : JSON.stringify(detail) });
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  },
+                })}
+                disabled={submitting}
+                className="flex flex-col items-center gap-2 px-4 py-5 bg-green-600 text-white rounded-xl hover:bg-green-700 hover:shadow-lg transition-all shadow-md disabled:opacity-50"
+              >
+                <CheckCircle2 size={28} />
+                <span className="text-base font-bold">Sí, Todo Conforme</span>
+                <span className="text-xs opacity-80">Materiales recibidos correctamente</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowClaimForm(true)}
+                disabled={submitting}
+                className="flex flex-col items-center gap-2 px-4 py-5 bg-red-600 text-white rounded-xl hover:bg-red-700 hover:shadow-lg transition-all shadow-md disabled:opacity-50"
+              >
+                <XCircle size={28} />
+                <span className="text-base font-bold">No Conforme</span>
+                <span className="text-xs opacity-80">Registrar reclamo y solicitar cambio</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Claim Form (Step 18.1) — shown when requester clicks "No Conforme" ── */}
+      {role === ROLES.REQUESTER && req.status === STATUS.DELIVERED && showClaimForm && (
+        <div className="bg-white rounded-xl border-2 border-red-300 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 bg-red-50 border-b border-red-200 flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-600" />
+            <div>
+              <h2 className="text-base font-bold text-red-800">Registrar Reclamo — Solicitar Cambio</h2>
+              <p className="text-xs text-red-600 mt-0.5">
+                Describa las inconformidades. Se enviará a Logística para gestionar el cambio con el proveedor.
+              </p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Motivo del Reclamo</label>
+              <select
+                value={claimText.split('\n')[0]?.startsWith('Motivo:') ? claimText.split('\n')[0].replace('Motivo: ', '') : ''}
+                onChange={(e) => {
+                  const lines = claimText.split('\n').filter(l => !l.startsWith('Motivo:'));
+                  setClaimText(e.target.value ? `Motivo: ${e.target.value}\n${lines.join('\n')}`.trim() : lines.join('\n').trim());
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                <option value="">— Seleccione —</option>
+                <option value="Cantidad incorrecta">Cantidad incorrecta</option>
+                <option value="Material dañado">Material dañado</option>
+                <option value="Especificaciones no coinciden">Especificaciones no coinciden</option>
+                <option value="Material equivocado">Material equivocado</option>
+                <option value="Calidad deficiente">Calidad deficiente</option>
+                <option value="Entrega incompleta">Entrega incompleta</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Descripción Detallada</label>
+              <textarea
+                value={claimText}
+                onChange={(e) => setClaimText(e.target.value)}
+                rows={5}
+                placeholder="Describa en detalle qué materiales presentan problemas, qué cantidad falta, qué daños tienen, qué espera recibir como cambio..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowClaimForm(false); setClaimText(''); }}
+                className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmModal({
+                  title:        'Confirmar Reclamo',
+                  message:      '¿Está seguro de generar un reclamo? Se enviará a Logística para gestionar la revisión y el cambio con el proveedor.',
+                  confirmText:  'Sí, Enviar Reclamo',
+                  confirmColor: 'bg-red-600 hover:bg-red-700',
+                  icon:         XCircle,
+                  onConfirm:    async () => {
+                    setSubmitting(true);
+                    try {
+                      await performAction(req.id, {
+                        action: 'USER_CLAIMED',
+                        acting_role: ROLES.REQUESTER,
+                        comments: claimText.trim(),
+                      });
+                      showToast({ type: 'info', message: 'Reclamo registrado. Logística gestionará el cambio con el proveedor.' });
+                      setTimeout(() => window.location.reload(), 500);
+                    } catch (err) {
+                      const detail = err?.response?.data?.detail ?? 'Error al procesar.';
+                      showToast({ type: 'error', message: typeof detail === 'string' ? detail : JSON.stringify(detail) });
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  },
+                })}
+                disabled={submitting || !claimText.trim()}
+                className="flex-1 px-4 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 hover:shadow-lg transition-all disabled:opacity-50 shadow-md"
+              >
+                Enviar Reclamo y Solicitar Cambio
+              </button>
+            </div>
+            {!claimText.trim() && (
+              <p className="text-xs text-red-500 text-center">Debe describir el motivo del reclamo.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Claim in review notice ── */}
+      {role === ROLES.REQUESTER && req.status === STATUS.USER_CLAIM && (
+        <div className="bg-amber-50 rounded-xl border-2 border-amber-300 p-6 flex items-start gap-3">
+          <AlertCircle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-base font-bold text-amber-800">Reclamo en Proceso</h2>
+            <p className="text-sm text-amber-700 mt-1 leading-relaxed">
+              Su reclamo fue registrado y enviado a Logística. El equipo gestionará la revisión y
+              el cambio con el proveedor. Será notificado cuando se resuelva.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Conformity confirmed notice ── */}
+      {role === ROLES.REQUESTER && req.status === STATUS.USER_CONFORMITY && (
+        <div className="bg-green-50 rounded-xl border-2 border-green-300 p-6 flex items-start gap-3">
+          <CheckCircle2 size={20} className="text-green-600 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-base font-bold text-green-800">Conformidad Confirmada</h2>
+            <p className="text-sm text-green-700 mt-1 leading-relaxed">
+              Ha confirmado la recepción conforme del requerimiento. Logística procederá al cierre.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── PCC-ADM-FOR-01 Document ── */}
       <div className="bg-white border border-gray-300 shadow-sm rounded-xl overflow-hidden">
@@ -722,9 +907,9 @@ export default function RequestDetailPage() {
 
           {/* Justification */}
           {req.justification && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <h2 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                <FileText size={16} className="text-gray-400" />
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6">
+              <h2 className="text-sm font-extrabold text-gray-800 mb-3 flex items-center gap-2 font-display">
+                <FileText size={15} className="text-gray-400" />
                 Justificación
               </h2>
               <p className="text-sm text-gray-700 leading-relaxed">{req.justification}</p>
@@ -732,9 +917,9 @@ export default function RequestDetailPage() {
           )}
 
           {/* Budget info */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <DollarSign size={16} className="text-gray-400" />
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6">
+            <h2 className="text-sm font-extrabold text-gray-800 mb-4 flex items-center gap-2 font-display">
+              <DollarSign size={15} className="text-gray-400" />
               Información Presupuestal
             </h2>
             <dl className="space-y-3">
@@ -755,10 +940,10 @@ export default function RequestDetailPage() {
                   <dt className="text-gray-500">Clasificación presupuestal</dt>
                   <dd className="font-medium text-gray-700">{
                     ({
-                      WITHIN_PROPOSAL: 'Dentro de Propuesta',
-                      ADDITIONAL: 'Adicional',
-                      WITHIN_ANNUAL_PLAN: 'Dentro del Plan Anual',
-                      OUT_OF_ANNUAL_PLAN: 'Fuera del Plan Anual',
+                      BC_WITHIN_PROPOSAL: 'Dentro de la Propuesta',
+                      BC_ADDITIONAL: 'Requerimiento Adicional',
+                      BC_WITHIN_ANNUAL_PLAN: 'Dentro del Plan Anual',
+                      BC_OUT_OF_ANNUAL_PLAN: 'Fuera del Plan Anual',
                     })[req.budgetClassification] ?? req.budgetClassification
                   }</dd>
                 </div>
@@ -785,9 +970,9 @@ export default function RequestDetailPage() {
         <div className="space-y-5">
 
           {/* Current status card */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <Package size={16} className="text-gray-400" />
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6">
+            <h2 className="text-sm font-extrabold text-gray-800 mb-4 flex items-center gap-2 font-display">
+              <Package size={15} className="text-gray-400" />
               Estado Actual
             </h2>
             <div className="flex items-center gap-3 mb-4">
@@ -805,30 +990,38 @@ export default function RequestDetailPage() {
               </div>
             </div>
             <div className="border-t border-gray-100 pt-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 font-display">
                 Proxima Accion
               </p>
               <NextAction status={req.status} />
             </div>
           </div>
 
-          {/* Approval chain */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">
-              Cadena de Aprobaciones
-            </h2>
-            <ApprovalChain approvals={approvals} />
-          </div>
 
-          {/* Activity log */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">
-              Historial de Actividad
-            </h2>
-            <ActivityLog approvals={activity.length > 0 ? activity : approvals} />
-          </div>
         </div>
       </div>
+
+      {/* Historial section - full width */}
+      <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6">
+        <h2 className="text-sm font-extrabold text-gray-800 mb-4 font-display">
+          Historial del Requerimiento
+        </h2>
+        <ApprovalChain approvals={approvals} />
+      </div>
     </div>
+
+    {confirmModal && (
+      <ConfirmModal
+        isOpen
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        confirmColor={confirmModal.confirmColor}
+        icon={confirmModal.icon}
+        onConfirm={() => { setConfirmModal(null); confirmModal.onConfirm(); }}
+        onCancel={() => setConfirmModal(null)}
+      />
+    )}
+    </>
   );
 }

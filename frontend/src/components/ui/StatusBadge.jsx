@@ -1,9 +1,5 @@
 import { STATUS_CONFIG } from '../../data/constants';
 
-/**
- * Colored badge displaying a request status.
- * @param {{ status: string }} props
- */
 export default function StatusBadge({ status }) {
   const config = STATUS_CONFIG[status] ?? {
     label: status,
@@ -14,9 +10,9 @@ export default function StatusBadge({ status }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-semibold ${config.bg} ${config.text}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ${config.bg} ${config.text}`}
     >
-      <span className={`w-2 h-2 rounded-full shrink-0 ${config.dot}`} />
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.dot}`} />
       {config.label}
     </span>
   );

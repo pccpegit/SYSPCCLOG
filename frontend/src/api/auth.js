@@ -40,3 +40,24 @@ export const changePassword = (oldPassword, newPassword, newPasswordConfirm) =>
     new_password: newPassword,
     new_password_confirm: newPasswordConfirm,
   });
+
+/**
+ * POST /users/me/signature/
+ * Upload signature image (file upload or base64 canvas drawing).
+ */
+export const uploadSignatureFile = (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return client.post('/users/me/signature/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
+export const uploadSignatureDrawing = (base64Data) =>
+  client.post('/users/me/signature/', { signature_data: base64Data });
+
+/**
+ * DELETE /users/me/signature/
+ */
+export const deleteSignature = () =>
+  client.delete('/users/me/signature/');

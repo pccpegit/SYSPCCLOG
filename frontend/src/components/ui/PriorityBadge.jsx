@@ -1,9 +1,5 @@
 import { PRIORITY_CONFIG } from '../../data/constants';
 
-/**
- * Colored badge displaying a request priority.
- * @param {{ priority: string }} props
- */
 export default function PriorityBadge({ priority }) {
   const config = PRIORITY_CONFIG[priority] ?? {
     label: priority,
@@ -16,9 +12,9 @@ export default function PriorityBadge({ priority }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-semibold ${config.bg} ${config.text}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ${config.bg} ${config.text}`}
     >
-      <span className={`w-2 h-2 rounded-full shrink-0 ${config.dot} ${isUrgent ? 'pulse-attention' : ''}`} />
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.dot} ${isUrgent ? 'pulse-attention' : ''}`} />
       {config.label}
     </span>
   );

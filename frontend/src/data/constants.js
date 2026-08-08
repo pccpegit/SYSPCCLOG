@@ -21,6 +21,7 @@ export const ROLES = {
   ADMIN_MANAGER:          'ADMIN_MANAGER',
   LOGISTICS_SUPERVISOR:   'LOGISTICS_SUPERVISOR',
   LOGISTICS_CHIEF:        'LOGISTICS_CHIEF',
+  PASAJES_MANAGER:        'PASAJES_MANAGER',
 };
 
 // ------------------------------------------------------------
@@ -39,6 +40,7 @@ export const ROLE_LABELS = {
   [ROLES.ADMIN_MANAGER]:          'Gte. Administrativo',
   [ROLES.LOGISTICS_SUPERVISOR]:   'Supervisor Logístico',
   [ROLES.LOGISTICS_CHIEF]:        'Jefe Logístico',
+  [ROLES.PASAJES_MANAGER]:        'Gestor de Pasajes',
 };
 
 // ------------------------------------------------------------
@@ -68,6 +70,7 @@ export const STATUS = {
   REQUIRES_PURCHASE:    'REQUIRES_PURCHASE',
   QUOTING:              'QUOTING',
   QUOTE_SELECTED:       'QUOTE_SELECTED',
+  QUOTE_COST_APPROVED:  'QUOTE_COST_APPROVED',
   COST_OVERRUN_REVIEW:  'COST_OVERRUN_REVIEW',
   PO_GENERATED:         'PO_GENERATED',
 
@@ -220,6 +223,12 @@ export const STATUS_CONFIG = {
     label: 'Cotización Seleccionada',
     color: 'bg-teal-100 text-teal-700',
     bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500',
+    phase: 3,
+  },
+  [STATUS.QUOTE_COST_APPROVED]: {
+    label: 'Costo Aprobado — Pendiente OC',
+    color: 'bg-emerald-100 text-emerald-700',
+    bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500',
     phase: 3,
   },
   [STATUS.COST_OVERRUN_REVIEW]: {

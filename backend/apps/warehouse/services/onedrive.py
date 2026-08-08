@@ -1,25 +1,44 @@
 """
 OneDrive integration via Microsoft Graph API.
-Uses the device code flow for personal Microsoft accounts.
-No Azure AD app registration required — uses Microsoft's public client ID.
+Uses the device code flow for personal Microsoft accounts by default.
+
+SYSPCC-016 FOLLOW-UP 3: CLIENT_ID and the auth tenant/authority used to be
+hardcoded here (and duplicated again in apps/warehouse/views.py::poll()).
+Both now come from settings (ONEDRIVE_CLIENT_ID, ONEDRIVE_TENANT), so the
+company can point this at its own Azure AD app / tenant without a code
+change. See config/settings/base.py for the full decision matrix and
+defaults (unchanged behavior: public client ID + 'consumers' tenant, i.e.
+personal Microsoft accounts, unless overridden).
 """
 import logging
 import time
 from datetime import timedelta
 
 import requests
+from django.conf import settings
 from django.utils import timezone
 
 from apps.warehouse.models import OneDriveToken
 
 logger = logging.getLogger(__name__)
 
-# Microsoft's "Microsoft Office" public client ID — works with personal accounts,
-# no app registration required.
-CLIENT_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e'
 SCOPES = 'Files.ReadWrite offline_access'
-AUTHORITY = 'https://login.microsoftonline.com/consumers'
 GRAPH_URL = 'https://graph.microsoft.com/v1.0'
+
+
+def _client_id():
+    """OAuth2 client_id — apps.warehouse.services.onedrive reads this from
+    settings.ONEDRIVE_CLIENT_ID (not a module constant) so it stays correct
+    under `override_settings` in tests and can be changed via env without a
+    deploy."""
+    return settings.ONEDRIVE_CLIENT_ID
+
+
+def _authority():
+    """Microsoft identity platform authority, built from
+    settings.ONEDRIVE_TENANT ('consumers' / 'organizations' / a real tenant
+    id). See config/settings/base.py for the decision matrix."""
+    return f'https://login.microsoftonline.com/{settings.ONEDRIVE_TENANT}'
 
 
 class OneDriveService:
@@ -34,9 +53,9 @@ class OneDriveService:
         Returns dict with 'user_code', 'verification_uri', 'device_code', 'interval'.
         """
         resp = requests.post(
-            f'{AUTHORITY}/oauth2/v2.0/devicecode',
+            f'{_authority()}/oauth2/v2.0/devicecode',
             data={
-                'client_id': CLIENT_ID,
+                'client_id': _client_id(),
                 'scope': SCOPES,
             },
             timeout=15,
@@ -54,9 +73,9 @@ class OneDriveService:
         while time.time() < deadline:
             time.sleep(interval)
             resp = requests.post(
-                f'{AUTHORITY}/oauth2/v2.0/token',
+                f'{_authority()}/oauth2/v2.0/token',
                 data={
-                    'client_id': CLIENT_ID,
+                    'client_id': _client_id(),
                     'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
                     'device_code': device_code,
                 },
@@ -106,9 +125,9 @@ class OneDriveService:
             return None
 
         resp = requests.post(
-            f'{AUTHORITY}/oauth2/v2.0/token',
+            f'{_authority()}/oauth2/v2.0/token',
             data={
-                'client_id': CLIENT_ID,
+                'client_id': _client_id(),
                 'grant_type': 'refresh_token',
                 'refresh_token': token.refresh_token,
                 'scope': SCOPES,
@@ -201,30 +220,33 @@ class OneDriveService:
         """
         Create a view-only sharing link for the uploaded file.
 
-        SYSPCC-011 FIX 3: previously requested `scope: 'anonymous'`, which makes
-        Microsoft Graph mint a link that anyone on the internet can open with no
-        authentication at all — every warehouse receipt/dispatch PDF (RQ number,
-        supplier, pricing) was effectively public if the URL ever leaked (chat,
-        logs, browser history). Switched to `scope: 'organization'` so the link
-        only works for someone signed into the same Microsoft tenant.
+        SYSPCC-011 FIX 3: previously hardcoded `scope: 'anonymous'`, which
+        makes Microsoft Graph mint a link that anyone on the internet can
+        open with no authentication at all — every warehouse receipt/dispatch
+        PDF (RQ number, supplier, pricing) was effectively public if the URL
+        ever leaked (chat, logs, browser history).
 
-        KNOWN TRADE-OFF (documented per SYSPCC-011): this integration
-        authenticates via the device-code flow against the `consumers`
-        authority (see AUTHORITY above) — i.e. it connects a *personal*
-        Microsoft account, not an Azure AD / OneDrive-for-Business tenant.
-        Microsoft Graph's `organization` share-link scope is only supported for
-        OneDrive for Business / SharePoint drives; it does not apply to
-        personal accounts. In practice this call will likely fail (non-2xx) for
-        the current architecture, and `upload_file` falls back to the item's
-        own `webUrl`, which requires signing into the connected account —
-        so document links may stop being openable by warehouse staff.
-        We accept that regression here: prioritizing "no public link" over
-        "link works without further changes" per SYSPCC-011. Follow-up
-        (needs a real ticket, out of scope here): either migrate this
-        integration to an OneDrive for Business / SharePoint app registration
-        (where `organization` scope actually works), or stop relying on
-        OneDrive's own sharing entirely and proxy downloads through a
-        Django view that enforces our own RBAC.
+        SYSPCC-016 FOLLOW-UP 3: the scope was then hardcoded the other way
+        (`'organization'`), but that is only supported for OneDrive for
+        Business / SharePoint drives — it does NOT work for a personal
+        (`consumers`) Microsoft account, which is what this integration
+        authenticates as by default (see _authority()). Hardcoding either
+        value is wrong for one of the two account types, so the scope is now
+        read from settings.ONEDRIVE_SHARE_SCOPE ('organization' by default —
+        see config/settings/base.py for the full decision matrix):
+
+          - personal account (ONEDRIVE_TENANT='consumers', the default)
+            -> normally set ONEDRIVE_SHARE_SCOPE='anonymous'.
+          - corporate account (ONEDRIVE_TENANT='organizations' or a real
+            tenant id, once PCC registers its own Azure AD app)
+            -> ONEDRIVE_SHARE_SCOPE='organization' (default) is correct.
+
+        NOT validated against PCC's real tenant here — no Microsoft 365
+        admin credentials are available in this environment. If the
+        configured scope is unsupported for the connected account type, this
+        call fails (non-2xx) and `upload_file` falls back to the item's own
+        `webUrl` (requires signing into the connected account); it never
+        silently retries with a different, more permissive scope.
         """
         try:
             resp = requests.post(
@@ -233,15 +255,16 @@ class OneDriveService:
                     'Authorization': f'Bearer {access_token}',
                     'Content-Type': 'application/json',
                 },
-                json={'type': 'view', 'scope': 'organization'},
+                json={'type': 'view', 'scope': settings.ONEDRIVE_SHARE_SCOPE},
                 timeout=15,
             )
             if resp.status_code in (200, 201):
                 return resp.json().get('link', {}).get('webUrl', '')
             logger.warning(
-                'OneDrive createLink (scope=organization) failed (%s): %s. '
-                'See SYSPCC-011 note above — expected for personal MS accounts.',
-                resp.status_code, resp.text,
+                'OneDrive createLink (scope=%s) failed (%s): %s. See '
+                'SYSPCC-016 FOLLOW-UP 3 note above — expected if the '
+                'configured scope does not match the connected account type.',
+                settings.ONEDRIVE_SHARE_SCOPE, resp.status_code, resp.text,
             )
         except (requests.RequestException, ValueError) as exc:
             # ValueError covers resp.json() failing on a non-JSON response body.

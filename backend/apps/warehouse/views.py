@@ -6,6 +6,7 @@ Only users with CENTRAL_WAREHOUSE or SITE_WAREHOUSE roles may access these endpo
 """
 import logging
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Q, Sum, DecimalField, Value, F
 from django.db.models.functions import Coalesce
@@ -873,11 +874,15 @@ class OneDriveViewSet(viewsets.ViewSet):
 
         try:
             # Single poll attempt (don't block the request)
+            # SYSPCC-016 FOLLOW-UP 3: client_id/authority used to be hardcoded
+            # here, duplicating the literals in services/onedrive.py — now
+            # both read from the same settings (ONEDRIVE_CLIENT_ID,
+            # ONEDRIVE_TENANT), so there's a single place to reconfigure.
             import requests as http_requests
             resp = http_requests.post(
-                'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+                f'https://login.microsoftonline.com/{settings.ONEDRIVE_TENANT}/oauth2/v2.0/token',
                 data={
-                    'client_id': '14d82eec-204b-4c2f-b7e8-296a70dab67e',
+                    'client_id': settings.ONEDRIVE_CLIENT_ID,
                     'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
                     'device_code': device_code,
                 },

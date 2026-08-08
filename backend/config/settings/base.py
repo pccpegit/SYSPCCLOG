@@ -433,6 +433,16 @@ CSRF_COOKIE_NAME = 'csrftoken'  # Django default, pinned explicitly per the fron
 CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'  # Django default -> `X-CSRFToken` header, pinned explicitly
 # CSRF_COOKIE_SECURE stays at the Django default (False) here; production.py
 # turns it on since the site is only ever served over HTTPS there.
+#
+# When the SPA is served from a different origin than the API (e.g. Vite dev
+# server on :5173 vs Django on :8000), Django's origin check rejects every
+# state-changing request unless that origin is trusted. Empty by default;
+# development.py sets the local dev origins, production sets its own via env.
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
 
 
 # ============================================================

@@ -64,6 +64,47 @@ class IsWarehouseStaff(BasePermission):
         return request.user.user_roles.filter(role__in=self.WAREHOUSE_ROLES).exists()
 
 
+class IsHRManager(BasePermission):
+    """
+    SYSPCC-006 FIX 1: roles allowed to read/export full RRHH personnel records
+    (salary, banking, address, emergency contact, family). `is_staff` always
+    passes; otherwise the user must hold one of the RRHH-privileged roles.
+    """
+
+    HR_ROLES = [
+        RoleChoices.ADMIN_MANAGER,
+        RoleChoices.PASAJES_MANAGER,
+        RoleChoices.GENERAL_MANAGER,
+    ]
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.user.is_staff:
+            return True
+        return request.user.user_roles.filter(role__in=self.HR_ROLES).exists()
+
+
+class IsPasajesStaff(BasePermission):
+    """
+    SYSPCC-006 FIX 1: roles allowed to look up personnel by DNI for the
+    pasajes module's autofill (non-sensitive fields only — see
+    PersonalDNILookupSerializer). `is_staff` always passes.
+    """
+
+    PASAJES_ROLES = [
+        RoleChoices.PASAJES_MANAGER,
+        RoleChoices.ADMIN_MANAGER,
+    ]
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.user.is_staff:
+            return True
+        return request.user.user_roles.filter(role__in=self.PASAJES_ROLES).exists()
+
+
 class IsAdminOrReadOnly(BasePermission):
     """Allow full access to Django admins, read-only to others."""
 

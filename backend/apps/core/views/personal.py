@@ -13,7 +13,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.core.models import Personal
-from apps.core.serializers.personal import PersonalDetailSerializer, PersonalListSerializer
+from apps.core.permissions import IsHRManager, IsPasajesStaff
+from apps.core.serializers.personal import (
+    PersonalDetailSerializer,
+    PersonalDNILookupSerializer,
+    PersonalListSerializer,
+)
 
 
 @extend_schema_view(
@@ -28,8 +33,12 @@ class PersonalViewSet(viewsets.ModelViewSet):
     """
     Full CRUD for Personal (employee) records.
 
-    All authenticated users can read and search by DNI (needed by the pasajes module).
-    Write operations (create/update/delete) require staff privileges.
+    SYSPCC-006 FIX 1: `Personal` holds sensitive RRHH data (salary, banking,
+    address, emergency contact, family). `list`/`retrieve`/`export` are
+    restricted to RRHH-privileged roles (IsHRManager). `buscar_dni` stays
+    available to the pasajes module (IsPasajesStaff) but returns only
+    non-sensitive fields via PersonalDNILookupSerializer. Write operations
+    (create/update/delete) still require staff privileges.
     """
 
     queryset = Personal.objects.select_related('proyecto', 'user').all()
@@ -43,15 +52,23 @@ class PersonalViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'list':
             return PersonalListSerializer
+        if self.action == 'buscar_dni':
+            return PersonalDNILookupSerializer
         return PersonalDetailSerializer
 
     def get_permissions(self):
         """
-        Read actions (list, retrieve, buscar_dni) are open to all authenticated users.
-        Write actions require staff access.
+        SYSPCC-006 FIX 1:
+        - `buscar_dni` (pasajes autofill): PASAJES_MANAGER / ADMIN_MANAGER / staff.
+        - `list` / `retrieve` / `export` (full or near-full RRHH data): RRHH-privileged
+          roles only (IsHRManager) — non-RRHH authenticated users get 403.
+        - Write actions (create/update/partial_update/destroy): staff only.
         """
-        read_actions = ('list', 'retrieve', 'buscar_dni', 'export')
-        if self.action not in read_actions and not self.request.user.is_staff:
+        if self.action == 'buscar_dni':
+            return [IsAuthenticated(), IsPasajesStaff()]
+        if self.action in ('list', 'retrieve', 'export'):
+            return [IsAuthenticated(), IsHRManager()]
+        if not self.request.user.is_staff:
             from rest_framework.permissions import IsAdminUser
             return [IsAuthenticated(), IsAdminUser()]
         return [IsAuthenticated()]
@@ -85,7 +102,9 @@ class PersonalViewSet(viewsets.ModelViewSet):
                 {'detail': f'No se encontro personal con DNI {dni}.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        serializer = PersonalDetailSerializer(persona, context={'request': request})
+        # SYSPCC-006 FIX 1: only non-sensitive fields — this endpoint is reachable
+        # by PASAJES_MANAGER, which must never see salary/banking/address data.
+        serializer = PersonalDNILookupSerializer(persona, context={'request': request})
         return Response(serializer.data)
 
     @extend_schema(

@@ -59,6 +59,17 @@ def department(db):
 
 
 @pytest.fixture
+def other_project(db):
+    """A second project, distinct from `project` — used to model access outside a user's scope."""
+    return Project.objects.create(
+        code='PRY-OTHER',
+        name='Otro Proyecto',
+        client='Otro Cliente',
+        location='Arequipa',
+    )
+
+
+@pytest.fixture
 def requester(db, project):
     """User with REQUESTER role."""
     u = User.objects.create_user(
@@ -111,6 +122,84 @@ def general_manager(db):
     UserRole.objects.create(
         user=u,
         role=RoleChoices.GENERAL_MANAGER,
+        is_primary=True,
+    )
+    return u
+
+
+@pytest.fixture
+def admin_manager(db):
+    """User with ADMIN_MANAGER role (RRHH-privileged for personnel data)."""
+    u = User.objects.create_user(
+        username='admin_manager',
+        email='admin_manager@test.com',
+        password='TestPass2026!',
+        first_name='Admin',
+        last_name='Manager',
+    )
+    UserRole.objects.create(
+        user=u,
+        role=RoleChoices.ADMIN_MANAGER,
+        is_primary=True,
+    )
+    return u
+
+
+@pytest.fixture
+def pasajes_manager(db):
+    """User with PASAJES_MANAGER role (dedicated pasajes module access)."""
+    u = User.objects.create_user(
+        username='pasajes_manager',
+        email='pasajes_manager@test.com',
+        password='TestPass2026!',
+        first_name='Pasajes',
+        last_name='Manager',
+    )
+    UserRole.objects.create(
+        user=u,
+        role=RoleChoices.PASAJES_MANAGER,
+        is_primary=True,
+    )
+    return u
+
+
+@pytest.fixture
+def logistics_coordinator(db, project):
+    """User with LOGISTICS_COORDINATOR role (wide visibility over OPS requests)."""
+    u = User.objects.create_user(
+        username='logistics_coordinator',
+        email='logistics_coordinator@test.com',
+        password='TestPass2026!',
+        first_name='Logistics',
+        last_name='Coordinator',
+    )
+    UserRole.objects.create(
+        user=u,
+        role=RoleChoices.LOGISTICS_COORDINATOR,
+        project=project,
+        is_primary=True,
+    )
+    return u
+
+
+@pytest.fixture
+def other_requester(db, other_project):
+    """
+    A second REQUESTER, assigned to `other_project` (not `project`) — used to model
+    requests/attachments/claims that are genuinely outside `requester`'s scope
+    (own requests nor same-project visibility).
+    """
+    u = User.objects.create_user(
+        username='other_requester',
+        email='other_requester@test.com',
+        password='TestPass2026!',
+        first_name='Other',
+        last_name='Requester',
+    )
+    UserRole.objects.create(
+        user=u,
+        role=RoleChoices.REQUESTER,
+        project=other_project,
         is_primary=True,
     )
     return u

@@ -7,9 +7,9 @@ from apps.core.enums import RoleChoices
 
 
 # Roles with visibility over every Request regardless of project/department scope.
-# Mirrors RequestViewSet.get_queryset's wide_access_roles — kept here so other
-# apps/rq resources (e.g. Claim creation) can validate access to a single Request
-# without duplicating the role list ad-hoc.
+# Kept here so other apps/rq resources (e.g. Claim creation, Quotation/PO
+# scoping) can validate access to a single Request without duplicating the
+# role list ad-hoc.
 WIDE_REQUEST_ACCESS_ROLES = [
     RoleChoices.GENERAL_MANAGER,
     RoleChoices.LOGISTICS_COORDINATOR,
@@ -18,12 +18,41 @@ WIDE_REQUEST_ACCESS_ROLES = [
     RoleChoices.CENTRAL_WAREHOUSE,
 ]
 
+# SYSPCC-011 FIX 1: roles that legitimately need to see every Request within
+# their assigned project — because they act on the OPS approval/workflow for
+# that project (PROJECT_RESIDENT, PROJECT_CONTROL) or dispatch/receive site
+# deliveries for it (SITE_WAREHOUSE). A UserRole tied to a project with any
+# *other* role (most commonly REQUESTER) must NOT grant project-wide visibility
+# — that was the SYSPCC-011 bug: a REQUESTER assigned to a project could see
+# every RQ in that project, not just their own.
+PROJECT_SCOPE_ROLES = [
+    RoleChoices.PROJECT_RESIDENT,
+    RoleChoices.PROJECT_CONTROL,
+    RoleChoices.SITE_WAREHOUSE,
+]
+
+# Same idea for the ADMINISTRATIVE flow: only these roles get department-wide
+# visibility via a department-scoped UserRole.
+DEPARTMENT_SCOPE_ROLES = [
+    RoleChoices.DIRECT_SUPERVISOR,
+    RoleChoices.ADMIN_MANAGER,
+]
+
 
 def get_accessible_requests_queryset(user):
     """
-    SYSPCC-006 FIX 3: queryset of `Request` objects the given user may see/act on.
-    Mirrors the scoping in RequestViewSet.get_queryset (own requests, or requests
-    in the user's assigned project/department, or all for staff/wide-access roles).
+    SYSPCC-006 FIX 3 / SYSPCC-011 FIX 1: queryset of `Request` objects the
+    given user may see/act on.
+
+    - Staff/superuser and WIDE_REQUEST_ACCESS_ROLES: every Request.
+    - PROJECT_SCOPE_ROLES / DEPARTMENT_SCOPE_ROLES: every Request in the
+      project/department their UserRole is scoped to.
+    - Everyone else (in particular a plain REQUESTER): only requests they
+      created themselves.
+
+    This is the single source of truth for Request visibility — RequestViewSet
+    and the Quotation/PurchaseOrder viewsets all filter through this function
+    (directly or via `request__in=`) so the scoping can't drift between them.
     """
     from django.db.models import Q
     from apps.rq.models import Request
@@ -38,8 +67,8 @@ def get_accessible_requests_queryset(user):
 
     return qs.filter(
         Q(requested_by=user)
-        | Q(project__in=user.user_roles.values('project'))
-        | Q(department__in=user.user_roles.values('department_obj'))
+        | Q(project__in=user.user_roles.filter(role__in=PROJECT_SCOPE_ROLES).values('project'))
+        | Q(department__in=user.user_roles.filter(role__in=DEPARTMENT_SCOPE_ROLES).values('department_obj'))
     )
 
 

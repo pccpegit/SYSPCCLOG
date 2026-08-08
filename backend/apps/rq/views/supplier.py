@@ -20,6 +20,7 @@ from apps.rq.serializers.supplier import SupplierSerializer
 from apps.rq.serializers.quotation import QuotationSerializer, QuotationItemSerializer
 from apps.rq.serializers.purchase_order import PurchaseOrderSerializer, PurchaseOrderItemSerializer
 from apps.core.permissions import IsAdminOrReadOnly, IsLogisticsStaff
+from apps.rq.permissions import get_accessible_requests_queryset
 from apps.rq.services.number_generator import PONumberGenerator
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,14 @@ class SupplierViewSet(viewsets.ModelViewSet):
     """
     FIX-08: Write operations (create/update/delete) require admin or logistics staff.
     All authenticated users may read supplier data.
+
+    SYSPCC-011 FIX 1 (evaluated, intentionally NOT scoped): Supplier is global
+    vendor master data (RUC/business name/contact) with no FK back to Request,
+    Quotation or PurchaseOrder — it's shared catalog data used across every RQ,
+    not something a single RQ "belongs" to. Unlike Quotation/PurchaseOrder there
+    is no per-RQ ownership to filter by, so read access intentionally stays
+    company-wide for any authenticated user (any role may need to look up a
+    vendor while drafting a request or comparing quotes).
     """
 
     queryset = Supplier.objects.all()
@@ -78,13 +87,23 @@ class SupplierViewSet(viewsets.ModelViewSet):
 class QuotationViewSet(viewsets.ModelViewSet):
     """
     FIX-08 + FIX-16: Write operations and the select action require logistics staff.
+    SYSPCC-011 FIX 1: reads are scoped by the Request the quotation belongs to,
+    via the same get_accessible_requests_queryset used by RequestViewSet — a
+    plain REQUESTER can no longer browse quotations for RQs outside their own.
     """
 
-    queryset = Quotation.objects.select_related('request', 'supplier', 'selected_by').prefetch_related('items__request_item').all()
     serializer_class = QuotationSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['request', 'supplier', 'is_selected', 'currency']
     search_fields = ['quotation_number', 'supplier__business_name']
+
+    def get_queryset(self):
+        accessible_requests = get_accessible_requests_queryset(self.request.user)
+        return (
+            Quotation.objects.select_related('request', 'supplier', 'selected_by')
+            .prefetch_related('items__request_item')
+            .filter(request__in=accessible_requests)
+        )
 
     def get_permissions(self):
         if self.request.method in SAFE_METHODS:
@@ -137,17 +156,25 @@ class QuotationViewSet(viewsets.ModelViewSet):
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """
     FIX-08: Write operations require logistics staff.
+    SYSPCC-011 FIX 1: reads are scoped by the Request the PO belongs to, same
+    as QuotationViewSet — a plain REQUESTER can no longer browse POs for RQs
+    outside their own.
     """
 
-    queryset = PurchaseOrder.objects.select_related(
-        'request', 'quotation', 'supplier', 'generated_by'
-    ).prefetch_related('items').all()
     serializer_class = PurchaseOrderSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['request', 'supplier', 'status', 'currency']
     search_fields = ['po_number', 'supplier__business_name']
     ordering_fields = ['created_at', 'status']
     ordering = ['-created_at']
+
+    def get_queryset(self):
+        accessible_requests = get_accessible_requests_queryset(self.request.user)
+        return (
+            PurchaseOrder.objects.select_related('request', 'quotation', 'supplier', 'generated_by')
+            .prefetch_related('items')
+            .filter(request__in=accessible_requests)
+        )
 
     def get_permissions(self):
         if self.request.method in SAFE_METHODS:

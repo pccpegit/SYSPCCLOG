@@ -40,6 +40,25 @@ class RequestItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['request', 'total_price', 'created_at']
 
 
+class UpdateItemPayloadSerializer(serializers.Serializer):
+    """
+    SYSPCC-011 FIX 2: one line of the update-items payload. Validates types so
+    a malformed request body returns 400 instead of reaching the raw
+    Case/When queryset update in RequestViewSet.update_items.
+    """
+
+    item_id = serializers.IntegerField()
+    supply_source = serializers.ChoiceField(
+        choices=RequestItem._meta.get_field('supply_source').choices
+    )
+
+
+class UpdateItemsSerializer(serializers.Serializer):
+    """Payload for PATCH /api/v1/requests/{id}/update-items/."""
+
+    items = UpdateItemPayloadSerializer(many=True)
+
+
 class RequestListSerializer(serializers.ModelSerializer):
     """Compact serializer for list views."""
 

@@ -826,10 +826,23 @@ class OneDriveViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, IsAdminUser]
 
+    @staticmethod
+    def _not_configured_response():
+        # SYSPCC-017: ONEDRIVE_CLIENT_ID has no version-controlled default
+        # anymore — the integration is optional. Fail with a clear, specific
+        # message here instead of letting an empty client_id reach Microsoft
+        # Graph and surface as a confusing generic error.
+        return Response(
+            {'detail': 'OneDrive no está configurado. Contacte al administrador del sistema.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     @action(detail=False, methods=['get'])
     def status(self, request):
         """Check if OneDrive is connected."""
-        return Response(OneDriveService.get_connection_info())
+        info = OneDriveService.get_connection_info()
+        info['configured'] = bool(settings.ONEDRIVE_CLIENT_ID)
+        return Response(info)
 
     @action(detail=False, methods=['post'], url_path='connect')
     def connect(self, request):
@@ -837,6 +850,9 @@ class OneDriveViewSet(viewsets.ViewSet):
         Start the device code flow.
         Returns the user_code and verification_uri for the user to complete auth.
         """
+        if not settings.ONEDRIVE_CLIENT_ID:
+            return self._not_configured_response()
+
         try:
             data = OneDriveService.initiate_device_code()
             return Response({
@@ -865,6 +881,9 @@ class OneDriveViewSet(viewsets.ViewSet):
         Poll for token after user enters the device code.
         Called from the frontend at intervals until auth completes.
         """
+        if not settings.ONEDRIVE_CLIENT_ID:
+            return self._not_configured_response()
+
         device_code = request.data.get('device_code')
         if not device_code:
             return Response(

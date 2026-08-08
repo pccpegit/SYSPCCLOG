@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { User, LogOut, Menu, Bell } from 'lucide-react';
+import { User, LogOut, Menu, Bell, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ROLE_LABELS } from '../../data/constants';
 
@@ -19,8 +19,14 @@ const ROLE_BADGE_COLORS = {
 };
 
 const AVATAR_COLORS = [
-  'bg-blue-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600',
-  'bg-rose-600', 'bg-teal-600', 'bg-indigo-600', 'bg-cyan-600',
+  'from-blue-500 to-blue-700',
+  'from-emerald-500 to-emerald-700',
+  'from-violet-500 to-violet-700',
+  'from-amber-500 to-amber-700',
+  'from-rose-500 to-rose-700',
+  'from-teal-500 to-teal-700',
+  'from-indigo-500 to-indigo-700',
+  'from-cyan-500 to-cyan-700',
 ];
 
 function getAvatarColor(name) {
@@ -58,11 +64,11 @@ export default function Header({ onMenuClick }) {
   const avatarColor = getAvatarColor(displayName);
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200/80 flex items-center px-4 sm:px-6 gap-3 shrink-0 sticky top-0 z-10">
+    <header className="h-16 bg-white/80 backdrop-blur-xl border-b border-gray-200/60 flex items-center px-4 sm:px-6 gap-3 shrink-0 sticky top-0 z-10">
       {/* Hamburger — mobile only */}
       <button
         onClick={onMenuClick}
-        className="lg:hidden p-2 -ml-1 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors shrink-0"
+        className="lg:hidden p-2 -ml-1 rounded-xl text-gray-500 hover:text-gray-700 hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all duration-150 shrink-0"
         aria-label="Abrir menú"
       >
         <Menu size={22} />
@@ -73,39 +79,42 @@ export default function Header({ onMenuClick }) {
 
       {/* Notification bell */}
       <button
-        className="relative p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+        className="relative p-2.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:scale-90 active:bg-gray-200 transition-all duration-150"
         title="Notificaciones"
       >
-        <Bell size={20} />
-        {/* Unread dot */}
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
+        <Bell size={19} strokeWidth={1.8} />
+        <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
       </button>
 
       {/* Divider */}
-      <div className="h-8 w-px bg-gray-200 shrink-0 hidden sm:block" />
+      <div className="h-8 w-px bg-gray-200/80 shrink-0 hidden sm:block" />
 
       {/* User info */}
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className={`w-9 h-9 shrink-0 rounded-full ${avatarColor} flex items-center justify-center text-white text-xs font-bold select-none shadow-sm`}>
+      <button
+        onClick={() => navigate('/settings')}
+        className="group flex items-center gap-2.5 min-w-0 rounded-xl px-2.5 py-2 -mx-2 hover:bg-gray-50 active:scale-[0.96] active:bg-gray-100 transition-all duration-150 cursor-pointer"
+        title="Configuracion"
+      >
+        <div className={`w-9 h-9 shrink-0 rounded-full bg-gradient-to-br ${avatarColor} flex items-center justify-center text-white text-[11px] font-bold select-none shadow-sm`}>
           {currentUser.avatar ?? avatarInitials}
         </div>
         <div className="hidden sm:flex flex-col items-start leading-tight min-w-0">
-          <span className="text-sm font-semibold text-gray-800 truncate max-w-[160px]">
+          <span className="text-[13px] font-semibold text-gray-800 truncate max-w-[160px] font-display">
             {displayName}
           </span>
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeColor} truncate max-w-[160px]`}>
             {roleLabel}
           </span>
         </div>
-      </div>
+      </button>
 
       {/* Logout button */}
       <button
         onClick={handleLogout}
-        className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+        className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 active:scale-90 active:bg-red-100 transition-all duration-150 shrink-0"
         title="Cerrar sesión"
       >
-        <LogOut size={18} />
+        <LogOut size={18} strokeWidth={1.8} />
       </button>
     </header>
   );

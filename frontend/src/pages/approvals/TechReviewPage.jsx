@@ -16,10 +16,11 @@ import {
 } from 'lucide-react';
 import { ROLES } from '../../data/constants';
 import { useAuth } from '../../context/AuthContext';
-import { getRequests, getRequest, performAction } from '../../api/requests';
+import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import ApprovalChain from '../../components/requests/ApprovalChain';
 import { useToast } from '../../context/ToastContext';
 
 function formatDate(dateStr) {
@@ -63,6 +64,7 @@ export default function TechReviewPage() {
   const { showToast }   = useToast();
 
   const [req,       setReq]       = useState(null);
+  const [approvals, setApprovals] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
   const [checklist, setChecklist] = useState({
@@ -101,6 +103,10 @@ export default function TechReviewPage() {
           setNotFound(true);
         } else {
           setReq(requestData);
+          try {
+            const { data } = await getApprovals(requestData.id);
+            setApprovals(data.results ?? data ?? []);
+          } catch { /* non-fatal */ }
         }
       } catch (err) {
         console.error('Error fetching request:', err);
@@ -116,20 +122,27 @@ export default function TechReviewPage() {
     setChecklist((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
+  const isAdmFlow = req?.flow === 'ADMINISTRATIVE';
+
   async function handleDecision(approved) {
     setSubmitting(true);
     setError(null);
     try {
+      const action = isAdmFlow && isAdditionalReview
+        ? (approved ? 'SUPERVISOR_APPROVED' : 'SUPERVISOR_REJECTED')
+        : (approved ? 'TECHNICAL_APPROVED' : 'TECHNICAL_REJECTED');
+      const actingRole = isAdmFlow ? ROLES.DIRECT_SUPERVISOR : ROLES.PROJECT_RESIDENT;
+      const successMsg = isAdditionalReview
+        ? (approved ? 'Evaluación registrada. Se enviará al Gerente General.' : 'No es necesario. Requerimiento finalizado.')
+        : (approved ? 'Aprobación técnica registrada. El requerimiento avanza a Revisión Presupuestal.' : 'Rechazo técnico registrado. El solicitante será notificado.');
       await performAction(req.id, {
-        action:      approved ? 'TECHNICAL_APPROVED' : 'TECHNICAL_REJECTED',
-        acting_role: ROLES.PROJECT_RESIDENT,
-        comments:    notes.trim() || (approved ? 'Aprobación técnica conforme.' : 'Rechazado técnicamente.'),
+        action,
+        acting_role: actingRole,
+        comments:    notes.trim() || (approved ? 'Aprobado.' : 'Rechazado.'),
       });
       showToast({
         type:    approved ? 'success' : 'info',
-        message: approved
-          ? 'Aprobación técnica registrada. El requerimiento avanza a Revisión Presupuestal.'
-          : 'Rechazo técnico registrado. El solicitante será notificado.',
+        message: successMsg,
       });
       setTimeout(() => navigate('/rq/approvals'), 250);
     } catch (err) {
@@ -159,7 +172,7 @@ export default function TechReviewPage() {
   const rqNumber = req.rq_number ?? req.rqNumber;
   const items    = req.items ?? [];
   const checkedCount = Object.values(checklist).filter(Boolean).length;
-  const isAdditionalReview = req.status === 'ADDITIONAL_REQ';
+  const isAdditionalReview = req.status === 'ADDITIONAL_REQ' || req.status === 'OUT_OF_ANNUAL_PLAN';
 
   return (
     <>
@@ -223,7 +236,7 @@ export default function TechReviewPage() {
             <InfoRow
               icon={Building2}
               label="Proyecto"
-              value={`${req.project_code ?? req.projectCode ?? ''} — ${req.project_name ?? req.projectName ?? ''}`}
+              value={(req.project_code ?? req.projectCode) ? `${req.project_code ?? req.projectCode} — ${req.project_name ?? req.projectName}` : req.flow === 'ADMINISTRATIVE' ? 'Oficina Central' : '—'}
             />
             <InfoRow icon={User}     label="Solicitante"     value={req.requested_by_name ?? req.requestedByName} />
             <InfoRow icon={Calendar} label="Fecha Requerida" value={formatDate(req.fecha_necesidad ?? req.required_date ?? req.requiredDate)} />
@@ -294,6 +307,7 @@ export default function TechReviewPage() {
               <p className="text-xs text-gray-300 mt-1">Los planos y memorias descriptivas se adjuntan en el sistema ERP.</p>
             </div>
           </div>
+
         </div>
 
         {/* RIGHT: Review panel */}
@@ -414,6 +428,12 @@ export default function TechReviewPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Historial section - full width */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 className="text-base font-semibold text-gray-800 mb-4">Historial del Requerimiento</h2>
+        <ApprovalChain approvals={approvals} />
       </div>
     </div>
 

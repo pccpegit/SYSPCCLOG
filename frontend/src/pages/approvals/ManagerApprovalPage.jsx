@@ -14,7 +14,7 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react';
-import { ROLES } from '../../data/constants';
+import { ROLES, STATUS } from '../../data/constants';
 import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import { getProject } from '../../api/core';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -95,6 +95,12 @@ export default function ManagerApprovalPage() {
 
         if (!requestData) {
           setNotFound(true);
+          return;
+        }
+
+        // Redirect cost overrun to dedicated page
+        if (requestData.status === STATUS.COST_OVERRUN_REVIEW) {
+          navigate(`/rq/approvals/cost-overrun/${id}`, { replace: true });
           return;
         }
 
@@ -183,11 +189,8 @@ export default function ManagerApprovalPage() {
   const overBudget   = newSpent > totalBudget;
 
   const isAdditional         = budgClassRaw === 'BC_ADDITIONAL' || budgClassRaw === 'BC_OUT_OF_ANNUAL_PLAN';
-  const isCostOverrun        = req.status === 'COST_OVERRUN_REVIEW';
-  const classificationLabel  = isAdditional ? 'REQUERIMIENTO ADICIONAL' : 'SOBRECOSTO';
-  const bannerColor = isAdditional
-    ? { banner: 'bg-amber-50 border-amber-300', icon: 'text-amber-600', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-800 border-amber-300' }
-    : { banner: 'bg-red-50 border-red-300',     icon: 'text-red-600',   text: 'text-red-800',   badge: 'bg-red-100 text-red-800 border-red-300' };
+  const classificationLabel  = 'REQUERIMIENTO ADICIONAL';
+  const bannerColor = { banner: 'bg-amber-50 border-amber-300', icon: 'text-amber-600', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-800 border-amber-300' };
 
   const projectCode = req.project_code ?? req.projectCode ?? project?.code ?? '';
 
@@ -255,7 +258,7 @@ export default function ManagerApprovalPage() {
           {/* Info card */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <h2 className="text-base font-semibold text-gray-800 mb-4">Información del Requerimiento</h2>
-            <InfoRow icon={Building2}  label="Proyecto"       value={`${req.project_code ?? req.projectCode ?? ''} — ${req.project_name ?? req.projectName ?? ''}`} />
+            <InfoRow icon={Building2}  label="Proyecto"       value={(req.project_code ?? req.projectCode) ? `${req.project_code ?? req.projectCode} — ${req.project_name ?? req.projectName}` : req.flow === 'ADMINISTRATIVE' ? 'Oficina Central' : '—'} />
             <InfoRow icon={User}       label="Solicitante"    value={req.requested_by_name ?? req.requestedByName} />
             <InfoRow icon={Calendar}   label="Fecha Requerida"value={formatDate(req.required_date ?? req.requiredDate)} />
             <InfoRow icon={DollarSign} label="Costo Estimado" value={formatCurrency(reqCost)} highlight />
@@ -311,11 +314,7 @@ export default function ManagerApprovalPage() {
             </div>
           </div>
 
-          {/* Approval chain */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <h2 className="text-base font-semibold text-gray-800 mb-4">Cadena de Aprobaciones (hasta ahora)</h2>
-            <ApprovalChain approvals={approvals} />
-          </div>
+
         </div>
 
         {/* RIGHT: Impact + action */}
@@ -445,6 +444,12 @@ export default function ManagerApprovalPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Historial section - full width */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 className="text-base font-semibold text-gray-800 mb-4">Historial del Requerimiento</h2>
+        <ApprovalChain approvals={approvals} />
       </div>
     </div>
 

@@ -32,41 +32,41 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-// ── Loading spinner ───────────────────────────────────────────
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600" />
     </div>
   );
 }
 
-// ── Section heading with bold colored left-border accent ──────
 function SectionHeading({ icon: Icon, iconClass = 'text-blue-500', accentColor = 'border-blue-500', children }) {
   return (
-    <h2 className={`text-lg font-bold text-gray-900 flex items-center gap-2.5 pl-3 border-l-4 ${accentColor}`}>
-      {Icon && <Icon size={20} className={iconClass} />}
+    <h2 className={`text-lg font-extrabold text-gray-900 flex items-center gap-2.5 pl-3 border-l-[3px] ${accentColor} font-display`}>
+      {Icon && <Icon size={19} className={iconClass} strokeWidth={2} />}
       {children}
     </h2>
   );
 }
 
-// ── Budget progress bar (PROJECT_CONTROL view) ────────────────
 function BudgetBar({ project }) {
   const total = project.total_budget ?? project.totalBudget ?? 0;
   const spent = project.spent_budget ?? project.spentBudget ?? 0;
   const pct = total > 0 ? Math.min(Math.round((spent / total) * 100), 100) : 0;
-  const barColor  = pct >= 90 ? 'bg-red-500'   : pct >= 70 ? 'bg-amber-500' : 'bg-green-500';
-  const textColor = pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-green-600';
+  const barColor  = pct >= 90 ? 'from-red-500 to-red-600' : pct >= 70 ? 'from-amber-400 to-amber-500' : 'from-emerald-400 to-emerald-500';
+  const textColor = pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-emerald-600';
 
   return (
     <div className="mb-6 last:mb-0">
       <div className="flex justify-between items-baseline mb-1.5">
-        <span className="text-sm font-semibold text-gray-800">{project.code} — {project.name}</span>
-        <span className={`text-sm font-bold ${textColor}`}>{pct}%</span>
+        <span className="text-sm font-bold text-gray-800 font-display">{project.code} — {project.name}</span>
+        <span className={`text-sm font-extrabold ${textColor} font-display`}>{pct}%</span>
       </div>
-      <div className="w-full bg-gray-100 rounded-full h-3">
-        <div className={`${barColor} h-3 rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
+      <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+        <div
+          className={`bg-gradient-to-r ${barColor} h-2.5 rounded-full transition-all duration-700 ease-out`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
       <div className="flex justify-between text-xs text-gray-400 mt-1.5">
         <span>Ejecutado: {formatCurrency(spent)}</span>
@@ -76,13 +76,14 @@ function BudgetBar({ project }) {
   );
 }
 
-// ── Requests table ────────────────────────────────────────────
 function RequestsTable({ requests, onRowClick }) {
   if (requests.length === 0) {
     return (
       <div className="py-16 text-center">
-        <Package size={48} className="mx-auto mb-4 text-gray-200" />
-        <p className="text-base font-semibold text-gray-500">No hay requerimientos para mostrar.</p>
+        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 flex items-center justify-center">
+          <Package size={28} className="text-gray-300" />
+        </div>
+        <p className="text-base font-bold text-gray-500 font-display">No hay requerimientos para mostrar.</p>
         <p className="text-sm text-gray-400 mt-1">
           Los requerimientos asignados a su rol apareceran aqui.
         </p>
@@ -94,42 +95,38 @@ function RequestsTable({ requests, onRowClick }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b-2 border-gray-200 bg-gray-50">
-            <th className="py-3.5 px-5 text-left text-xs font-bold text-gray-500 uppercase tracking-wide whitespace-nowrap">RQ #</th>
-            <th className="py-3.5 px-5 text-left text-xs font-bold text-gray-500 uppercase tracking-wide">Descripcion</th>
-            <th className="py-3.5 px-5 text-left text-xs font-bold text-gray-500 uppercase tracking-wide hidden md:table-cell">Proyecto</th>
-            <th className="py-3.5 px-5 text-left text-xs font-bold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Prioridad</th>
-            <th className="py-3.5 px-5 text-left text-xs font-bold text-gray-500 uppercase tracking-wide">Estado</th>
-            <th className="py-3.5 px-5 text-right text-xs font-bold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Costo Est.</th>
+          <tr className="border-b border-gray-100 bg-gray-50/80">
+            <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap font-display">RQ #</th>
+            <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider font-display">Descripcion</th>
+            <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell font-display">Proyecto</th>
+            <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell font-display">Prioridad</th>
+            <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider font-display">Estado</th>
+            <th className="py-3 px-5 text-right text-[11px] font-bold text-gray-400 uppercase tracking-wider hidden lg:table-cell font-display">Costo Est.</th>
           </tr>
         </thead>
         <tbody>
-          {requests.map((req, idx) => (
+          {requests.map((req) => (
             <tr
               key={req.id}
               onClick={() => onRowClick(req.rq_number ?? req.rqNumber)}
-              className={[
-                'border-b border-gray-100 cursor-pointer transition-all duration-100',
-                'hover:bg-blue-50 hover:shadow-[inset_3px_0_0_0_#3b82f6]',
-                idx % 2 !== 0 ? 'bg-gray-50/70' : 'bg-white',
-              ].join(' ')}
+              className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
             >
-              <td className="py-4 px-5 font-mono font-bold text-blue-700 whitespace-nowrap text-xs">
+              <td className="py-3.5 px-5 font-mono font-bold text-blue-600 whitespace-nowrap text-xs">
                 {req.rq_number ?? req.rqNumber}
               </td>
-              <td className="py-4 px-5 text-gray-800 max-w-xs">
+              <td className="py-3.5 px-5 text-gray-700 max-w-xs">
                 <span className="line-clamp-2 leading-snug">{req.description}</span>
               </td>
-              <td className="py-4 px-5 text-xs text-gray-500 hidden md:table-cell whitespace-nowrap">
+              <td className="py-3.5 px-5 text-xs text-gray-500 hidden md:table-cell whitespace-nowrap font-medium">
                 {req.project_code ?? req.projectCode}
               </td>
-              <td className="py-4 px-5 hidden sm:table-cell">
+              <td className="py-3.5 px-5 hidden sm:table-cell">
                 <PriorityBadge priority={req.priority} />
               </td>
-              <td className="py-4 px-5">
+              <td className="py-3.5 px-5">
                 <StatusBadge status={req.status} />
               </td>
-              <td className="py-4 px-5 text-right font-semibold text-gray-700 hidden lg:table-cell whitespace-nowrap">
+              <td className="py-3.5 px-5 text-right font-semibold text-gray-700 hidden lg:table-cell whitespace-nowrap">
                 {formatCurrency(req.estimated_cost ?? req.estimatedCost)}
               </td>
             </tr>
@@ -140,7 +137,6 @@ function RequestsTable({ requests, onRowClick }) {
   );
 }
 
-// ── Compute dashboard stats from a list of requests ───────────
 function computeStats(requests, role) {
   const total      = requests.length;
   const REJECTED_STATUSES = [
@@ -181,7 +177,7 @@ function computeStats(requests, role) {
         STATUS.QUOTE_SELECTED, STATUS.COST_OVERRUN_REVIEW, STATUS.PO_GENERATED,
       ].includes(r.status)).length;
       break;
-    default: // REQUESTER and others
+    default:
       pending    = requests.filter((r) => [STATUS.DRAFT, STATUS.SUBMITTED, STATUS.TECHNICAL_REVIEW].includes(r.status)).length;
       inProgress = requests.filter((r) => [
         STATUS.VALIDATED, STATUS.STOCK_CHECK, STATUS.REQUIRES_PURCHASE,
@@ -193,8 +189,7 @@ function computeStats(requests, role) {
   return { total, pending, inProgress, closed, rejected, pendingBudget };
 }
 
-// ── Role-specific table config ────────────────────────────────
-function getTableConfig(role, allRequests) {
+function getTableConfig(role, allRequests, userId) {
   switch (role) {
     case ROLES.PROJECT_RESIDENT:
       return {
@@ -214,12 +209,11 @@ function getTableConfig(role, allRequests) {
     default:
       return {
         title: 'Mis Requerimientos Recientes',
-        rows:  allRequests.slice(0, 8),
+        rows:  allRequests.filter((r) => r.requested_by === userId || r.requestedBy === userId).slice(0, 8),
       };
   }
 }
 
-// ── KPI card definitions per role ────────────────────────────
 function buildKpiCards(role, stats, projectCount) {
   switch (role) {
     case ROLES.REQUESTER:
@@ -268,7 +262,6 @@ function buildKpiCards(role, stats, projectCount) {
   }
 }
 
-// ── Main Dashboard ────────────────────────────────────────────
 export default function DashboardPage() {
   const { currentUser, primaryRole } = useAuth();
   const navigate = useNavigate();
@@ -280,7 +273,6 @@ export default function DashboardPage() {
   const [loadingReqs,  setLoadingReqs]  = useState(true);
   const [loadingProjs, setLoadingProjs] = useState(true);
 
-  // Fetch requests filtered by role-relevant statuses
   useEffect(() => {
     const fetchRequests = async () => {
       try {
@@ -295,7 +287,6 @@ export default function DashboardPage() {
     fetchRequests();
   }, []);
 
-  // Fetch projects (used for budget bars and GM project count)
   useEffect(() => {
     const fetchProjects = async () => {
       try {
@@ -314,7 +305,7 @@ export default function DashboardPage() {
 
   const stats      = computeStats(requests, role);
   const kpiCards   = buildKpiCards(role, stats, projects.length);
-  const { title: tableTitle, rows: tableRows } = getTableConfig(role, requests);
+  const { title: tableTitle, rows: tableRows } = getTableConfig(role, requests, currentUser?.id);
 
   const displayName = currentUser?.full_name
     ?? `${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim()
@@ -325,15 +316,14 @@ export default function DashboardPage() {
     navigate(`/rq/requests/${rqNumber}`);
   }
 
-  // Quick action button — bigger, more prominent
   function QuickAction() {
     if (role === ROLES.REQUESTER) {
       return (
         <button
           onClick={() => navigate('/rq/requests/new')}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3 bg-blue-600 text-white text-base font-bold rounded-xl hover:bg-blue-700 hover:shadow-lg hover:-translate-y-0.5 active:scale-95 transition-all duration-200 shadow-md"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-bold rounded-xl hover:from-blue-700 hover:to-blue-800 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] shadow-md shadow-blue-600/15 font-display"
         >
-          <Plus size={20} />
+          <Plus size={18} strokeWidth={2.5} />
           Nuevo Requerimiento
         </button>
       );
@@ -342,9 +332,9 @@ export default function DashboardPage() {
       return (
         <button
           onClick={() => navigate('/rq/approvals')}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3 bg-yellow-500 text-white text-base font-bold rounded-xl hover:bg-yellow-600 hover:shadow-lg hover:-translate-y-0.5 active:scale-95 transition-all duration-200 shadow-md"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 text-white text-sm font-bold rounded-xl hover:from-amber-600 hover:to-amber-700 hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.97] shadow-md shadow-amber-500/15 font-display"
         >
-          <ClipboardList size={20} />
+          <ClipboardList size={18} strokeWidth={2} />
           Ir a Aprobaciones
         </button>
       );
@@ -358,10 +348,10 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Dashboard</h1>
-          <p className="text-gray-500 text-base mt-1">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight font-display">Dashboard</h1>
+          <p className="text-gray-500 text-sm mt-1">
             Bienvenido,{' '}
-            <span className="font-bold text-gray-800">{displayName}</span>
+            <span className="font-bold text-gray-700">{displayName}</span>
             {currentUser?.position && (
               <span className="text-gray-400"> — {currentUser.position}</span>
             )}
@@ -375,21 +365,27 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
             {kpiCards.map((card, idx) => (
-              <SummaryCard
+              <div
                 key={idx}
-                title={card.title}
-                value={card.value}
-                icon={card.icon}
-                color={card.color}
-              />
+                style={{
+                  animation: `staggerIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) ${idx * 0.06}s both`,
+                }}
+              >
+                <SummaryCard
+                  title={card.title}
+                  value={card.value}
+                  icon={card.icon}
+                  color={card.color}
+                />
+              </div>
             ))}
           </div>
 
           {/* Budget bars — only for PROJECT_CONTROL */}
           {role === ROLES.PROJECT_CONTROL && projects.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-7">
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6 sm:p-7">
               <div className="mb-6">
                 <SectionHeading icon={TrendingUp} iconClass="text-purple-500" accentColor="border-purple-500">
                   Avance Presupuestal por Proyecto
@@ -402,14 +398,14 @@ export default function DashboardPage() {
           )}
 
           {/* Requests table */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
+            <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100 flex items-center justify-between">
               <SectionHeading icon={FileText} iconClass="text-blue-500" accentColor="border-blue-500">
                 {tableTitle}
               </SectionHeading>
               <button
                 onClick={() => navigate('/rq/requests')}
-                className="text-sm font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50"
+                className="text-sm font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg hover:bg-blue-50 font-display"
               >
                 Ver todos &rarr;
               </button>

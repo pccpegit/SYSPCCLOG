@@ -1,6 +1,5 @@
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 
-// Complete action labels in Spanish
 const ACTION_LABELS = {
   SUBMITTED: 'Enviado',
   TECHNICAL_APPROVED: 'Aprobación Técnica',
@@ -39,7 +38,6 @@ const ACTION_LABELS = {
   CANCELLED: 'Cancelado',
 };
 
-// Complete role labels in Spanish
 const ROLE_LABELS = {
   REQUESTER: 'Solicitante',
   PROJECT_RESIDENT: 'Residente de Proyecto',
@@ -85,9 +83,8 @@ export default function ApprovalChain({ approvals = [] }) {
   }
 
   return (
-    <ol className="relative border-l-2 border-gray-200 space-y-6 ml-3">
+    <ol className="relative border-l-2 border-gray-200/80 space-y-5 ml-3">
       {approvals.map((entry, idx) => {
-        // Support both API format and mock format
         const name = entry.performed_by_name ?? entry.by ?? 'Sistema';
         const role = entry.role ?? '';
         const action = entry.action ?? '';
@@ -102,46 +99,46 @@ export default function ApprovalChain({ approvals = [] }) {
           ? 'text-gray-300'
           : isRejected
           ? 'text-red-500'
-          : 'text-green-500';
+          : 'text-emerald-500';
 
         const actionLabel = ACTION_LABELS[action] ?? action;
         const roleLabel = ROLE_LABELS[role] ?? role;
 
         return (
           <li key={entry.id ?? idx} className="ml-6">
-            <span className={`absolute -left-3.5 flex items-center justify-center w-7 h-7 bg-white rounded-full ring-4 ring-white ${isPending ? 'pulse-attention' : ''}`}>
-              <Icon size={22} className={iconColor} />
+            <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 bg-white rounded-full ring-4 ring-white ${isPending ? 'pulse-attention' : ''}`}>
+              <Icon size={18} className={iconColor} strokeWidth={2} />
             </span>
 
             <div
-              className={`p-3 rounded-lg border ${
+              className={`p-3 rounded-xl border ${
                 isPending
-                  ? 'bg-gray-50 border-gray-200'
+                  ? 'bg-gray-50/80 border-gray-200/60'
                   : isRejected
-                  ? 'bg-red-50 border-red-100'
-                  : 'bg-white border-gray-200'
+                  ? 'bg-red-50/80 border-red-200/40'
+                  : 'bg-white border-gray-200/60'
               }`}
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-gray-800">{name}</span>
-                  <span className="text-xs text-gray-400">&middot;</span>
-                  <span className="text-xs text-gray-500">{roleLabel}</span>
+                  <span className="text-sm font-bold text-gray-800 font-display">{name}</span>
+                  <span className="text-xs text-gray-300">&middot;</span>
+                  <span className="text-[11px] text-gray-500">{roleLabel}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span
-                    className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                       isPending
                         ? 'bg-gray-100 text-gray-500'
                         : isRejected
                         ? 'bg-red-100 text-red-700'
-                        : 'bg-green-100 text-green-700'
+                        : 'bg-emerald-100 text-emerald-700'
                     }`}
                   >
                     {actionLabel}
                   </span>
                   {date && (
-                    <span className="text-xs text-gray-400">
+                    <span className="text-[11px] text-gray-400">
                       {formatDate(date)}
                     </span>
                   )}
@@ -153,7 +150,7 @@ export default function ApprovalChain({ approvals = [] }) {
               )}
 
               {isPending && !comments && (
-                <p className="mt-1 text-xs text-gray-400 italic">Esperando acción...</p>
+                <p className="mt-1 text-[11px] text-gray-400 italic">Esperando acción...</p>
               )}
             </div>
           </li>

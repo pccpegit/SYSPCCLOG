@@ -1,13 +1,15 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   FilePlus,
   FileText,
   CheckSquare,
   Truck,
-  Warehouse,
   BarChart3,
   X,
+  Settings,
+  ChevronLeft,
+  ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ROLES } from '../../data/constants';
@@ -22,6 +24,7 @@ const NAV_ITEMS = [
     roles: ALL_ROLES,
     end: true,
   },
+  { section: 'Gestión' },
   {
     label: 'Nuevo RQ',
     to: '/rq/requests/new',
@@ -43,6 +46,7 @@ const NAV_ITEMS = [
     roles: [ROLES.PROJECT_RESIDENT, ROLES.PROJECT_CONTROL, ROLES.GENERAL_MANAGER, ROLES.DIRECT_SUPERVISOR, ROLES.ADMIN_MANAGER],
     end: false,
   },
+  { section: 'Reportes' },
   {
     label: 'Informes',
     to: '/rq/reports',
@@ -57,69 +61,114 @@ const NAV_ITEMS = [
     roles: [ROLES.LOGISTICS_COORDINATOR, ROLES.LOGISTICS_SUPERVISOR, ROLES.LOGISTICS_CHIEF],
     end: false,
   },
-  {
-    label: 'Almacén',
-    to: '/rq/warehouse',
-    icon: Warehouse,
-    roles: [ROLES.CENTRAL_WAREHOUSE, ROLES.SITE_WAREHOUSE],
-    end: false,
-  },
 ];
+
+const ACCENT = {
+  activeBg: 'bg-blue-500/12',
+  activeText: 'text-blue-400',
+  activeIcon: 'text-blue-400',
+  activeBar: 'bg-blue-400',
+  activeIconBg: 'bg-blue-500/20',
+  dot: 'bg-blue-400',
+  dotGlow: 'shadow-[0_0_8px_2px_rgba(59,130,246,0.35)]',
+  badgeBg: 'bg-blue-500/10',
+  badgeText: 'text-blue-400',
+  badgeBorder: 'border-blue-500/20',
+  brandGradient: 'from-blue-500 to-blue-700',
+};
 
 export default function Sidebar({ isOpen, onClose }) {
   const { primaryRole } = useAuth();
+  const navigate = useNavigate();
 
   const visibleItems = NAV_ITEMS.filter(
-    (item) => primaryRole && item.roles.includes(primaryRole)
+    (item) => item.section || (primaryRole && item.roles.includes(primaryRole))
   );
+
+  // Remove trailing sections with no items after them
+  const cleanedItems = [];
+  for (let i = 0; i < visibleItems.length; i++) {
+    const item = visibleItems[i];
+    if (item.section) {
+      const hasFollowing = visibleItems.slice(i + 1).some((n) => !n.section);
+      if (hasFollowing) cleanedItems.push(item);
+    } else {
+      cleanedItems.push(item);
+    }
+  }
 
   return (
     <>
-      {/* Backdrop — mobile only */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 lg:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-[6px] z-20 lg:hidden transition-opacity duration-300"
           onClick={onClose}
           aria-hidden="true"
         />
       )}
 
-      {/* Sidebar panel — dark theme */}
       <aside
         className={[
-          'fixed left-0 top-0 h-screen w-64 flex flex-col z-30',
-          'bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950',
-          'transform transition-transform duration-200 ease-in-out',
+          'fixed left-0 top-0 h-screen w-[260px] flex flex-col z-30',
+          'bg-gradient-to-b from-[#0c1220] via-[#0a0f1a] to-[#080c14]',
+          'border-r border-white/[0.05]',
+          'transform transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
           isOpen ? 'translate-x-0' : '-translate-x-full',
           'lg:translate-x-0',
         ].join(' ')}
       >
-        {/* Logo / Brand */}
-        <div className="h-16 sm:h-20 flex items-center justify-center px-5 border-b border-white/10 shrink-0 gap-3">
-          <img
-            src="/images/logo-blanco.png"
-            alt="PCC Logo"
-            className="h-11 sm:h-14 w-auto object-contain"
-          />
+        {/* ── Logo / Brand ── */}
+        <div className="shrink-0 border-b border-white/[0.05]">
           {/* Close button — mobile only */}
+          <div className="flex justify-end px-3 pt-3 lg:hidden">
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Cerrar menú"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Logo — full width clickable, centered */}
           <button
-            onClick={onClose}
-            className="lg:hidden p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors shrink-0"
-            aria-label="Cerrar menú"
+            onClick={() => { onClose(); navigate('/'); }}
+            className="group w-full flex justify-center px-5 py-4 lg:pt-5 hover:bg-white/[0.03] active:scale-[0.95] active:brightness-75 transition-all duration-150"
+            title="Ir al menú principal"
           >
-            <X size={20} />
+            <img
+              src="/images/logo-blanco.png"
+              alt="PCC"
+              className="h-11 w-auto object-contain group-hover:brightness-125 transition-all duration-200"
+            />
           </button>
+
+          {/* Module badge */}
+          <div className="px-5 pb-4 flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${ACCENT.brandGradient} flex items-center justify-center shadow-md`}>
+              <ClipboardList size={15} className="text-white" strokeWidth={2} />
+            </div>
+            <div className="leading-tight">
+              <p className="text-[13px] font-bold text-white/90 tracking-tight font-display">Requerimientos</p>
+              <p className="text-[10px] text-white/25 font-medium">Sistema RQ</p>
+            </div>
+          </div>
         </div>
 
-        {/* Section label */}
-        <div className="px-5 pt-5 pb-2">
-          <p className="text-[10px] font-semibold text-white/25 uppercase tracking-[0.15em]">Menú principal</p>
-        </div>
+        {/* ── Navigation ── */}
+        <nav className="flex-1 overflow-y-auto px-3 pt-3 pb-4 scrollbar-thin">
+          <ul className="flex flex-col gap-0.5">
+            {cleanedItems.map((item, idx) => {
+              if (item.section) {
+                return (
+                  <li key={`section-${idx}`} className="pt-5 pb-1.5 px-3">
+                    <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] font-display">
+                      {item.section}
+                    </p>
+                  </li>
+                );
+              }
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 pb-4">
-          <ul className="flex flex-col gap-1">
-            {visibleItems.map((item) => {
               const Icon = item.icon;
               return (
                 <li key={item.to}>
@@ -128,21 +177,40 @@ export default function Sidebar({ isOpen, onClose }) {
                     end={item.end}
                     onClick={onClose}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+                      [
+                        'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium',
+                        'transition-all duration-150 active:scale-[0.97] active:brightness-90',
                         isActive
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                          : 'text-white/50 hover:bg-white/[0.07] hover:text-white/90'
-                      }`
+                          ? `${ACCENT.activeBg} ${ACCENT.activeText}`
+                          : 'text-white/40 hover:bg-white/[0.04] hover:text-white/75',
+                      ].join(' ')
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        <Icon
-                          size={20}
-                          className={isActive ? 'text-white' : 'text-white/40'}
-                          strokeWidth={isActive ? 2.5 : 1.8}
-                        />
-                        {item.label}
+                        {/* Active indicator bar */}
+                        {isActive && (
+                          <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full ${ACCENT.activeBar}`} />
+                        )}
+
+                        <div className={[
+                          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200',
+                          isActive
+                            ? ACCENT.activeIconBg
+                            : 'bg-white/[0.03] group-hover:bg-white/[0.06]',
+                        ].join(' ')}>
+                          <Icon
+                            size={16}
+                            className={isActive ? ACCENT.activeIcon : 'text-white/30 group-hover:text-white/55'}
+                            strokeWidth={isActive ? 2.2 : 1.6}
+                          />
+                        </div>
+
+                        <span className="font-display truncate">{item.label}</span>
+
+                        {isActive && (
+                          <div className={`ml-auto w-1.5 h-1.5 rounded-full ${ACCENT.dot} ${ACCENT.dotGlow}`} />
+                        )}
                       </>
                     )}
                   </NavLink>
@@ -152,10 +220,60 @@ export default function Sidebar({ isOpen, onClose }) {
           </ul>
         </nav>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-white/[0.06] flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <p className="text-[10px] text-white/20 font-medium">Sistema activo &middot; v1.0</p>
+        {/* ── Footer ── */}
+        <div className="shrink-0 px-3 pb-3 space-y-1">
+          <div className="mx-2 mb-1">
+            <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+          </div>
+
+          <NavLink
+            to="/settings"
+            onClick={onClose}
+            className={({ isActive }) =>
+              [
+                'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 active:scale-[0.97] active:brightness-90',
+                isActive
+                  ? `${ACCENT.activeBg} ${ACCENT.activeText}`
+                  : 'text-white/30 hover:bg-white/[0.04] hover:text-white/65',
+              ].join(' ')
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full ${ACCENT.activeBar}`} />
+                )}
+                <div className={[
+                  'w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200',
+                  isActive ? ACCENT.activeIconBg : 'bg-white/[0.03] group-hover:bg-white/[0.06]',
+                ].join(' ')}>
+                  <Settings size={16} className={isActive ? ACCENT.activeIcon : 'text-white/25 group-hover:text-white/50'} strokeWidth={1.6} />
+                </div>
+                <span className="font-display">Configuracion</span>
+              </>
+            )}
+          </NavLink>
+
+          <button
+            onClick={() => { onClose(); navigate('/'); }}
+            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-white/30 hover:bg-white/[0.04] hover:text-white/65 active:scale-[0.97] active:brightness-90 transition-all duration-150"
+          >
+            <div className="w-8 h-8 rounded-lg bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all duration-200">
+              <ChevronLeft size={16} className="text-white/25 group-hover:text-white/50" strokeWidth={1.6} />
+            </div>
+            <span className="font-display">Menú principal</span>
+          </button>
+
+          {/* Version */}
+          <div className="mx-2 mt-1">
+            <div className="h-px bg-gradient-to-r from-transparent via-white/[0.04] to-transparent" />
+          </div>
+          <div className="px-3 py-2.5 flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${ACCENT.dot} ${ACCENT.dotGlow}`} />
+            <p className="text-[10px] text-white/15 font-medium font-display">
+              Sistema activo &middot; v1.0
+            </p>
+          </div>
         </div>
       </aside>
     </>

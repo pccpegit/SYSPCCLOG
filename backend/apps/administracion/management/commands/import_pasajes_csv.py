@@ -145,7 +145,12 @@ class Command(BaseCommand):
                 Pasaje.objects.all().delete()
             self.stdout.write(self.style.WARNING(f'Deleted {count} existing pasajes.'))
 
-        default_user = User.objects.filter(is_staff=True).first()
+        # SYSPCC-013 FIX 7: `.order_by('id')` makes the pick deterministic —
+        # without it, `.first()` relies on whatever order the DB happens to
+        # return rows in (undefined without an explicit ORDER BY), so the
+        # `creado_por` attribution on freshly-imported rows could vary
+        # between runs.
+        default_user = User.objects.filter(is_staff=True).order_by('id').first()
         proveedor_map = {p.ruc: p for p in ProveedorPasajes.objects.all()}
 
         self.stdout.write(f'Reading CSV from: {csv_path}')

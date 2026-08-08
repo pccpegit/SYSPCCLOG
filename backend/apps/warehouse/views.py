@@ -35,6 +35,7 @@ from apps.warehouse.serializers import (
 from apps.warehouse.services import movements as warehouse_svc
 from apps.warehouse.services.onedrive import OneDriveService
 from apps.warehouse.services.pdf_generator import generate_movement_pdf, generate_group_pdf
+from apps.core.utils.excel import sanitize_excel_value, truncate_for_export
 
 logger = logging.getLogger(__name__)
 
@@ -185,20 +186,28 @@ class InventoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def alerts(self, request):
         """Return items whose total stock is at or below their minimum threshold."""
-        items = Inventory.objects.prefetch_related('stocks').all()
-        result = []
-        for item in items:
-            total = sum(s.quantity for s in item.stocks.all())
-            if total <= item.min_stock:
-                result.append({
-                    'id': item.id,
-                    'product_code': item.product_code,
-                    'description': item.description,
-                    'unit': item.unit,
-                    'min_stock': float(item.min_stock),
-                    'current_stock': float(total),
-                    'deficit': float(item.min_stock - total),
-                })
+        # SYSPCC-013 FIX 3: aggregate total stock in the DB (same pattern as
+        # `_apply_inventory_filters`) instead of pulling every stock row into
+        # Python and summing with a per-item loop.
+        items = Inventory.objects.annotate(
+            total_stock=Coalesce(
+                Sum('stocks__quantity'),
+                Value(0),
+                output_field=DecimalField(),
+            )
+        ).filter(total_stock__lte=F('min_stock'))
+        result = [
+            {
+                'id': item.id,
+                'product_code': item.product_code,
+                'description': item.description,
+                'unit': item.unit,
+                'min_stock': float(item.min_stock),
+                'current_stock': float(item.total_stock),
+                'deficit': float(item.min_stock - item.total_stock),
+            }
+            for item in items
+        ]
         return Response(result)
 
     # -- stock check (used by RQ logistics) ----------------------------------
@@ -267,11 +276,15 @@ class InventoryViewSet(viewsets.ModelViewSet):
         today = timezone.now().date()
 
         total_items = Inventory.objects.count()
-        items = Inventory.objects.prefetch_related('stocks').all()
-        low_stock_count = sum(
-            1 for item in items
-            if sum(s.quantity for s in item.stocks.all()) <= item.min_stock
-        )
+        # SYSPCC-013 FIX 3: same DB-side aggregation as `alerts()` — avoid
+        # materializing every stock row in Python just to compare a sum.
+        low_stock_count = Inventory.objects.annotate(
+            total_stock=Coalesce(
+                Sum('stocks__quantity'),
+                Value(0),
+                output_field=DecimalField(),
+            )
+        ).filter(total_stock__lte=F('min_stock')).count()
         today_entries = InventoryMovement.objects.filter(
             movement_type='ENTRY', created_at__date=today
         ).count()
@@ -295,6 +308,9 @@ class InventoryViewSet(viewsets.ModelViewSet):
             Inventory.objects.prefetch_related('stocks').all(),
             request.query_params,
         )
+        # SYSPCC-013 FIX 2: cap the export at MAX_EXPORT_ROWS — truncate with
+        # a visible warning row rather than building an unbounded workbook.
+        qs, was_truncated = truncate_for_export(qs)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -304,26 +320,33 @@ class InventoryViewSet(viewsets.ModelViewSet):
             'Codigo', 'Descripcion', 'Unidad', 'Categoria', 'Tipo',
             'Marca', 'Modelo', 'Ubicacion', 'Stock Total', 'Stock Minimo',
         ]
+        if was_truncated:
+            ws.append([
+                f'ADVERTENCIA: la exportacion se trunco a las primeras '
+                f'{len(qs)} filas. Aplique filtros adicionales para ver el resto.'
+            ])
         ws.append(headers)
 
         # Bold header row
         bold = Font(bold=True)
-        for cell in ws[1]:
+        for cell in ws[2 if was_truncated else 1]:
             cell.font = bold
 
         for item in qs:
             total = float(sum(s.quantity for s in item.stocks.all()))
             ws.append([
-                item.product_code,
-                item.description,
-                item.unit,
-                item.category,
-                item.get_item_type_display(),
-                item.brand,
-                item.model_name,
-                item.location,
-                total,
-                float(item.min_stock),
+                sanitize_excel_value(v) for v in [
+                    item.product_code,
+                    item.description,
+                    item.unit,
+                    item.category,
+                    item.get_item_type_display(),
+                    item.brand,
+                    item.model_name,
+                    item.location,
+                    total,
+                    float(item.min_stock),
+                ]
             ])
 
         response = HttpResponse(
@@ -729,6 +752,9 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             ).all(),
             request.query_params,
         )
+        # SYSPCC-013 FIX 2: cap the export at MAX_EXPORT_ROWS — truncate with
+        # a visible warning row rather than building an unbounded workbook.
+        qs, was_truncated = truncate_for_export(qs)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -738,25 +764,32 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             'N. Movimiento', 'Tipo', 'Fecha', 'Codigo', 'Descripcion',
             'Cantidad', 'Unidad', 'Almacen', 'Proveedor/Destino', 'Registrado por',
         ]
+        if was_truncated:
+            ws.append([
+                f'ADVERTENCIA: la exportacion se trunco a las primeras '
+                f'{len(qs)} filas. Aplique filtros adicionales para ver el resto.'
+            ])
         ws.append(headers)
 
         bold = Font(bold=True)
-        for cell in ws[1]:
+        for cell in ws[2 if was_truncated else 1]:
             cell.font = bold
 
         for mv in qs:
             provider_dest = mv.supplier_name or mv.destination_detail or ''
             ws.append([
-                mv.movement_number,
-                mv.get_movement_type_display(),
-                mv.created_at.strftime('%d/%m/%Y %H:%M'),
-                mv.inventory.product_code,
-                mv.inventory.description,
-                float(mv.quantity),
-                mv.inventory.unit,
-                mv.get_warehouse_display(),
-                provider_dest,
-                mv.registered_by.get_full_name() if mv.registered_by else '',
+                sanitize_excel_value(v) for v in [
+                    mv.movement_number,
+                    mv.get_movement_type_display(),
+                    mv.created_at.strftime('%d/%m/%Y %H:%M'),
+                    mv.inventory.product_code,
+                    mv.inventory.description,
+                    float(mv.quantity),
+                    mv.inventory.unit,
+                    mv.get_warehouse_display(),
+                    provider_dest,
+                    mv.registered_by.get_full_name() if mv.registered_by else '',
+                ]
             ])
 
         response = HttpResponse(

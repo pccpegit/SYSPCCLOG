@@ -973,6 +973,22 @@ class WorkflowEngine:
                 'RQ %s item "%s" has no matching inventory product — skipping movement.',
                 self.request.rq_number, item.description,
             )
+        else:
+            # SYSPCC-013 FIX 8: this branch only runs when there was no direct
+            # FK match — `inv` was "guessed" via icontains/iexact on free-text
+            # description. That guess can silently move stock for the wrong
+            # product, so it must be traceable even though resolution
+            # succeeded (logic itself is unchanged — logging only).
+            logger.warning(
+                'workflow_engine.inventory_resolution.fuzzy_match',
+                extra={
+                    'rq_number': self.request.rq_number,
+                    'request_item_id': item.pk,
+                    'item_description': item.description,
+                    'matched_inventory_id': inv.pk,
+                    'matched_product_code': inv.product_code,
+                },
+            )
         return inv
 
     def _build_items_data(self, movement_type):

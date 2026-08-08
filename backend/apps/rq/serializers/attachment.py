@@ -4,11 +4,14 @@ FIX-10: Validates allowed extensions and maximum file size.
 FIX-11: Uses explicit field list; excludes raw file_path; exposes download_url instead.
 """
 
+import logging
 import os
 import magic  # python-magic for content-type sniffing
 from django.conf import settings
 from rest_framework import serializers
 from apps.rq.models import Attachment
+
+logger = logging.getLogger(__name__)
 
 
 # FIX-10: Allowed file extensions (lowercase, with leading dot)
@@ -132,6 +135,7 @@ class AttachmentSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         uploaded_file = validated_data.pop('file', None)
+        saved_path = None
 
         if uploaded_file is not None:
             import os as _os
@@ -148,4 +152,21 @@ class AttachmentSerializer(serializers.ModelSerializer):
             saved_path = default_storage.save(save_path, ContentFile(uploaded_file.read()))
             validated_data['file_path'] = saved_path
 
-        return super().create(validated_data)
+        try:
+            return super().create(validated_data)
+        except Exception:
+            # SYSPCC-013 FIX 6: the file is already on disk/storage at this
+            # point (saved above). If the Attachment row fails to create
+            # (DB error, validation raised late, etc.) that file becomes an
+            # orphan with nothing referencing it — delete it before
+            # re-raising so the storage stays in sync with the DB.
+            # Last barrier for this branch: log with stack, clean up, re-raise
+            # (the caller/DRF exception handler is still responsible for the
+            # HTTP-facing error response).
+            logger.exception(
+                'attachment.create.failed_after_file_saved',
+                extra={'saved_path': saved_path},
+            )
+            if saved_path is not None:
+                default_storage.delete(saved_path)
+            raise

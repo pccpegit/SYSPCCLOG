@@ -2,14 +2,18 @@
 Supplier, Quotation, and PurchaseOrder viewsets.
 """
 
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework.exceptions import APIException
 
 from apps.rq.models import Supplier, Quotation, QuotationItem, PurchaseOrder, PurchaseOrderItem
 from apps.rq.serializers.supplier import SupplierSerializer
@@ -18,8 +22,22 @@ from apps.rq.serializers.purchase_order import PurchaseOrderSerializer, Purchase
 from apps.core.permissions import IsAdminOrReadOnly, IsLogisticsStaff
 from apps.rq.services.number_generator import PONumberGenerator
 
+logger = logging.getLogger(__name__)
+
 # Safe (read-only) HTTP methods
 SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
+
+
+class NumberingConflict(APIException):
+    """
+    SYSPCC-007: raised when a document-numbering race (RQ/PO/movement number)
+    produces an IntegrityError despite the select_for_update() lock — e.g. the
+    very first number for a given prefix/year, where there is no existing row
+    to lock. Maps to 409 so the client can retry instead of seeing a 500.
+    """
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = 'Conflicto al generar el número de documento, intente nuevamente.'
+    default_code = 'numbering_conflict'
 
 
 @extend_schema_view(
@@ -86,15 +104,26 @@ class QuotationViewSet(viewsets.ModelViewSet):
         """Mark this quotation as selected. Clears selection on other quotations for the same RQ."""
         quotation = self.get_object()
 
-        # Clear previously selected quotations for this request
-        Quotation.objects.filter(request=quotation.request, is_selected=True).update(
-            is_selected=False, selected_by=None, selected_at=None
-        )
+        # SYSPCC-007: lock every quotation for this RQ before touching is_selected so a
+        # concurrent select() for the same RQ can't interleave with the clear-then-set
+        # below and leave more than one quotation marked selected (or none).
+        with transaction.atomic():
+            sibling_quotations = list(
+                Quotation.objects.select_for_update()
+                .filter(request_id=quotation.request_id)
+                .order_by('pk')
+            )
+            quotation = next(q for q in sibling_quotations if q.pk == quotation.pk)
 
-        quotation.is_selected = True
-        quotation.selected_by = request.user
-        quotation.selected_at = timezone.now()
-        quotation.save()
+            # Clear previously selected quotations for this request
+            Quotation.objects.filter(request_id=quotation.request_id, is_selected=True).update(
+                is_selected=False, selected_by=None, selected_at=None
+            )
+
+            quotation.is_selected = True
+            quotation.selected_by = request.user
+            quotation.selected_at = timezone.now()
+            quotation.save(update_fields=['is_selected', 'selected_by', 'selected_at'])
 
         return Response(QuotationSerializer(quotation).data)
 
@@ -126,8 +155,21 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         return [IsAuthenticated(), IsLogisticsStaff()]
 
     def perform_create(self, serializer):
-        po_number = PONumberGenerator.generate()
-        serializer.save(
-            po_number=po_number,
-            generated_by=self.request.user,
-        )
+        # SYSPCC-007: generate the PO number and persist the row in a single
+        # transaction so a rollback (e.g. serializer.save() failing validation
+        # at the DB level) can't leave a "burned" number with no PurchaseOrder,
+        # and so IntegrityError from a rare numbering collision is caught here
+        # instead of surfacing as a 500.
+        try:
+            with transaction.atomic():
+                po_number = PONumberGenerator.generate()
+                serializer.save(
+                    po_number=po_number,
+                    generated_by=self.request.user,
+                )
+        except IntegrityError:
+            logger.warning(
+                'purchase_order.create.integrity_error',
+                extra={'user_id': getattr(self.request.user, 'id', None)},
+            )
+            raise NumberingConflict('No se pudo generar la orden de compra, intente nuevamente.')

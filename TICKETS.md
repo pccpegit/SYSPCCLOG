@@ -11,4 +11,5 @@ Para el próximo ID: toma el mayor de la tabla + 1. Tipos: `feature`, `fix`, `ch
 | SYSPCC-003 | feature | `feature/SYSPCC-003-backend-estado-actual` | Estado actual del backend: apps rq, core, warehouse, administracion, support + config | [#4](https://github.com/pccpegit/SYSPCCLOG/pull/4) | Mergeado |
 | SYSPCC-004 | feature | `feature/SYSPCC-004-frontend-estado-actual` | Estado actual del frontend: pages, components, api, context, assets | [#5](https://github.com/pccpegit/SYSPCCLOG/pull/5) | Mergeado |
 | SYSPCC-005 | docs | `docs/SYSPCC-005-documentacion-tecnica` | Documentación técnica (casos de uso, arquitectura, diagramas, guía de despliegue) y config raíz | [#6](https://github.com/pccpegit/SYSPCCLOG/pull/6) | Mergeado |
-| SYSPCC-006 | fix | `fix/SYSPCC-006-control-de-acceso` | Control de acceso (🔴): PII de personal, IDOR en adjuntos, suplantación en reclamos + 25 tests | _pendiente_ | En progreso |
+| SYSPCC-006 | fix | `fix/SYSPCC-006-control-de-acceso` | Control de acceso (🔴): PII de personal, IDOR en adjuntos, suplantación en reclamos + 25 tests | [#8](https://github.com/pccpegit/SYSPCCLOG/pull/8) | Mergeado |
+| SYSPCC-007 | fix | `fix/SYSPCC-007-concurrencia-transacciones` | Concurrencia (🔴): locks/atomicidad en stock, numeración, workflow, creación RQ + CheckConstraint + tests | _pendiente_ | En progreso |

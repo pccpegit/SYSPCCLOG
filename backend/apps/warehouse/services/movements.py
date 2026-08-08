@@ -32,9 +32,13 @@ def _generate_movement_number(movement_type: str) -> str:
     Generate a sequential movement number.
     Format: ENT-2026-0001, SAL-2026-0001, TRF-2026-0001, AJU-2026-0001.
 
-    The caller must already be inside an atomic transaction (select_for_update
-    is implicit via the surrounding atomic block), so concurrent requests
-    cannot produce duplicate numbers.
+    The caller must already be inside an atomic transaction. select_for_update()
+    locks the most recent matching row so a second concurrent transaction blocks
+    until the first commits and then recomputes off the updated max — closing the
+    common race window. When no row exists yet for the (prefix, year) pair there is
+    nothing to lock, so a residual race remains for the very first number of the
+    year/prefix; callers must treat the resulting IntegrityError (duplicate
+    movement_number) as a 409/retry case rather than a 500.
     """
     prefixes = {
         'ENTRY': 'ENT',
@@ -46,6 +50,7 @@ def _generate_movement_number(movement_type: str) -> str:
     year = datetime.now().year
     last = (
         InventoryMovement.objects
+        .select_for_update()
         .filter(movement_number__startswith=f'{prefix}-{year}-')
         .order_by('-movement_number')
         .first()
@@ -79,6 +84,7 @@ def _generate_group_number(movement_type: str) -> str:
     pattern = f'{prefix}-{year}-G'
     last = (
         MovementGroup.objects
+        .select_for_update()
         .filter(group_number__startswith=pattern)
         .order_by('-group_number')
         .first()
@@ -249,17 +255,23 @@ def register_exit_batch(
         User.objects.filter(pk=authorized_by_id).first() if authorized_by_id else None
     )
 
-    # Validate stock for every item before creating anything
+    # Validate & lock stock for every item before creating anything.
+    # select_for_update() blocks any concurrent transaction that would read/decrement
+    # the same InventoryStock row until this transaction commits or rolls back, closing
+    # the TOCTOU race that could otherwise push stock negative under concurrent exits.
+    # The locked rows are reused below when decrementing, so each row is only queried once.
+    locked_stocks = []
     for item_data in items_data:
         inventory = Inventory.objects.get(pk=item_data['inventory_id'])
         quantity = Decimal(str(item_data['quantity']))
         stock = _get_or_create_stock(inventory, warehouse, project_id)
-        stock.refresh_from_db()
+        stock = InventoryStock.objects.select_for_update().get(pk=stock.pk)
         if stock.quantity < quantity:
             raise ValueError(
                 f'Stock insuficiente para {inventory.product_code}. '
                 f'Disponible: {stock.quantity}, solicitado: {quantity}'
             )
+        locked_stocks.append(stock)
 
     group = MovementGroup.objects.create(
         group_number=_generate_group_number('EXIT'),
@@ -293,7 +305,7 @@ def register_exit_batch(
             group=group,
         )
 
-        stock = _get_or_create_stock(inventory, warehouse, project_id)
+        stock = locked_stocks[idx - 1]
         stock.quantity = F('quantity') - quantity
         stock.save(update_fields=['quantity', 'last_updated'])
 
@@ -385,8 +397,10 @@ def register_adjustment(
     Raises ValueError if the adjustment would produce negative stock.
     No MovementGroup is created for adjustments.
     """
+    # Same lock pattern as register_exit_batch: hold a row lock for the duration of
+    # the transaction so a concurrent adjustment/exit can't race past this check.
     stock = _get_or_create_stock(inventory, warehouse, project_id)
-    stock.refresh_from_db()
+    stock = InventoryStock.objects.select_for_update().get(pk=stock.pk)
 
     qty = Decimal(str(quantity))
     new_qty = stock.quantity + qty

@@ -4,6 +4,9 @@ Completely independent from the RQ system.
 
 Only users with CENTRAL_WAREHOUSE or SITE_WAREHOUSE roles may access these endpoints.
 """
+import logging
+
+from django.db import IntegrityError
 from django.db.models import Q, Sum, DecimalField, Value, F
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
@@ -32,6 +35,8 @@ from apps.warehouse.serializers import (
 from apps.warehouse.services import movements as warehouse_svc
 from apps.warehouse.services.onedrive import OneDriveService
 from apps.warehouse.services.pdf_generator import generate_movement_pdf, generate_group_pdf
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +432,15 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            # SYSPCC-007: movement_number numbering race (select_for_update locks the
+            # latest row, but the very first number for a prefix/year has nothing to
+            # lock against) — map to 409 so the client can retry instead of a 500.
+            logger.warning('warehouse.entry.integrity_error', extra={'user_id': request.user.id})
+            return Response(
+                {'detail': 'Conflicto al generar el número de movimiento, intente nuevamente.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     # -- exit ----------------------------------------------------------------
 
@@ -455,6 +469,12 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            logger.warning('warehouse.exit.integrity_error', extra={'user_id': request.user.id})
+            return Response(
+                {'detail': 'Conflicto al generar el número de movimiento, intente nuevamente.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     # -- batch entry ---------------------------------------------------------
 
@@ -496,6 +516,12 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            logger.warning('warehouse.batch_entry.integrity_error', extra={'user_id': request.user.id})
+            return Response(
+                {'detail': 'Conflicto al generar el número de grupo, intente nuevamente.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     # -- batch exit ----------------------------------------------------------
 
@@ -538,6 +564,12 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            logger.warning('warehouse.batch_exit.integrity_error', extra={'user_id': request.user.id})
+            return Response(
+                {'detail': 'Conflicto al generar el número de grupo, intente nuevamente.'},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     # -- voucher (vale de salida) --------------------------------------------
 

@@ -1,6 +1,16 @@
 import client from './client';
 
 /**
+ * GET /auth/csrf/
+ * CSRF bootstrap (double-submit cookie pattern). Sets the JS-readable
+ * `csrftoken` cookie that the request interceptor in api/client.js echoes
+ * back as the X-CSRFToken header on every mutating request. Must be called
+ * — and settled — before the first POST/PUT/PATCH/DELETE, including login.
+ * See AuthContext, which triggers this on app mount and awaits it in login().
+ */
+export const bootstrapCsrf = () => client.get('/auth/csrf/');
+
+/**
  * POST /auth/login/
  * Backend sets httpOnly cookies (access + refresh).
  * Response body contains { user } — tokens are NOT returned to JS.

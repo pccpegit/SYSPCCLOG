@@ -6,4 +6,5 @@ Para el próximo ID: toma el mayor de la tabla + 1. Tipos: `feature`, `fix`, `ch
 
 | Ticket | Tipo | Rama | Descripción | PR | Estado |
 |--------|------|------|-------------|-----|--------|
-| SYSPCC-001 | chore | `chore/SYSPCC-001-setup-agent-team` | Equipo multiagente (13 agentes + 18 skills), modo-equipo permanente y flujo de trabajo Git con tickets | [#1](https://github.com/pccpegit/SYSPCCLOG/pull/1) | En revisión |
+| SYSPCC-001 | chore | `chore/SYSPCC-001-setup-agent-team` | Equipo multiagente (13 agentes + 18 skills), modo-equipo permanente y flujo de trabajo Git con tickets | [#1](https://github.com/pccpegit/SYSPCCLOG/pull/1) | Mergeado |
+| SYSPCC-002 | chore | `chore/SYSPCC-002-gitignore-higiene` | Higiene del repo: ignorar datos con PII (datapasajes), rle/, docs generados y carpetas .claude descolocadas | _pendiente_ | En progreso |

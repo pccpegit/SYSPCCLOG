@@ -71,3 +71,14 @@ pnpm-debug.log*
 
 # ── Personal ──
 cv_pcc.md
+
+# ── No versionar: datos sensibles y artefactos ──
+# datos con PII (DNI, nombres, RUC) — NUNCA al repo
+datapasajes/
+# ruta de trabajo interna (ver CLAUDE.md), material voluminoso
+rle/
+# documentación generada
+docs/html/
+# carpetas de Claude descolocadas fuera de la raíz
+frontend/.claude/
+frontend/src/.claude/

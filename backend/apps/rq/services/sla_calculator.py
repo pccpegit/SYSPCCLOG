@@ -3,8 +3,14 @@ SLA (Service Level Agreement) calculator.
 Computes fecha_estimada_entrega based on acquisition type and validation date.
 """
 
+import logging
 from datetime import date, timedelta
+
+from django.db import OperationalError, ProgrammingError
+
 from apps.core.enums import AcquisitionTypeChoices
+
+logger = logging.getLogger(__name__)
 
 
 # Default SLA configuration (days from validation to expected delivery)
@@ -94,7 +100,18 @@ class SLACalculator:
                     'max_days': db_config.max_days,
                     'max_extended_days': db_config.max_extended_days,
                 }
+        except (OperationalError, ProgrammingError) as exc:
+            # DB unavailable or table/migration missing — expected/recoverable,
+            # fall back to hardcoded defaults below.
+            logger.warning(
+                'sla_calculator.config_unavailable',
+                extra={'acquisition_type': acquisition_type, 'db_error': str(exc)},
+            )
         except Exception:
-            pass
+            # Last barrier: unexpected error, keep serving defaults but log the stack.
+            logger.exception(
+                'sla_calculator.config_lookup_failed',
+                extra={'acquisition_type': acquisition_type},
+            )
 
         return SLA_DEFAULTS.get(acquisition_type, {'min_days': 7, 'max_days': 14})

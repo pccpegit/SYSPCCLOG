@@ -2,6 +2,8 @@
 Request (RQ) viewset - the central API resource.
 """
 
+import logging
+
 from django.db.models import Case, When, Value, CharField
 
 from rest_framework import viewsets, status
@@ -28,6 +30,8 @@ from apps.core.exceptions import WorkflowError, PermissionDeniedForAction
 from apps.core.permissions import IsLogisticsStaff
 from apps.rq.filters import RequestFilter
 from apps.rq.permissions import get_accessible_requests_queryset, CanPerformWorkflowAction
+
+logger = logging.getLogger(__name__)
 
 
 @extend_schema_view(
@@ -121,6 +125,12 @@ class RequestViewSet(viewsets.ModelViewSet):
             acting_role=data['acting_role'],
         )
 
+        action_ctx = {
+            'rq_id': rq_instance.pk,
+            'user_id': request.user.id,
+            'action': data['action'],
+        }
+
         try:
             approval = engine.execute(
                 action=data['action'],
@@ -128,9 +138,18 @@ class RequestViewSet(viewsets.ModelViewSet):
                 extra_data=data.get('extra_data', {}),
             )
         except WorkflowError as e:
+            # Expected: invalid transition for the current state — warning only.
+            logger.warning('rq.action.invalid', extra=action_ctx | {'reason': str(e.message)})
             return Response({'detail': str(e.message)}, status=status.HTTP_400_BAD_REQUEST)
         except PermissionDeniedForAction as e:
+            logger.warning('rq.action.forbidden', extra=action_ctx | {'reason': str(e.message)})
             return Response({'detail': str(e.message)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception:
+            # Last barrier: unexpected failure inside WorkflowEngine.execute —
+            # log full stack with context for production traceability, then
+            # re-raise so DRF's exception handler returns a 500 as usual.
+            logger.exception('rq.action.unexpected', extra=action_ctx)
+            raise
 
         return Response(ApprovalSerializer(approval).data, status=status.HTTP_200_OK)
 

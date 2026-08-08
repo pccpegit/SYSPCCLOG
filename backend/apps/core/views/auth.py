@@ -2,6 +2,8 @@
 Authentication views for login and logout.
 """
 
+import logging
+
 from django.conf import settings
 from rest_framework import status
 from rest_framework.views import APIView
@@ -10,9 +12,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from drf_spectacular.utils import extend_schema
 
 from apps.core.serializers.auth import CustomTokenObtainPairSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class LoginRateThrottle(AnonRateThrottle):
@@ -106,9 +111,22 @@ class LogoutView(APIView):
             try:
                 token = RefreshToken(refresh_token)
                 token.blacklist()
+            except (TokenError, InvalidToken):
+                # Token already expired, malformed, or already blacklisted —
+                # an expected, recoverable case. Cookies are cleared anyway
+                # so the client ends up logged out regardless.
+                logger.warning(
+                    'auth.logout.invalid_token',
+                    extra={'user_id': request.user.id},
+                )
             except Exception:
-                # Token already expired or invalid — cookies are cleared anyway
-                pass
+                # Unexpected failure (e.g. blacklist app DB error) — last
+                # barrier: log with stack trace but do not fail the logout,
+                # cookies are still cleared below.
+                logger.exception(
+                    'auth.logout.unexpected',
+                    extra={'user_id': request.user.id},
+                )
         else:
             response.data = {'detail': 'No se proporcionó token de refresco; cookies eliminadas.'}
 

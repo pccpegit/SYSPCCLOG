@@ -120,8 +120,13 @@ def _get_or_create_stock(inventory, warehouse: str, project_id=None) -> Inventor
 def _upload_group_pdf_sync(group_id: int) -> None:
     """
     Generate PDF and upload to OneDrive synchronously.
-    Called via transaction.on_commit so it only fires after the DB commit succeeds.
     Best-effort: a failure is logged but never raises.
+
+    SYSPCC-012: no longer called from apps.warehouse.views — batch_entry/
+    batch_exit now enqueue `apps.warehouse.tasks.upload_group_pdf_task`
+    instead of blocking the request thread on this. Left in place (unused)
+    rather than deleted, in case another sync call site is added later;
+    remove if it stays dead after a couple of releases.
     """
     try:
         from apps.warehouse.models import MovementGroup

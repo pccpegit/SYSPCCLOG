@@ -6,7 +6,11 @@ configure CACHES). All keys are prefixed by KEY_PREFIX='syspcclog'
 in settings, so no manual namespacing is needed here.
 """
 
+import logging
+
 from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Cache key templates
@@ -15,6 +19,25 @@ from django.core.cache import cache
 WORKFLOW_STEPS_KEY = 'workflow_steps:{flow}'
 ACQUISITION_CONFIG_KEY = 'acquisition_type_configs'
 DASHBOARD_STATS_KEY = 'dashboard_stats:{user_id}:{role}'
+
+
+def safe_delete_pattern(pattern: str) -> None:
+    """
+    Delete all cache keys matching a glob pattern.
+
+    Requires django-redis (only backend that implements `delete_pattern`).
+    If the configured cache backend doesn't support it (e.g. LocMemCache in
+    some test/dev configurations), skip with a warning instead of raising
+    AttributeError — a missed bulk-invalidation is a staleness issue, not a
+    request-breaking one, and callers already have a per-key fallback path.
+    """
+    if not hasattr(cache, 'delete_pattern'):
+        logger.warning(
+            'cache.delete_pattern.unsupported',
+            extra={'pattern': pattern, 'backend': type(cache).__name__},
+        )
+        return
+    cache.delete_pattern(pattern)
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +70,7 @@ def invalidate_workflow_cache(flow: str = None) -> None:
     if flow:
         cache.delete(WORKFLOW_STEPS_KEY.format(flow=flow))
     else:
-        cache.delete_pattern('*workflow_steps:*')
+        safe_delete_pattern('*workflow_steps:*')
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +105,6 @@ def invalidate_dashboard_cache(user_id: int = None) -> None:
     Requires django-redis for delete_pattern support.
     """
     if user_id:
-        cache.delete_pattern(f'*{DASHBOARD_STATS_KEY.format(user_id=user_id, role="*")}*')
+        safe_delete_pattern(f'*{DASHBOARD_STATS_KEY.format(user_id=user_id, role="*")}*')
     else:
-        cache.delete_pattern('*dashboard_stats:*')
+        safe_delete_pattern('*dashboard_stats:*')

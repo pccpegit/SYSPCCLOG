@@ -3,6 +3,7 @@ PDF generator for warehouse movement vouchers (vales de entrada/salida).
 Uses ReportLab to produce clean, professional PDF documents.
 """
 import io
+import logging
 import os
 from datetime import datetime
 
@@ -34,6 +35,8 @@ DEST_LABELS = {
     'DEPARTMENT': 'Area / Depto.',
     'EMPLOYEE': 'Colaborador',
 }
+
+logger = logging.getLogger(__name__)
 
 
 def generate_movement_pdf(movement) -> bytes:
@@ -276,7 +279,10 @@ def _get_signature_image(user):
         if os.path.exists(sig_path):
             return Image(sig_path, width=40 * mm, height=15 * mm, kind='proportional')
     except Exception:
-        pass
+        # Best-effort: a corrupt/unreadable signature file must not block PDF
+        # generation for the movement voucher — fall back to no signature image.
+        # No PII in the log (no user name/DNI), just that it happened.
+        logger.warning('No se pudo cargar firma de usuario para el PDF', exc_info=True)
     return ''
 
 

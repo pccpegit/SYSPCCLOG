@@ -505,10 +505,20 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
                 notes=d.get('notes', ''),
                 registered_by=request.user,
             )
-            # Generate PDF and upload to OneDrive (sync — user waits)
-            from apps.warehouse.services.movements import _upload_group_pdf_sync
-            _upload_group_pdf_sync(group.pk)
-            group.refresh_from_db()
+            # SYSPCC-012 FIX 4: PDF generation + OneDrive upload used to run
+            # synchronously in this request thread (~45 s blocked on Microsoft
+            # Graph). Enqueue it on Celery instead — the existing
+            # `upload_group_pdf_task` already handles retries, idempotency
+            # (skips if `document_url` is already set) and stores the sharing
+            # URL back on the group once it succeeds.
+            # TODO(SYSPCC): the response below returns `document_url` empty —
+            # the frontend does not currently poll/refresh for it. Not a
+            # regression introduced here (the sync call was itself best-effort
+            # and could return None), but if the UI needs the link
+            # immediately, it must poll GET on this group or receive a
+            # websocket/notification once the task completes.
+            from apps.warehouse.tasks import upload_group_pdf_task
+            upload_group_pdf_task.delay(group.pk)
 
             return Response(
                 MovementGroupSerializer(group).data,
@@ -553,10 +563,20 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
                 notes=d.get('notes', ''),
                 registered_by=request.user,
             )
-            # Generate PDF and upload to OneDrive (sync — user waits)
-            from apps.warehouse.services.movements import _upload_group_pdf_sync
-            _upload_group_pdf_sync(group.pk)
-            group.refresh_from_db()
+            # SYSPCC-012 FIX 4: PDF generation + OneDrive upload used to run
+            # synchronously in this request thread (~45 s blocked on Microsoft
+            # Graph). Enqueue it on Celery instead — the existing
+            # `upload_group_pdf_task` already handles retries, idempotency
+            # (skips if `document_url` is already set) and stores the sharing
+            # URL back on the group once it succeeds.
+            # TODO(SYSPCC): the response below returns `document_url` empty —
+            # the frontend does not currently poll/refresh for it. Not a
+            # regression introduced here (the sync call was itself best-effort
+            # and could return None), but if the UI needs the link
+            # immediately, it must poll GET on this group or receive a
+            # websocket/notification once the task completes.
+            from apps.warehouse.tasks import upload_group_pdf_task
+            upload_group_pdf_task.delay(group.pk)
 
             return Response(
                 MovementGroupSerializer(group).data,
@@ -793,9 +813,15 @@ class OneDriveViewSet(viewsets.ViewSet):
                 'interval': data.get('interval', 5),
                 'message': data.get('message', ''),
             })
-        except Exception as exc:
+        except Exception:
+            # Last barrier: never leak exception internals (could include
+            # request/response details from Microsoft Graph) to the client.
+            logger.exception(
+                'onedrive.connect.failed',
+                extra={'user_id': request.user.id},
+            )
             return Response(
-                {'detail': f'Error al iniciar conexion: {str(exc)}'},
+                {'detail': 'No se pudo iniciar la conexión con OneDrive. Intente nuevamente.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -837,8 +863,10 @@ class OneDriveViewSet(viewsets.ViewSet):
                         timeout=10,
                     ).json()
                     account_name = me.get('userPrincipalName') or me.get('displayName', '')
-                except Exception:
-                    pass
+                except (http_requests.RequestException, ValueError):
+                    # ValueError covers resp.json() on a non-JSON body. Non-fatal —
+                    # the token is already valid, we just miss the display name.
+                    logger.warning('onedrive.poll.account_info_failed', exc_info=True)
 
                 from apps.warehouse.models import OneDriveToken
                 expires_at = timezone.now() + timedelta(seconds=data.get('expires_in', 3600))
@@ -864,9 +892,13 @@ class OneDriveViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        except Exception as exc:
+        except Exception:
+            logger.exception(
+                'onedrive.poll.failed',
+                extra={'user_id': request.user.id},
+            )
             return Response(
-                {'detail': str(exc)},
+                {'detail': 'Error al verificar el estado de conexión con OneDrive.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

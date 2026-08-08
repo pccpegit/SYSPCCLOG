@@ -12,6 +12,12 @@ class RQFlowChoices(models.TextChoices):
     ADMINISTRATIVE = 'ADMINISTRATIVE', _('Administración (Oficina)')
 
 
+# SYSPCC-019: discriminador usado por RequestCreateSerializer para forzar
+# flow=ADMINISTRATIVE cuando front_area es Oficina Central. Comparar
+# .strip().upper() — mirror del default de Department.frente.
+OFICINA_CENTRAL_FRENTE = 'OFICINA CENTRAL'
+
+
 class WarehouseOriginChoices(models.TextChoices):
     CENTRAL = 'CENTRAL', _('Almacén Central')
     SITE = 'SITE', _('Almacén de Obra')

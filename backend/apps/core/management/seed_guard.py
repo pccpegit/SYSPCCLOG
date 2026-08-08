@@ -2,12 +2,15 @@
 SYSPCC-011 FIX 4: shared safety guard for demo/seed data management commands.
 
 `seed_demo`, `seed_demo_extra` and `seed_screenshots` all create demo user
-accounts sharing a single hardcoded, version-controlled password
-(`Demo2026Pcc!`). That is acceptable for local development and staging demo
-environments, but running any of these commands against a production database
-would create real, internet-reachable accounts with a publicly known
-password. `abort_if_production()` is called as the very first thing each
-command's `handle()` does, so no seed data is written before the check runs.
+accounts sharing a single, predictable password (see SYSPCC-017: `seed_demo`
+and `seed_demo_extra` read it from SEED_DEMO_PASSWORD or generate one per
+run — never a version-controlled literal — but it is still shared across
+every demo account within a run). That is acceptable for local development
+and staging demo environments, but running any of these commands against a
+production database would create real, internet-reachable accounts with a
+widely-known password. `abort_if_production()` is called as the very first
+thing each command's `handle()` does, so no seed data is written before the
+check runs.
 
 NOTE: this file intentionally does NOT live in `management/commands/` — files
 in that directory are auto-discovered as management commands by name, and this
@@ -34,9 +37,9 @@ def abort_if_production():
     django_env = os.environ.get('DJANGO_ENV', '')
     if not settings.DEBUG or django_env == 'production':
         raise CommandError(
-            'Este comando siembra datos DEMO con una contraseña COMPARTIDA y '
-            'versionada en el repositorio (Demo2026Pcc!). Nunca debe '
-            'ejecutarse en producción. '
+            'Este comando siembra datos DEMO con una contraseña COMPARTIDA '
+            'entre todas las cuentas demo. Nunca debe ejecutarse en '
+            'producción. '
             f'Abortando (settings.DEBUG={settings.DEBUG!r}, '
             f'DJANGO_ENV={django_env or None!r}).'
         )

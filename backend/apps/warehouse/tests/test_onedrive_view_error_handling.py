@@ -8,6 +8,7 @@ from unittest import mock
 import pytest
 import requests
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -31,7 +32,11 @@ def _client_for(user):
 
 @pytest.mark.django_db
 class TestOneDriveConnectErrorHandling:
+    @override_settings(ONEDRIVE_CLIENT_ID='test-client-id')
     def test_connect_failure_returns_generic_message_and_logs_exception(self, admin_user):
+        # ONEDRIVE_CLIENT_ID is set here so the request gets past the SYSPCC-017
+        # "not configured" guard and actually reaches initiate_device_code(),
+        # which is what this test wants to exercise.
         client = _client_for(admin_user)
 
         with mock.patch(
@@ -48,6 +53,7 @@ class TestOneDriveConnectErrorHandling:
 
 @pytest.mark.django_db
 class TestOneDrivePollErrorHandling:
+    @override_settings(ONEDRIVE_CLIENT_ID='test-client-id')
     def test_poll_failure_returns_generic_message_and_logs_exception(self, admin_user):
         client = _client_for(admin_user)
 
@@ -66,6 +72,7 @@ class TestOneDrivePollErrorHandling:
         mock_exception.assert_called_once()
         assert mock_exception.call_args[0][0] == 'onedrive.poll.failed'
 
+    @override_settings(ONEDRIVE_CLIENT_ID='test-client-id')
     def test_poll_missing_device_code_returns_400(self, admin_user):
         client = _client_for(admin_user)
         response = client.post('/api/v1/warehouse/onedrive/poll/', {}, format='json')

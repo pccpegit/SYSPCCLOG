@@ -5,10 +5,12 @@ Authentication views for login and logout.
 import logging
 
 from django.conf import settings
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -18,6 +20,34 @@ from drf_spectacular.utils import extend_schema
 from apps.core.serializers.auth import CustomTokenObtainPairSerializer
 
 logger = logging.getLogger(__name__)
+
+
+@method_decorator(ensure_csrf_cookie, name='get')
+class CsrfCookieView(APIView):
+    """
+    SYSPCC-015: bootstrap endpoint for the CSRF double-submit pattern.
+
+    The SPA calls this once on startup, before any mutating request
+    (including login), so the browser receives the `csrftoken` cookie.
+    `ensure_csrf_cookie` forces Django to set the cookie on the response even
+    though a plain GET would not otherwise trigger it. The view itself never
+    mutates state and requires no prior authentication.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=['auth'],
+        summary='Bootstrap CSRF cookie',
+        description=(
+            'Sets the `csrftoken` cookie. Call this before any mutating '
+            'request (including login) and echo the cookie value back via '
+            'the `X-CSRFToken` header on every POST/PUT/PATCH/DELETE.'
+        ),
+        request=None,
+    )
+    def get(self, request):
+        return Response({'detail': 'CSRF cookie set'}, status=status.HTTP_200_OK)
 
 
 class LoginRateThrottle(AnonRateThrottle):

@@ -3,6 +3,26 @@ import * as authApi from '../api/auth';
 
 const AuthContext = createContext(null);
 
+// ─── CSRF bootstrap ─────────────────────────────────────────────────────────
+// Module-level singleton (not component state) so it survives StrictMode's
+// double-mount in dev and is shared by every AuthProvider instance: the GET
+// /auth/csrf/ call fires exactly once per page load, as soon as this module
+// is evaluated — well before the login page can be submitted — and every
+// caller (restoreSession below, or login()) can `await` the same promise to
+// guarantee the csrftoken cookie exists before the first mutating request.
+let csrfReadyPromise = null;
+function ensureCsrfReady() {
+  if (!csrfReadyPromise) {
+    csrfReadyPromise = authApi.bootstrapCsrf().catch((err) => {
+      // Don't poison the singleton on failure — let a later caller retry
+      // (e.g. transient network error before the backend is reachable).
+      csrfReadyPromise = null;
+      throw err;
+    });
+  }
+  return csrfReadyPromise;
+}
+
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading]     = useState(true);
@@ -16,6 +36,14 @@ export function AuthProvider({ children }) {
 
   // ─── Restore session on app load ───────────────────────────────────────────
   useEffect(() => {
+    // Fire-and-forget here: getMe() is a GET and doesn't need the CSRF
+    // cookie, but kicking this off on mount means it's almost always
+    // settled by the time a user finishes typing their credentials.
+    ensureCsrfReady().catch(() => {
+      // Swallowed — login() below awaits the same promise and will
+      // surface a fresh attempt/error at submit time if this one failed.
+    });
+
     const restoreSession = async () => {
       try {
         const { data: user } = await authApi.getMe();
@@ -31,6 +59,10 @@ export function AuthProvider({ children }) {
 
   // ─── Login ──────────────────────────────────────────────────────────────────
   const login = useCallback(async (username, password) => {
+    // Guarantee the csrftoken cookie is set before this mutating request —
+    // if the mount-time bootstrap is still in flight (or failed), this
+    // awaits/retries it instead of racing the login POST against it.
+    await ensureCsrfReady();
     const { data } = await authApi.login(username, password);
     const raw = data.user ?? (await authApi.getMe()).data;
     const user = normalizeUser(raw);

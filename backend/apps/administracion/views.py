@@ -38,6 +38,7 @@ from apps.administracion.serializers import (
     PuestoSerializer,
 )
 from apps.administracion import services as adm_svc
+from apps.core.utils.excel import sanitize_excel_value, truncate_for_export
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +461,9 @@ class PasajeViewSet(viewsets.ModelViewSet):
             ).filter(habilitado=True),
             request.query_params,
         )
+        # SYSPCC-013 FIX 2: cap the export at MAX_EXPORT_ROWS — truncate with
+        # a visible warning row rather than building an unbounded workbook.
+        qs, was_truncated = truncate_for_export(qs)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -476,48 +480,56 @@ class PasajeViewSet(viewsets.ModelViewSet):
             'Estado', 'Fecha Pago', 'N. Operación',
             'Registrado por', 'Fecha Registro',
         ]
+        if was_truncated:
+            ws.append([
+                f'ADVERTENCIA: la exportación se truncó a las primeras '
+                f'{len(qs)} filas. Aplique filtros adicionales para ver el resto.'
+            ])
         ws.append(headers)
 
+        header_row = 2 if was_truncated else 1
         header_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
         bold_white = Font(bold=True, color='FFFFFF')
-        for cell in ws[1]:
+        for cell in ws[header_row]:
             cell.font = bold_white
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal='center', vertical='center')
 
         for p in qs:
             ws.append([
-                p.id,
-                p.get_tipo_display(),
-                p.fecha_bajada.strftime('%d/%m/%Y') if p.fecha_bajada else '',
-                p.embarque_bajada,
-                p.destino_bajada,
-                p.fecha_subida.strftime('%d/%m/%Y') if p.fecha_subida else '',
-                p.embarque_subida,
-                p.destino_subida,
-                p.dni,
-                p.nombres,
-                p.cargo,
-                p.get_tipo_trabajador_display(),
-                p.centro_costo.name if p.centro_costo_id else '',
-                p.proveedor.razon_social if p.proveedor_id else '',
-                p.ruc,
-                p.razon_social,
-                p.factura_ticket,
-                p.detalle,
-                p.fecha.strftime('%d/%m/%Y') if p.fecha else '',
-                p.mes,
-                p.get_moneda_display(),
-                float(p.monto_con_igv_soles),
-                float(p.monto_con_igv_dolares),
-                float(p.tipo_cambio),
-                float(p.devolucion),
-                float(p.total),
-                p.get_estado_display(),
-                p.fecha_pago.strftime('%d/%m/%Y') if p.fecha_pago else '',
-                p.numero_operacion,
-                p.creado_por.get_full_name() if p.creado_por_id else '',
-                p.fecha_registro.strftime('%d/%m/%Y %H:%M') if p.fecha_registro else '',
+                sanitize_excel_value(v) for v in [
+                    p.id,
+                    p.get_tipo_display(),
+                    p.fecha_bajada.strftime('%d/%m/%Y') if p.fecha_bajada else '',
+                    p.embarque_bajada,
+                    p.destino_bajada,
+                    p.fecha_subida.strftime('%d/%m/%Y') if p.fecha_subida else '',
+                    p.embarque_subida,
+                    p.destino_subida,
+                    p.dni,
+                    p.nombres,
+                    p.cargo,
+                    p.get_tipo_trabajador_display(),
+                    p.centro_costo.name if p.centro_costo_id else '',
+                    p.proveedor.razon_social if p.proveedor_id else '',
+                    p.ruc,
+                    p.razon_social,
+                    p.factura_ticket,
+                    p.detalle,
+                    p.fecha.strftime('%d/%m/%Y') if p.fecha else '',
+                    p.mes,
+                    p.get_moneda_display(),
+                    float(p.monto_con_igv_soles),
+                    float(p.monto_con_igv_dolares),
+                    float(p.tipo_cambio),
+                    float(p.devolucion),
+                    float(p.total),
+                    p.get_estado_display(),
+                    p.fecha_pago.strftime('%d/%m/%Y') if p.fecha_pago else '',
+                    p.numero_operacion,
+                    p.creado_por.get_full_name() if p.creado_por_id else '',
+                    p.fecha_registro.strftime('%d/%m/%Y %H:%M') if p.fecha_registro else '',
+                ]
             ])
 
         for col_idx, _ in enumerate(headers, start=1):

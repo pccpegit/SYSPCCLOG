@@ -174,6 +174,58 @@ class TestImportPasajesRowIsolation:
 
 
 @pytest.mark.django_db
+class TestImportPasajesDefaultUserDeterminism:
+    """SYSPCC-013 FIX 7: `default_user` selection must be deterministic."""
+
+    def test_default_user_is_lowest_id_staff_user_regardless_of_creation_order(self, tmp_path):
+        """Create two is_staff users where insertion order and id order could
+        disagree with an unordered `.first()` — `.order_by('id').first()`
+        must always pick the same one (the lowest id) run after run."""
+        second_staff = User.objects.create_user(
+            username='staff_two', email='staff_two@test.com',
+            password='TestPass2026!', is_staff=True,
+        )
+        first_staff = User.objects.create_user(
+            username='staff_one', email='staff_one@test.com',
+            password='TestPass2026!', is_staff=True,
+        )
+        # Whichever of the two has the lower pk (creation order is
+        # independent of pk order under some DB configs) must be picked.
+        expected_user = min([second_staff, first_staff], key=lambda u: u.pk)
+
+        csv_path = tmp_path / 'pasajes.csv'
+        _write_csv(csv_path, [_row('LEG-DET-001')])
+        call_command('import_pasajes_csv', str(csv_path))
+
+        pasaje = Pasaje.objects.get(codigo_id_legado='LEG-DET-001')
+        assert pasaje.creado_por_id == expected_user.pk
+
+    def test_default_user_pick_is_stable_across_repeated_runs(self, tmp_path):
+        """Re-running the import (idempotent update_or_create) must keep
+        attributing to the same user every time — proves the ordering isn't
+        incidentally stable only on the first call."""
+        User.objects.create_user(
+            username='staff_a', email='staff_a@test.com',
+            password='TestPass2026!', is_staff=True,
+        )
+        User.objects.create_user(
+            username='staff_b', email='staff_b@test.com',
+            password='TestPass2026!', is_staff=True,
+        )
+        expected_user = User.objects.filter(is_staff=True).order_by('id').first()
+
+        csv_path = tmp_path / 'pasajes.csv'
+        _write_csv(csv_path, [_row('LEG-DET-002')])
+
+        call_command('import_pasajes_csv', str(csv_path))
+        call_command('import_pasajes_csv', str(csv_path))
+        call_command('import_pasajes_csv', str(csv_path))
+
+        pasaje = Pasaje.objects.get(codigo_id_legado='LEG-DET-002')
+        assert pasaje.creado_por_id == expected_user.pk
+
+
+@pytest.mark.django_db
 class TestPasajeCodigoIdLegadoConstraint:
     def test_unique_constraint_enforced_at_db_level(self, staff_user):
         Pasaje.objects.create(

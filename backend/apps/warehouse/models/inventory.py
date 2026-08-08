@@ -6,7 +6,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator
 
-from apps.core.enums import WarehouseOriginChoices
+from apps.core.enums import WarehouseOriginChoices, ItemTypeChoices
 
 
 class Inventory(models.Model):
@@ -22,6 +22,20 @@ class Inventory(models.Model):
     description = models.CharField(_('descripción'), max_length=300)
     unit = models.CharField(_('unidad'), max_length=30)
     category = models.CharField(_('categoría'), max_length=100, blank=True)
+    item_type = models.CharField(
+        _('tipo de item'),
+        max_length=20,
+        choices=ItemTypeChoices.choices,
+        default=ItemTypeChoices.MATERIAL,
+    )
+    brand = models.CharField(_('marca'), max_length=100, blank=True)
+    model_name = models.CharField(_('modelo'), max_length=100, blank=True)
+    location = models.CharField(
+        _('ubicación física'),
+        max_length=100,
+        blank=True,
+        help_text=_('Estante, rack, zona del almacén'),
+    )
     min_stock = models.DecimalField(
         _('stock mínimo'),
         max_digits=12,

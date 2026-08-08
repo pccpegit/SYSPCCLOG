@@ -62,7 +62,7 @@ class QuotationViewSet(viewsets.ModelViewSet):
     FIX-08 + FIX-16: Write operations and the select action require logistics staff.
     """
 
-    queryset = Quotation.objects.select_related('request', 'supplier', 'selected_by').prefetch_related('items').all()
+    queryset = Quotation.objects.select_related('request', 'supplier', 'selected_by').prefetch_related('items__request_item').all()
     serializer_class = QuotationSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['request', 'supplier', 'is_selected', 'currency']

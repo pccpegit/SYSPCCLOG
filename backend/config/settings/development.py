@@ -29,6 +29,14 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 # Relaxed CORS in development
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Higher rate limits for development
+REST_FRAMEWORK_THROTTLE_RATES = {
+    'anon': '300/min',
+    'user': '1000/min',
+    'login': '30/min',
+}
+REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = REST_FRAMEWORK_THROTTLE_RATES  # noqa: F405
+
 # Django Debug Toolbar (optional, install separately if needed)
 # INSTALLED_APPS += ['debug_toolbar']
 # MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']

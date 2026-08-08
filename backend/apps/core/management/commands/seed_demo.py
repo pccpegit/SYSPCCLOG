@@ -137,6 +137,17 @@ DEMO_USERS = [
         ],
     },
     {
+        'username': 'vponce',
+        'first_name': 'Valeria',
+        'last_name': 'Ponce',
+        'email': 'vponce@pcc.pe',
+        'position': 'Analista de Pasajes',
+        'department': 'Administración',
+        'roles': [
+            {'role': 'PASAJES_MANAGER', 'is_primary': True},
+        ],
+    },
+    {
         'username': 'atorres',
         'first_name': 'Andrea',
         'last_name': 'Torres',
@@ -271,6 +282,579 @@ DEMO_DEPARTMENTS = [
     {'code': 'CONT', 'name': 'Contabilidad', 'manager_username': None},
     {'code': 'LOG', 'name': 'Logística', 'manager_username': 'atorres'},
 ]
+
+# ---------------------------------------------------------------------------
+# Inventory items data (warehouse catalog + stock levels)
+# ---------------------------------------------------------------------------
+
+DEMO_INVENTORY = [
+    # ── MATERIALES DE CONSTRUCCIÓN ──
+    {
+        'product_code': 'MAT-CEM-001',
+        'description': 'Cemento Portland Tipo I (42.5 kg)',
+        'unit': 'bolsa',
+        'category': 'Cementantes',
+        'item_type': 'MATERIAL',
+        'brand': 'Sol',
+        'model_name': '',
+        'location': 'Rack A1-01',
+        'min_stock': Decimal('200.000'),
+    },
+    {
+        'product_code': 'MAT-CEM-002',
+        'description': 'Cemento Portland Tipo V (42.5 kg)',
+        'unit': 'bolsa',
+        'category': 'Cementantes',
+        'item_type': 'MATERIAL',
+        'brand': 'Pacasmayo',
+        'model_name': '',
+        'location': 'Rack A1-02',
+        'min_stock': Decimal('100.000'),
+    },
+    {
+        'product_code': 'MAT-ACE-001',
+        'description': 'Fierro Corrugado 1/2" x 9m',
+        'unit': 'varilla',
+        'category': 'Acero',
+        'item_type': 'MATERIAL',
+        'brand': 'Siderperú',
+        'model_name': '',
+        'location': 'Zona Acero B1',
+        'min_stock': Decimal('500.000'),
+    },
+    {
+        'product_code': 'MAT-ACE-002',
+        'description': 'Fierro Corrugado 3/8" x 9m',
+        'unit': 'varilla',
+        'category': 'Acero',
+        'item_type': 'MATERIAL',
+        'brand': 'Siderperú',
+        'model_name': '',
+        'location': 'Zona Acero B1',
+        'min_stock': Decimal('600.000'),
+    },
+    {
+        'product_code': 'MAT-ACE-003',
+        'description': 'Alambre Negro #16',
+        'unit': 'kg',
+        'category': 'Acero',
+        'item_type': 'MATERIAL',
+        'brand': 'Prodac',
+        'model_name': '',
+        'location': 'Zona Acero B2',
+        'min_stock': Decimal('100.000'),
+    },
+    {
+        'product_code': 'MAT-AGR-001',
+        'description': 'Arena Gruesa',
+        'unit': 'm3',
+        'category': 'Agregados',
+        'item_type': 'MATERIAL',
+        'brand': '',
+        'model_name': '',
+        'location': 'Patio Agregados',
+        'min_stock': Decimal('50.000'),
+    },
+    {
+        'product_code': 'MAT-AGR-002',
+        'description': 'Piedra Chancada 1/2"',
+        'unit': 'm3',
+        'category': 'Agregados',
+        'item_type': 'MATERIAL',
+        'brand': '',
+        'model_name': '',
+        'location': 'Patio Agregados',
+        'min_stock': Decimal('40.000'),
+    },
+    {
+        'product_code': 'MAT-AGR-003',
+        'description': 'Arena Fina',
+        'unit': 'm3',
+        'category': 'Agregados',
+        'item_type': 'MATERIAL',
+        'brand': '',
+        'model_name': '',
+        'location': 'Patio Agregados',
+        'min_stock': Decimal('30.000'),
+    },
+    {
+        'product_code': 'MAT-LAD-001',
+        'description': 'Ladrillo King Kong 18 Huecos',
+        'unit': 'millar',
+        'category': 'Albañilería',
+        'item_type': 'MATERIAL',
+        'brand': 'Pirámide',
+        'model_name': '',
+        'location': 'Zona Ladrillos C1',
+        'min_stock': Decimal('15.000'),
+    },
+    {
+        'product_code': 'MAT-LAD-002',
+        'description': 'Ladrillo Pandereta',
+        'unit': 'millar',
+        'category': 'Albañilería',
+        'item_type': 'MATERIAL',
+        'brand': 'Pirámide',
+        'model_name': '',
+        'location': 'Zona Ladrillos C1',
+        'min_stock': Decimal('10.000'),
+    },
+    {
+        'product_code': 'MAT-TUB-001',
+        'description': 'Tubo PVC SAP 4" x 3m',
+        'unit': 'unidad',
+        'category': 'Instalaciones Sanitarias',
+        'item_type': 'MATERIAL',
+        'brand': 'Pavco',
+        'model_name': '',
+        'location': 'Rack D1-01',
+        'min_stock': Decimal('80.000'),
+    },
+    {
+        'product_code': 'MAT-TUB-002',
+        'description': 'Tubo PVC SAP 2" x 3m',
+        'unit': 'unidad',
+        'category': 'Instalaciones Sanitarias',
+        'item_type': 'MATERIAL',
+        'brand': 'Pavco',
+        'model_name': '',
+        'location': 'Rack D1-02',
+        'min_stock': Decimal('100.000'),
+    },
+    {
+        'product_code': 'MAT-TUB-003',
+        'description': 'Tubo PVC SEL 3/4" x 3m (eléctrico)',
+        'unit': 'unidad',
+        'category': 'Instalaciones Eléctricas',
+        'item_type': 'MATERIAL',
+        'brand': 'Pavco',
+        'model_name': '',
+        'location': 'Rack D2-01',
+        'min_stock': Decimal('150.000'),
+    },
+    {
+        'product_code': 'MAT-CAB-001',
+        'description': 'Cable THW 14 AWG',
+        'unit': 'rollo (100m)',
+        'category': 'Instalaciones Eléctricas',
+        'item_type': 'MATERIAL',
+        'brand': 'Indeco',
+        'model_name': '',
+        'location': 'Rack D2-02',
+        'min_stock': Decimal('20.000'),
+    },
+    {
+        'product_code': 'MAT-CAB-002',
+        'description': 'Cable THW 12 AWG',
+        'unit': 'rollo (100m)',
+        'category': 'Instalaciones Eléctricas',
+        'item_type': 'MATERIAL',
+        'brand': 'Indeco',
+        'model_name': '',
+        'location': 'Rack D2-02',
+        'min_stock': Decimal('15.000'),
+    },
+    {
+        'product_code': 'MAT-PIN-001',
+        'description': 'Pintura Látex Satinada Blanco (4 gal)',
+        'unit': 'balde',
+        'category': 'Acabados',
+        'item_type': 'MATERIAL',
+        'brand': 'CPP',
+        'model_name': 'American Colors',
+        'location': 'Rack E1-01',
+        'min_stock': Decimal('25.000'),
+    },
+    {
+        'product_code': 'MAT-PIN-002',
+        'description': 'Pintura Esmalte Sintético Negro (1 gal)',
+        'unit': 'galón',
+        'category': 'Acabados',
+        'item_type': 'MATERIAL',
+        'brand': 'CPP',
+        'model_name': 'Jet',
+        'location': 'Rack E1-02',
+        'min_stock': Decimal('10.000'),
+    },
+    {
+        'product_code': 'MAT-IMP-001',
+        'description': 'Membrana Asfáltica Impermeabilizante 3mm',
+        'unit': 'rollo (10m2)',
+        'category': 'Impermeabilización',
+        'item_type': 'MATERIAL',
+        'brand': 'Chema',
+        'model_name': 'Chemamembrana',
+        'location': 'Rack E2-01',
+        'min_stock': Decimal('30.000'),
+    },
+    {
+        'product_code': 'MAT-ADH-001',
+        'description': 'Pegamento para PVC 1/4 gal',
+        'unit': 'unidad',
+        'category': 'Adhesivos y Sellantes',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Oatey',
+        'model_name': '',
+        'location': 'Rack D1-03',
+        'min_stock': Decimal('40.000'),
+    },
+    {
+        'product_code': 'MAT-CLA-001',
+        'description': 'Clavos de 3"',
+        'unit': 'kg',
+        'category': 'Ferretería',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Prodac',
+        'model_name': '',
+        'location': 'Rack F1-01',
+        'min_stock': Decimal('50.000'),
+    },
+
+    # ── EQUIPOS ──
+    {
+        'product_code': 'EQP-MZC-001',
+        'description': 'Mezcladora de Concreto 9 p3',
+        'unit': 'unidad',
+        'category': 'Maquinaria',
+        'item_type': 'EQUIPMENT',
+        'brand': 'Ancon',
+        'model_name': 'MC9P3',
+        'location': 'Patio Equipos',
+        'min_stock': Decimal('2.000'),
+    },
+    {
+        'product_code': 'EQP-VIB-001',
+        'description': 'Vibrador de Concreto 2"',
+        'unit': 'unidad',
+        'category': 'Maquinaria',
+        'item_type': 'EQUIPMENT',
+        'brand': 'Wacker Neuson',
+        'model_name': 'IREN 45',
+        'location': 'Patio Equipos',
+        'min_stock': Decimal('3.000'),
+    },
+    {
+        'product_code': 'EQP-COM-001',
+        'description': 'Compactadora Tipo Plancha',
+        'unit': 'unidad',
+        'category': 'Maquinaria',
+        'item_type': 'EQUIPMENT',
+        'brand': 'Wacker Neuson',
+        'model_name': 'WP1550AW',
+        'location': 'Patio Equipos',
+        'min_stock': Decimal('2.000'),
+    },
+    {
+        'product_code': 'EQP-GEN-001',
+        'description': 'Grupo Electrógeno 20 KW',
+        'unit': 'unidad',
+        'category': 'Equipos Eléctricos',
+        'item_type': 'EQUIPMENT',
+        'brand': 'Honda',
+        'model_name': 'EM5000S',
+        'location': 'Almacén Equipos Especiales',
+        'min_stock': Decimal('1.000'),
+    },
+    {
+        'product_code': 'EQP-BOM-001',
+        'description': 'Bomba Sumergible 3" (2HP)',
+        'unit': 'unidad',
+        'category': 'Equipos Hidráulicos',
+        'item_type': 'EQUIPMENT',
+        'brand': 'Pedrollo',
+        'model_name': 'VXm 15/35',
+        'location': 'Almacén Equipos Especiales',
+        'min_stock': Decimal('2.000'),
+    },
+    {
+        'product_code': 'EQP-AND-001',
+        'description': 'Andamio Metálico Cuerpo 1.50m',
+        'unit': 'juego',
+        'category': 'Encofrados y Andamios',
+        'item_type': 'EQUIPMENT',
+        'brand': 'ULMA',
+        'model_name': '',
+        'location': 'Zona Andamios',
+        'min_stock': Decimal('20.000'),
+    },
+
+    # ── HERRAMIENTAS ──
+    {
+        'product_code': 'HER-TAL-001',
+        'description': 'Taladro Percutor 1/2" 800W',
+        'unit': 'unidad',
+        'category': 'Herramientas Eléctricas',
+        'item_type': 'TOOL',
+        'brand': 'Bosch',
+        'model_name': 'GSB 20-2 RE',
+        'location': 'Rack G1-01',
+        'min_stock': Decimal('5.000'),
+    },
+    {
+        'product_code': 'HER-AMO-001',
+        'description': 'Amoladora Angular 7" 2200W',
+        'unit': 'unidad',
+        'category': 'Herramientas Eléctricas',
+        'item_type': 'TOOL',
+        'brand': 'DeWalt',
+        'model_name': 'DWE4557',
+        'location': 'Rack G1-02',
+        'min_stock': Decimal('4.000'),
+    },
+    {
+        'product_code': 'HER-ROT-001',
+        'description': 'Rotomartillo SDS-Plus 800W',
+        'unit': 'unidad',
+        'category': 'Herramientas Eléctricas',
+        'item_type': 'TOOL',
+        'brand': 'Bosch',
+        'model_name': 'GBH 2-26 DRE',
+        'location': 'Rack G1-03',
+        'min_stock': Decimal('3.000'),
+    },
+    {
+        'product_code': 'HER-SOL-001',
+        'description': 'Máquina de Soldar Inverter 200A',
+        'unit': 'unidad',
+        'category': 'Herramientas de Soldadura',
+        'item_type': 'TOOL',
+        'brand': 'Lincoln Electric',
+        'model_name': 'Invertec V205',
+        'location': 'Rack G2-01',
+        'min_stock': Decimal('2.000'),
+    },
+    {
+        'product_code': 'HER-NIV-001',
+        'description': 'Nivel Topográfico Automático',
+        'unit': 'unidad',
+        'category': 'Instrumentos de Medición',
+        'item_type': 'TOOL',
+        'brand': 'Topcon',
+        'model_name': 'AT-B4A',
+        'location': 'Almacén Topografía',
+        'min_stock': Decimal('2.000'),
+    },
+    {
+        'product_code': 'HER-CIN-001',
+        'description': 'Cincel Punta SDS-Plus 250mm',
+        'unit': 'unidad',
+        'category': 'Herramientas Manuales',
+        'item_type': 'TOOL',
+        'brand': 'Bosch',
+        'model_name': '',
+        'location': 'Rack G3-01',
+        'min_stock': Decimal('10.000'),
+    },
+
+    # ── CONSUMIBLES ──
+    {
+        'product_code': 'CON-DIS-001',
+        'description': 'Disco de Corte Metal 7" x 1/8"',
+        'unit': 'unidad',
+        'category': 'Abrasivos',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Norton',
+        'model_name': '',
+        'location': 'Rack F2-01',
+        'min_stock': Decimal('100.000'),
+    },
+    {
+        'product_code': 'CON-DIS-002',
+        'description': 'Disco de Desbaste Metal 7" x 1/4"',
+        'unit': 'unidad',
+        'category': 'Abrasivos',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Norton',
+        'model_name': '',
+        'location': 'Rack F2-01',
+        'min_stock': Decimal('80.000'),
+    },
+    {
+        'product_code': 'CON-ELE-001',
+        'description': 'Electrodo E6011 3/32" (5kg)',
+        'unit': 'caja',
+        'category': 'Soldadura',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Soldexa',
+        'model_name': 'Supercito',
+        'location': 'Rack F3-01',
+        'min_stock': Decimal('20.000'),
+    },
+    {
+        'product_code': 'CON-ELE-002',
+        'description': 'Electrodo E7018 1/8" (5kg)',
+        'unit': 'caja',
+        'category': 'Soldadura',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Soldexa',
+        'model_name': 'Overcord',
+        'location': 'Rack F3-01',
+        'min_stock': Decimal('15.000'),
+    },
+    {
+        'product_code': 'CON-LIJ-001',
+        'description': 'Lija al Agua #120',
+        'unit': 'pliego',
+        'category': 'Abrasivos',
+        'item_type': 'CONSUMABLE',
+        'brand': 'ASA',
+        'model_name': '',
+        'location': 'Rack F2-02',
+        'min_stock': Decimal('200.000'),
+    },
+    {
+        'product_code': 'CON-SIL-001',
+        'description': 'Silicona Selladora Transparente 280ml',
+        'unit': 'unidad',
+        'category': 'Adhesivos y Sellantes',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Sika',
+        'model_name': 'SikaFlex 227',
+        'location': 'Rack F4-01',
+        'min_stock': Decimal('50.000'),
+    },
+    {
+        'product_code': 'CON-CIN-001',
+        'description': 'Cinta Aislante Negra 3/4" x 20m',
+        'unit': 'rollo',
+        'category': 'Material Eléctrico',
+        'item_type': 'CONSUMABLE',
+        'brand': '3M',
+        'model_name': 'Temflex',
+        'location': 'Rack F5-01',
+        'min_stock': Decimal('60.000'),
+    },
+
+    # ── MATERIALES OFICINA (para probar almacén admin) ──
+    {
+        'product_code': 'OFI-PAP-001',
+        'description': 'Papel Bond A4 75g (paquete 500 hojas)',
+        'unit': 'paquete',
+        'category': 'Papelería',
+        'item_type': 'CONSUMABLE',
+        'brand': 'Report',
+        'model_name': '',
+        'location': 'Estante Oficina 1',
+        'min_stock': Decimal('30.000'),
+    },
+    {
+        'product_code': 'OFI-TON-001',
+        'description': 'Tóner HP 26A Negro',
+        'unit': 'unidad',
+        'category': 'Informática',
+        'item_type': 'CONSUMABLE',
+        'brand': 'HP',
+        'model_name': 'CF226A',
+        'location': 'Estante Oficina 2',
+        'min_stock': Decimal('5.000'),
+    },
+]
+
+# Stock levels per warehouse — tuples of (product_code, warehouse_type, project_code, dept_code, qty)
+# Includes items below min_stock, at min_stock, and above min_stock for testing.
+DEMO_INVENTORY_STOCK = [
+    # ── ALMACÉN CENTRAL ── (project=None, dept=None)
+    ('MAT-CEM-001', 'CENTRAL', None, None, Decimal('350.000')),     # above min (200)
+    ('MAT-CEM-002', 'CENTRAL', None, None, Decimal('45.000')),      # BELOW min (100) ⚠️
+    ('MAT-ACE-001', 'CENTRAL', None, None, Decimal('500.000')),     # exactly at min (500)
+    ('MAT-ACE-002', 'CENTRAL', None, None, Decimal('180.000')),     # BELOW min (600) ⚠️
+    ('MAT-ACE-003', 'CENTRAL', None, None, Decimal('250.000')),     # above min (100)
+    ('MAT-AGR-001', 'CENTRAL', None, None, Decimal('75.000')),      # above min (50)
+    ('MAT-AGR-002', 'CENTRAL', None, None, Decimal('20.000')),      # BELOW min (40) ⚠️
+    ('MAT-AGR-003', 'CENTRAL', None, None, Decimal('30.000')),      # at min (30)
+    ('MAT-LAD-001', 'CENTRAL', None, None, Decimal('22.000')),      # above min (15)
+    ('MAT-LAD-002', 'CENTRAL', None, None, Decimal('3.000')),       # BELOW min (10) ⚠️
+    ('MAT-TUB-001', 'CENTRAL', None, None, Decimal('120.000')),     # above min (80)
+    ('MAT-TUB-002', 'CENTRAL', None, None, Decimal('50.000')),      # BELOW min (100) ⚠️
+    ('MAT-TUB-003', 'CENTRAL', None, None, Decimal('200.000')),     # above min (150)
+    ('MAT-CAB-001', 'CENTRAL', None, None, Decimal('20.000')),      # at min (20)
+    ('MAT-CAB-002', 'CENTRAL', None, None, Decimal('8.000')),       # BELOW min (15) ⚠️
+    ('MAT-PIN-001', 'CENTRAL', None, None, Decimal('40.000')),      # above min (25)
+    ('MAT-PIN-002', 'CENTRAL', None, None, Decimal('10.000')),      # at min (10)
+    ('MAT-IMP-001', 'CENTRAL', None, None, Decimal('12.000')),      # BELOW min (30) ⚠️
+    ('MAT-ADH-001', 'CENTRAL', None, None, Decimal('55.000')),      # above min (40)
+    ('MAT-CLA-001', 'CENTRAL', None, None, Decimal('25.000')),      # BELOW min (50) ⚠️
+    ('EQP-MZC-001', 'CENTRAL', None, None, Decimal('5.000')),       # above min (2)
+    ('EQP-VIB-001', 'CENTRAL', None, None, Decimal('6.000')),       # above min (3)
+    ('EQP-COM-001', 'CENTRAL', None, None, Decimal('1.000')),       # BELOW min (2) ⚠️
+    ('EQP-GEN-001', 'CENTRAL', None, None, Decimal('2.000')),       # above min (1)
+    ('EQP-BOM-001', 'CENTRAL', None, None, Decimal('0.000')),       # BELOW min (2) ⚠️ — agotado
+    ('EQP-AND-001', 'CENTRAL', None, None, Decimal('35.000')),      # above min (20)
+    ('HER-TAL-001', 'CENTRAL', None, None, Decimal('8.000')),       # above min (5)
+    ('HER-AMO-001', 'CENTRAL', None, None, Decimal('2.000')),       # BELOW min (4) ⚠️
+    ('HER-ROT-001', 'CENTRAL', None, None, Decimal('3.000')),       # at min (3)
+    ('HER-SOL-001', 'CENTRAL', None, None, Decimal('1.000')),       # BELOW min (2) ⚠️
+    ('HER-NIV-001', 'CENTRAL', None, None, Decimal('2.000')),       # at min (2)
+    ('HER-CIN-001', 'CENTRAL', None, None, Decimal('4.000')),       # BELOW min (10) ⚠️
+    ('CON-DIS-001', 'CENTRAL', None, None, Decimal('150.000')),     # above min (100)
+    ('CON-DIS-002', 'CENTRAL', None, None, Decimal('30.000')),      # BELOW min (80) ⚠️
+    ('CON-ELE-001', 'CENTRAL', None, None, Decimal('25.000')),      # above min (20)
+    ('CON-ELE-002', 'CENTRAL', None, None, Decimal('7.000')),       # BELOW min (15) ⚠️
+    ('CON-LIJ-001', 'CENTRAL', None, None, Decimal('200.000')),     # at min (200)
+    ('CON-SIL-001', 'CENTRAL', None, None, Decimal('18.000')),      # BELOW min (50) ⚠️
+    ('CON-CIN-001', 'CENTRAL', None, None, Decimal('90.000')),      # above min (60)
+
+    # ── ALMACÉN DE OBRA — Proyecto Plaza Norte ──
+    ('MAT-CEM-001', 'SITE', 'PROY-2026-001', None, Decimal('80.000')),
+    ('MAT-CEM-002', 'SITE', 'PROY-2026-001', None, Decimal('0.000')),    # agotado ⚠️
+    ('MAT-ACE-001', 'SITE', 'PROY-2026-001', None, Decimal('120.000')),
+    ('MAT-ACE-002', 'SITE', 'PROY-2026-001', None, Decimal('90.000')),
+    ('MAT-ACE-003', 'SITE', 'PROY-2026-001', None, Decimal('30.000')),
+    ('MAT-AGR-001', 'SITE', 'PROY-2026-001', None, Decimal('15.000')),
+    ('MAT-AGR-002', 'SITE', 'PROY-2026-001', None, Decimal('10.000')),
+    ('MAT-LAD-001', 'SITE', 'PROY-2026-001', None, Decimal('5.000')),
+    ('MAT-TUB-001', 'SITE', 'PROY-2026-001', None, Decimal('25.000')),
+    ('MAT-CAB-001', 'SITE', 'PROY-2026-001', None, Decimal('4.000')),
+    ('EQP-MZC-001', 'SITE', 'PROY-2026-001', None, Decimal('2.000')),
+    ('EQP-VIB-001', 'SITE', 'PROY-2026-001', None, Decimal('2.000')),
+    ('EQP-AND-001', 'SITE', 'PROY-2026-001', None, Decimal('10.000')),
+    ('HER-TAL-001', 'SITE', 'PROY-2026-001', None, Decimal('2.000')),
+    ('HER-AMO-001', 'SITE', 'PROY-2026-001', None, Decimal('1.000')),
+    ('CON-DIS-001', 'SITE', 'PROY-2026-001', None, Decimal('40.000')),
+    ('CON-ELE-001', 'SITE', 'PROY-2026-001', None, Decimal('5.000')),
+
+    # ── ALMACÉN DE OBRA — Proyecto Los Jardines ──
+    ('MAT-CEM-001', 'SITE', 'PROY-2026-002', None, Decimal('50.000')),
+    ('MAT-ACE-001', 'SITE', 'PROY-2026-002', None, Decimal('60.000')),
+    ('MAT-ACE-002', 'SITE', 'PROY-2026-002', None, Decimal('45.000')),
+    ('MAT-AGR-001', 'SITE', 'PROY-2026-002', None, Decimal('8.000')),
+    ('MAT-LAD-001', 'SITE', 'PROY-2026-002', None, Decimal('3.000')),
+    ('MAT-PIN-001', 'SITE', 'PROY-2026-002', None, Decimal('12.000')),
+    ('MAT-PIN-002', 'SITE', 'PROY-2026-002', None, Decimal('6.000')),
+    ('EQP-MZC-001', 'SITE', 'PROY-2026-002', None, Decimal('1.000')),
+    ('EQP-COM-001', 'SITE', 'PROY-2026-002', None, Decimal('1.000')),
+    ('HER-ROT-001', 'SITE', 'PROY-2026-002', None, Decimal('1.000')),
+    ('CON-DIS-001', 'SITE', 'PROY-2026-002', None, Decimal('20.000')),
+    ('CON-LIJ-001', 'SITE', 'PROY-2026-002', None, Decimal('50.000')),
+
+    # ── ALMACÉN DE OBRA — Proyecto Puente Río Mantaro ──
+    ('MAT-CEM-001', 'SITE', 'PROY-2026-003', None, Decimal('150.000')),
+    ('MAT-CEM-002', 'SITE', 'PROY-2026-003', None, Decimal('120.000')),
+    ('MAT-ACE-001', 'SITE', 'PROY-2026-003', None, Decimal('300.000')),
+    ('MAT-ACE-002', 'SITE', 'PROY-2026-003', None, Decimal('200.000')),
+    ('MAT-ACE-003', 'SITE', 'PROY-2026-003', None, Decimal('80.000')),
+    ('MAT-IMP-001', 'SITE', 'PROY-2026-003', None, Decimal('20.000')),
+    ('EQP-GEN-001', 'SITE', 'PROY-2026-003', None, Decimal('1.000')),
+    ('EQP-BOM-001', 'SITE', 'PROY-2026-003', None, Decimal('2.000')),
+    ('EQP-AND-001', 'SITE', 'PROY-2026-003', None, Decimal('15.000')),
+    ('HER-SOL-001', 'SITE', 'PROY-2026-003', None, Decimal('2.000')),
+    ('HER-NIV-001', 'SITE', 'PROY-2026-003', None, Decimal('1.000')),
+    ('CON-ELE-001', 'SITE', 'PROY-2026-003', None, Decimal('10.000')),
+    ('CON-ELE-002', 'SITE', 'PROY-2026-003', None, Decimal('8.000')),
+
+    # ── ALMACÉN/BODEGA OFICINA — Depto Administración ──
+    ('OFI-PAP-001', 'OFFICE', None, 'ADM', Decimal('12.000')),      # BELOW min (30) ⚠️
+    ('OFI-TON-001', 'OFFICE', None, 'ADM', Decimal('2.000')),       # BELOW min (5) ⚠️
+
+    # ── ALMACÉN/BODEGA OFICINA — Depto TI ──
+    ('OFI-PAP-001', 'OFFICE', None, 'TI', Decimal('8.000')),        # BELOW min (30) ⚠️
+    ('OFI-TON-001', 'OFFICE', None, 'TI', Decimal('6.000')),        # above min (5)
+
+    # ── ALMACÉN/BODEGA OFICINA — Depto Logística ──
+    ('OFI-PAP-001', 'OFFICE', None, 'LOG', Decimal('35.000')),      # above min (30)
+    ('OFI-TON-001', 'OFFICE', None, 'LOG', Decimal('1.000')),       # BELOW min (5) ⚠️
+]
+
 
 ANNUAL_PLAN_LINES_BY_DEPT = {
     'ADM': [
@@ -451,6 +1035,7 @@ class Command(BaseCommand):
             Department, AnnualPlan, AnnualPlanLine,
         )
         from apps.rq.models import Supplier, Request, RequestItem, Approval
+        from apps.warehouse.models import Inventory, InventoryStock
 
         if options['clear']:
             self._clear_demo_data(
@@ -484,6 +1069,12 @@ class Command(BaseCommand):
             annual_plan_lines_map,
         )
 
+        # ── Step 7: Inventory & Stock ─────────────────────────
+        self._seed_inventory(
+            Inventory, InventoryStock,
+            projects_map, departments_map,
+        )
+
         self.stdout.write(self.style.SUCCESS('\nDemo data seeding completed successfully.\n'))
 
     # -----------------------------------------------------------------------
@@ -494,6 +1085,12 @@ class Command(BaseCommand):
         self, User, UserRole, Project, Department, Supplier, Request, Approval,
     ):
         self.stdout.write(self.style.WARNING('Clearing existing demo data...'))
+
+        from apps.warehouse.models import Inventory, InventoryStock
+        demo_codes = [item['product_code'] for item in DEMO_INVENTORY]
+        InventoryStock.objects.filter(inventory__product_code__in=demo_codes).delete()
+        Inventory.objects.filter(product_code__in=demo_codes).delete()
+        self.stdout.write('  Deleted demo inventory items and stock.')
 
         demo_usernames = [u['username'] for u in DEMO_USERS]
         Request.objects.filter(rq_number__startswith='RQ-2026-000').delete()
@@ -1303,3 +1900,67 @@ class Command(BaseCommand):
             line_num = item_data['line_number']
             if not RequestItem.objects.filter(request=request, line_number=line_num).exists():
                 RequestItem.objects.create(request=request, **item_data)
+
+    # -----------------------------------------------------------------------
+    # Inventory & Stock seeding
+    # -----------------------------------------------------------------------
+
+    def _seed_inventory(self, Inventory, InventoryStock, projects_map, departments_map):
+        self.stdout.write('Seeding demo inventory items and stock levels...')
+        inv_created = 0
+        inv_updated = 0
+
+        # Step A: Create / update catalog items
+        inv_map = {}
+        for item_data in DEMO_INVENTORY:
+            inv, created = Inventory.objects.get_or_create(
+                product_code=item_data['product_code'],
+                defaults=item_data,
+            )
+            if not created:
+                for field in ('description', 'unit', 'category', 'item_type',
+                              'brand', 'model_name', 'location', 'min_stock'):
+                    setattr(inv, field, item_data[field])
+                inv.save()
+                inv_updated += 1
+            else:
+                inv_created += 1
+            inv_map[inv.product_code] = inv
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'  Inventory items: {inv_created} created, {inv_updated} updated.'
+            )
+        )
+
+        # Step B: Create stock levels
+        stock_created = 0
+        stock_updated = 0
+        for (code, wh_type, proj_code, dept_code, qty) in DEMO_INVENTORY_STOCK:
+            inv = inv_map.get(code)
+            if not inv:
+                self.stdout.write(self.style.WARNING(f'  Skipping stock for unknown item: {code}'))
+                continue
+
+            project = projects_map.get(proj_code) if proj_code else None
+            department = departments_map.get(dept_code) if dept_code else None
+
+            stock, created = InventoryStock.objects.get_or_create(
+                inventory=inv,
+                warehouse_type=wh_type,
+                project=project,
+                department=department,
+                defaults={'quantity': qty},
+            )
+            if not created:
+                stock.quantity = qty
+                stock.save(update_fields=['quantity'])
+                stock_updated += 1
+            else:
+                stock_created += 1
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'  Stock levels: {stock_created} created, {stock_updated} updated.'
+            )
+        )

@@ -31,12 +31,19 @@ urlpatterns = [
         path('', include('apps.core.urls.users', namespace='users')),
         path('', include('apps.core.urls.projects', namespace='projects')),
         path('', include('apps.core.urls.departments', namespace='departments')),
+        path('', include('apps.core.urls.personal', namespace='personal')),
 
         # RQ app
         path('', include('apps.rq.urls', namespace='rq')),
 
         # Warehouse app
-        path('', include('apps.warehouse.urls', namespace='warehouse')),
+        path('warehouse/', include('apps.warehouse.urls', namespace='warehouse')),
+
+        # Administración app
+        path('administracion/', include('apps.administracion.urls', namespace='administracion')),
+
+        # Support / IT tickets app
+        path('support/', include('apps.support.urls', namespace='support')),
     ])),
 
     # FIX-05: OpenAPI schema and docs require admin authentication

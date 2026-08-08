@@ -292,6 +292,22 @@ class RequestItem(models.Model):
         max_length=100,
         blank=True,
     )
+    supply_source = models.CharField(
+        _('fuente de atención'),
+        max_length=20,
+        blank=True,
+        choices=[('STOCK', 'Atender de stock'), ('PURCHASE', 'Requiere compra')],
+        help_text=_('Definido por logística en verificación de stock'),
+    )
+    inventory_item = models.ForeignKey(
+        'warehouse.Inventory',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='request_items',
+        verbose_name=_('Producto de inventario'),
+        help_text=_('Vinculacion directa al catalogo de inventario'),
+    )
     comentarios = models.TextField(_('comentarios'), blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

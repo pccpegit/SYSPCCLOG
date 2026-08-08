@@ -6,6 +6,7 @@ from django.contrib import admin
 from apps.warehouse.models import (
     Inventory,
     InventoryStock,
+    InventoryMovement,
     WarehouseReceipt,
     WarehouseReceiptItem,
     WarehouseDispatch,
@@ -59,3 +60,15 @@ class WarehouseDispatchAdmin(admin.ModelAdmin):
     list_display = ['dispatch_number', 'request', 'origin', 'dispatched_by', 'dispatched_at', 'delivered_at']
     list_filter = ['origin']
     search_fields = ['request__rq_number', 'dispatch_number']
+
+
+@admin.register(InventoryMovement)
+class InventoryMovementAdmin(admin.ModelAdmin):
+    list_display = [
+        'movement_number', 'movement_type', 'inventory',
+        'quantity', 'warehouse', 'registered_by', 'created_at',
+    ]
+    list_filter = ['movement_type', 'warehouse', 'created_at']
+    search_fields = ['movement_number', 'inventory__product_code', 'inventory__description']
+    readonly_fields = ['movement_number', 'created_at']
+    date_hierarchy = 'created_at'

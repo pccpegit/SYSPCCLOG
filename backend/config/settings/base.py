@@ -49,6 +49,8 @@ LOCAL_APPS = [
     'apps.core',
     'apps.rq',
     'apps.warehouse',
+    'apps.administracion',
+    'apps.support',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -171,7 +173,29 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'rq.invalidate_dashboard_caches',
         'schedule': crontab(minute='*/15'),  # Every 15 minutes
     },
+    'warehouse-low-stock-check': {
+        'task': 'warehouse.check_low_stock',
+        'schedule': crontab(hour=7, minute=30),  # Every day at 7:30 AM Lima time
+    },
 }
+
+# ============================================================
+# EMAIL
+# ============================================================
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.office365.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='sistemas@pcc.com.pe')
+
+# Recipients for warehouse low-stock alerts
+WAREHOUSE_ALERT_RECIPIENTS = config(
+    'WAREHOUSE_ALERT_RECIPIENTS',
+    default='sistemas@pcc.com.pe',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
 
 
 # ============================================================
@@ -284,6 +308,14 @@ SPECTACULAR_SETTINGS = {
         {'name': 'notifications', 'description': 'Notificaciones'},
     ],
 }
+
+
+# ============================================================
+# SUNAT RUC API (apisperu.com)
+# ============================================================
+
+RUC_API_URL = 'https://dniruc.apisperu.com/api/v1/ruc/'
+RUC_API_TOKEN = config('RUC_API_TOKEN', default='')
 
 
 # ============================================================

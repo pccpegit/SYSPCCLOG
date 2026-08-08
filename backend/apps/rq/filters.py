@@ -17,6 +17,7 @@ class RequestFilter(django_filters.FilterSet):
     rq_number = django_filters.CharFilter(field_name='rq_number', lookup_expr='exact')
     flow = django_filters.ChoiceFilter(choices=RQFlowChoices.choices)
     status = django_filters.ChoiceFilter(choices=RQStatusChoices.choices)
+    status_in = django_filters.BaseInFilter(field_name='status', lookup_expr='in')
     priority = django_filters.ChoiceFilter(choices=PriorityChoices.choices)
     acquisition_type = django_filters.ChoiceFilter(choices=AcquisitionTypeChoices.choices)
     project = django_filters.NumberFilter(field_name='project__id')

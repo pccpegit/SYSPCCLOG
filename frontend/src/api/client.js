@@ -9,6 +9,45 @@ const client = axios.create({
   },
 });
 
+// ─── CSRF (double-submit cookie pattern) ──────────────────────────────────────
+// Backend sets a JS-readable `csrftoken` cookie via GET /auth/csrf/ (see
+// api/auth.js -> bootstrapCsrf, triggered from AuthContext on app mount).
+// Every unsafe request (POST/PUT/PATCH/DELETE) must echo that cookie's value
+// back in the X-CSRFToken header. GET/HEAD/OPTIONS are read-only and exempt.
+
+const CSRF_COOKIE_NAME = 'csrftoken';
+const CSRF_HEADER_NAME = 'X-CSRFToken';
+const UNSAFE_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+
+/** Reads a cookie value by name. Returns null if absent or no document (SSR/tests). */
+export function getCookie(name) {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const match = document.cookie.match(
+    new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)'),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * Request interceptor logic: attaches X-CSRFToken from the csrftoken cookie
+ * on unsafe (mutating) methods. Exported standalone so it can be unit tested
+ * without spinning up network calls, and reused verbatim on retried requests
+ * (the response interceptor's `client(originalRequest)` re-runs this too).
+ */
+export function attachCsrfToken(config) {
+  const method = config.method?.toLowerCase();
+  if (method && UNSAFE_METHODS.has(method)) {
+    const token = getCookie(CSRF_COOKIE_NAME);
+    if (token) {
+      config.headers = config.headers ?? {};
+      config.headers[CSRF_HEADER_NAME] = token;
+    }
+  }
+  return config;
+}
+
+client.interceptors.request.use(attachCsrfToken);
+
 // ─── Request queue for concurrent 401s during refresh ────────────────────────
 let isRefreshing = false;
 let failedQueue = [];
@@ -57,10 +96,17 @@ client.interceptors.response.use(
       isRefreshing = true;
 
       try {
+        // Bare axios (not `client`) so it can't recurse through the 401
+        // handler, but it still mutates state server-side, so it still
+        // needs the CSRF header attached by hand.
+        const refreshHeaders = { 'Content-Type': 'application/json' };
+        const csrfToken = getCookie(CSRF_COOKIE_NAME);
+        if (csrfToken) refreshHeaders[CSRF_HEADER_NAME] = csrfToken;
+
         await axios.post(
           `${API_BASE_URL}auth/token/refresh/`,
           {},
-          { withCredentials: true },
+          { withCredentials: true, headers: refreshHeaders },
         );
 
         processQueue(null);

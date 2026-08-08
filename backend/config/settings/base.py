@@ -355,6 +355,24 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 # FIX (hardening): Deny embedding in iframes to prevent clickjacking
 X_FRAME_OPTIONS = 'DENY'
 
+# ============================================================
+# CSRF (SYSPCC-015)
+# ============================================================
+# Auth is cookie-based JWT (CookieJWTAuthentication), so Django's CSRF
+# protection must stay active for state-changing requests — see
+# apps.core.authentication.CookieJWTAuthentication.enforce_csrf().
+#
+# CSRF_COOKIE_HTTPONLY must be False: the SPA reads `csrftoken` via JS and
+# echoes it back as the `X-CSRFToken` header (double-submit pattern). This is
+# NOT a secret — pairing it with an httpOnly-protected value would defeat the
+# pattern, not strengthen it. Do not set this to True.
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_NAME = 'csrftoken'  # Django default, pinned explicitly per the frontend contract
+CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'  # Django default -> `X-CSRFToken` header, pinned explicitly
+# CSRF_COOKIE_SECURE stays at the Django default (False) here; production.py
+# turns it on since the site is only ever served over HTTPS there.
+
 
 # ============================================================
 # LOGGING

@@ -104,6 +104,16 @@ class InventoryStock(models.Model):
         verbose_name = _('stock de inventario')
         verbose_name_plural = _('stocks de inventario')
         unique_together = [('inventory', 'warehouse_type', 'project', 'department')]
+        constraints = [
+            # SYSPCC-007: DB-level safety net against negative stock. The application
+            # already locks the row (select_for_update) before decrementing in
+            # apps/warehouse/services/movements.py, but this constraint guarantees
+            # correctness even if a future code path forgets to lock.
+            models.CheckConstraint(
+                condition=models.Q(quantity__gte=0),
+                name='inventory_stock_quantity_gte_0',
+            ),
+        ]
 
     def __str__(self) -> str:
         scope = self.project or self.department or 'Global'

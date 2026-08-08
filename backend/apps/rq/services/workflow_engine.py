@@ -710,7 +710,15 @@ class WorkflowEngine:
         # Security: validate acting_role is actually held by the user before any other logic.
         self._validate_acting_role()
 
-        from apps.rq.models import Approval, WorkflowStep
+        from apps.rq.models import Approval, WorkflowStep, Request
+
+        # SYSPCC-007: self.request was loaded by the caller (the view) *before* this
+        # atomic block started, so it can be stale relative to another concurrent
+        # transition on the same RQ (lost update / double approval). Re-fetch with a
+        # row lock now that we're inside the transaction — every read/decision below
+        # (is_terminal, status, current_step, etc.) is then based on the locked,
+        # up-to-date row, and any concurrent transition blocks until this one commits.
+        self.request = Request.objects.select_for_update().get(pk=self.request.pk)
 
         if self.request.is_terminal and action != ApprovalActionChoices.CANCELLED:
             raise WorkflowError(

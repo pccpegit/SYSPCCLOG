@@ -49,6 +49,11 @@ def check_sla_deadlines():
                     f'El requerimiento {rq.rq_number} ha superado su fecha estimada '
                     f'de entrega ({rq.fecha_estimada_entrega}).'
                 ),
+                # Deterministic per (type, recipient, request, day): re-running this
+                # task the same day (Celery retry or a manual re-run) hits the
+                # partial unique index on dedup_key and is skipped by
+                # ignore_conflicts=True instead of creating a duplicate.
+                dedup_key=f'sla_overdue:{rq.requested_by_id}:{rq.id}:{today.isoformat()}',
             )
         )
 
@@ -75,6 +80,7 @@ def check_sla_deadlines():
                     f'El requerimiento {rq.rq_number} vence en {days_left} día(s) '
                     f'({rq.fecha_estimada_entrega}).'
                 ),
+                dedup_key=f'sla_approaching:{rq.requested_by_id}:{rq.id}:{today.isoformat()}',
             )
         )
 
@@ -101,6 +107,7 @@ def send_pending_approval_reminders():
     from apps.core.models import User
 
     threshold = timezone.now() - timezone.timedelta(hours=24)
+    today = timezone.now().date()
 
     pending_statuses = [
         'TECHNICAL_REVIEW', 'BUDGET_REVIEW', 'GM_REVIEW',
@@ -118,10 +125,16 @@ def send_pending_approval_reminders():
 
     for rq in stale_qs:
         # Find the responsible role(s) for the current step in this flow
+        # NOTE: field is `from_status`, not `current_status` (WorkflowStep has no
+        # `current_status` field) — pre-existing bug found while working on
+        # SYSPCC-009: this lookup always raised FieldError, so this task never
+        # actually sent a reminder. Fixed here because it blocked writing a
+        # working idempotency test for this task; not part of the WorkflowEngine
+        # transition table itself (apps/rq/services/workflow_engine.py untouched).
         responsible_roles = list(
             WorkflowStep.objects.filter(
                 flow=rq.flow,
-                current_status=rq.status,
+                from_status=rq.status,
             ).values_list('responsible_role', flat=True)
         )
 
@@ -146,6 +159,12 @@ def send_pending_approval_reminders():
                         f'El requerimiento {rq.rq_number} lleva {hours_pending} hora(s) '
                         f'esperando acción en el estado actual. Por favor revíselo.'
                     ),
+                    # One reminder per (recipient, request, day): the task runs
+                    # twice daily (9 AM / 2 PM) by design, but if it's re-run or
+                    # retried within the same day for a request still stuck in
+                    # the same status, this collapses to a single notification
+                    # per recipient instead of stacking duplicates.
+                    dedup_key=f'approval_reminder:{user.id}:{rq.id}:{today.isoformat()}',
                 )
             )
         reminder_count += 1

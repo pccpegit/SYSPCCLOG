@@ -33,7 +33,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.core.management.commands.seed_demo import DEMO_PASSWORD
+from apps.core.management.commands.seed_demo import (
+    DEMO_PASSWORD, warn_if_password_generated,
+)
 from apps.core.management.seed_guard import abort_if_production
 
 # ---------------------------------------------------------------------------
@@ -303,8 +305,13 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         # SYSPCC-011 FIX 4: refuse to run outside development — this seeds a
-        # shared, version-controlled password for every demo account.
+        # shared demo password for every demo account.
         abort_if_production()
+        # SYSPCC-017: DEMO_PASSWORD is resolved in seed_demo.py at import
+        # time; this is a separate process/import from `seed_demo`, so unless
+        # SEED_DEMO_PASSWORD is fixed in .env it generates its OWN random
+        # value here — tell the operator what it is.
+        warn_if_password_generated(self)
 
         from apps.core.models import (
             User, UserRole, Project, ProjectBudgetLine, Department,

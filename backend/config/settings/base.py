@@ -315,12 +315,13 @@ SPECTACULAR_SETTINGS = {
 # ============================================================
 # Implementation: apps/warehouse/services/onedrive.py, apps/warehouse/views.py.
 
-# Public "Microsoft Office" client ID — works with personal Microsoft
-# accounts, no Azure AD app registration required. Override once the company
-# registers its own Azure AD app (see ONEDRIVE_TENANT below).
-ONEDRIVE_CLIENT_ID = config(
-    'ONEDRIVE_CLIENT_ID', default='14d82eec-204b-4c2f-b7e8-296a70dab67e',
-)
+# Azure AD / Microsoft Graph OAuth2 client_id for the OneDrive integration
+# (device code flow). No default — the integration is OPTIONAL: when this is
+# unset, ONEDRIVE_CLIENT_ID is '' and apps/warehouse/views.py::OneDriveViewSet
+# rejects connect/poll with a clear "OneDrive no configurado" error instead
+# of crashing. SYSPCC-017: a real GUID must never be a version-controlled
+# default — set ONEDRIVE_CLIENT_ID in the environment (see .env.example).
+ONEDRIVE_CLIENT_ID = config('ONEDRIVE_CLIENT_ID', default='')
 
 # Selects the Microsoft identity platform authority used for the device-code
 # flow (https://login.microsoftonline.com/<ONEDRIVE_TENANT>/...):

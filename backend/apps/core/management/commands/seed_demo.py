@@ -13,14 +13,43 @@ Usage:
 from datetime import date, timedelta
 from decimal import Decimal
 
+from decouple import config
 from django.contrib.auth.hashers import make_password
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 
 from apps.core.management.seed_guard import abort_if_production
 
-DEMO_PASSWORD = 'Demo2026Pcc!'
+# SYSPCC-017: a shared demo password must never be a version-controlled
+# literal. Prefer SEED_DEMO_PASSWORD from the environment (lets an operator
+# set the SAME password across `seed_demo` and `seed_demo_extra` runs); if
+# unset, generate a random one for this process only. DEMO_PASSWORD is
+# resolved once at import time (both this command and `seed_demo_extra`
+# import it directly), so every `manage.py seed_demo*` invocation is its own
+# process and gets its own value unless SEED_DEMO_PASSWORD is fixed in .env.
+DEMO_PASSWORD_FROM_ENV = config('SEED_DEMO_PASSWORD', default='')
+DEMO_PASSWORD_WAS_GENERATED = not DEMO_PASSWORD_FROM_ENV
+DEMO_PASSWORD = DEMO_PASSWORD_FROM_ENV or get_random_string(16)
+
+
+def warn_if_password_generated(command):
+    """Print the generated demo password once, if SEED_DEMO_PASSWORD wasn't
+    set in the environment. Call from Command.handle() in any seed command
+    that uses DEMO_PASSWORD, right after abort_if_production()."""
+    if not DEMO_PASSWORD_WAS_GENERATED:
+        return
+    command.stdout.write(command.style.WARNING(
+        '\nSEED_DEMO_PASSWORD no está configurada: se generó una contraseña '
+        'aleatoria para esta ejecución.\n'
+        f'  Contraseña generada: {DEMO_PASSWORD}\n'
+        '  Usa esta contraseña para iniciar sesión con cualquier cuenta demo '
+        'creada en esta ejecución.\n'
+        '  Para fijar una contraseña estable (por ejemplo, para que '
+        '`seed_demo` y `seed_demo_extra` compartan la misma), define '
+        'SEED_DEMO_PASSWORD en tu archivo .env — nunca la versiones en git.\n'
+    ))
 
 # ---------------------------------------------------------------------------
 # Demo users data
@@ -1032,8 +1061,11 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         # SYSPCC-011 FIX 4: refuse to run outside development — this seeds a
-        # shared, version-controlled password for every demo account.
+        # shared demo password for every demo account.
         abort_if_production()
+        # SYSPCC-017: DEMO_PASSWORD is no longer a version-controlled literal —
+        # tell the operator the generated value if SEED_DEMO_PASSWORD wasn't set.
+        warn_if_password_generated(self)
 
         from apps.core.models import (
             User, UserRole, Project, ProjectBudgetLine,

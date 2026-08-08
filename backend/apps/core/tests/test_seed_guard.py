@@ -1,9 +1,10 @@
 """
 SYSPCC-011 FIX 4: seed_demo / seed_demo_extra / seed_screenshots must refuse to
-run outside development. They create demo accounts sharing a single hardcoded,
-version-controlled password (`Demo2026Pcc!`) — running them against a
-production database would create real, internet-reachable accounts with a
-publicly known password.
+run outside development. They create demo accounts sharing a single password
+(SYSPCC-017: seed_demo/seed_demo_extra read it from SEED_DEMO_PASSWORD or
+generate one per run; seed_screenshots still uses a hardcoded literal) —
+running them against a production database would create real,
+internet-reachable accounts with a widely-known password.
 """
 import os
 from unittest import mock

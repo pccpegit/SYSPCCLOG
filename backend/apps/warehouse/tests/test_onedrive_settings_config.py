@@ -3,9 +3,15 @@ SYSPCC-016 FOLLOW-UP 3: CLIENT_ID, the auth tenant/authority, and the share
 link scope must come from settings (ONEDRIVE_CLIENT_ID, ONEDRIVE_TENANT,
 ONEDRIVE_SHARE_SCOPE), not be hardcoded/duplicated across
 apps/warehouse/services/onedrive.py and apps/warehouse/views.py.
+
+SYSPCC-017: ONEDRIVE_CLIENT_ID no longer has a real-looking (GUID) default —
+it defaults to '' so no client id is version-controlled. See
+test_onedrive_not_configured.py for the "integration disabled" behavior this
+enables in the OneDrive views.
 """
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 
@@ -15,6 +21,19 @@ from rest_framework.test import APIClient
 from apps.warehouse.services.onedrive import OneDriveService, _authority, _client_id
 
 User = get_user_model()
+
+
+class TestClientIdEmptyByDefault:
+    def test_client_id_is_empty_without_env_override(self):
+        # No ONEDRIVE_CLIENT_ID is set anywhere in the test environment
+        # (.env, docker-compose env, etc.) — mirrors a fresh checkout where
+        # the operator hasn't configured the optional OneDrive integration.
+        assert settings.ONEDRIVE_CLIENT_ID == ''
+
+    def test_client_id_uses_env_override_when_set(self):
+        with override_settings(ONEDRIVE_CLIENT_ID='configured-client-id'):
+            assert settings.ONEDRIVE_CLIENT_ID == 'configured-client-id'
+            assert _client_id() == 'configured-client-id'
 
 
 class _FakeResponse:

@@ -28,6 +28,12 @@ class User(AbstractUser):
     )
     phone = models.CharField(_('teléfono'), max_length=20, blank=True)
     avatar_url = models.URLField(_('avatar URL'), max_length=255, blank=True)
+    signature = models.ImageField(
+        _('firma'),
+        upload_to='signatures/',
+        blank=True,
+        help_text=_('Imagen de firma del usuario (PNG transparente)'),
+    )
 
     USERNAME_FIELD = 'username'
     REQUIRED_FIELDS = ['email', 'first_name', 'last_name']

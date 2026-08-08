@@ -6,7 +6,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
-from apps.core.models import User, UserRole, Project, ProjectBudgetLine, Department, AnnualPlan, AnnualPlanLine
+from apps.core.models import User, UserRole, Project, ProjectBudgetLine, Department, AnnualPlan, AnnualPlanLine, Personal
 
 
 class UserRoleInline(admin.TabularInline):
@@ -100,3 +100,78 @@ class AnnualPlanLineAdmin(admin.ModelAdmin):
     list_display = ['annual_plan', 'code', 'description', 'category', 'budgeted_amount']
     list_filter = ['annual_plan__year', 'category']
     search_fields = ['code', 'description']
+
+
+@admin.register(Personal)
+class PersonalAdmin(admin.ModelAdmin):
+    list_display = [
+        'dni', 'apellidos_nombres', 'puesto', 'sede', 'proyecto',
+        'estado', 'guardia', 'condicion_trabajo', 'fecha_ingreso',
+    ]
+    list_filter = ['estado', 'sexo', 'guardia', 'condicion_trabajo', 'proyecto', 'sede']
+    search_fields = ['dni', 'apellidos_nombres', 'puesto', 'celular', 'email_personal']
+    ordering = ['apellidos_nombres']
+    autocomplete_fields = ['proyecto', 'user']
+    readonly_fields = ['created_at', 'updated_at']
+
+    fieldsets = (
+        (_('Identidad'), {
+            'fields': ('user', 'dni', 'apellidos_nombres', 'fecha_nacimiento', 'sexo', 'estado_civil'),
+        }),
+        (_('Contacto'), {
+            'fields': ('celular', 'email_personal'),
+        }),
+        (_('Contacto de Emergencia'), {
+            'classes': ('collapse',),
+            'fields': (
+                'contacto_emergencia_nombre',
+                'contacto_emergencia_telefono',
+                'contacto_emergencia_vinculo',
+            ),
+        }),
+        (_('Domicilio'), {
+            'classes': ('collapse',),
+            'fields': (
+                'departamento_residencia',
+                'provincia_residencia',
+                'distrito_residencia',
+                'direccion_residencia',
+            ),
+        }),
+        (_('Educacion'), {
+            'classes': ('collapse',),
+            'fields': ('nivel_educativo', 'grado_academico', 'especialidad_carrera'),
+        }),
+        (_('Empleo'), {
+            'fields': (
+                'estado', 'fecha_ingreso', 'fecha_cese', 'motivo_cese',
+                'proyecto', 'sede', 'puesto', 'guardia', 'condicion_trabajo',
+            ),
+        }),
+        (_('Remuneracion'), {
+            'classes': ('collapse',),
+            'fields': (
+                'salario', 'sistema_pensiones',
+                'entidad_bancaria', 'numero_cuenta', 'cci',
+            ),
+        }),
+        (_('Familia'), {
+            'classes': ('collapse',),
+            'fields': (
+                'tiene_hijos', 'hijos_menores_18',
+                'cantidad_hijos_menores', 'nombres_hijos_menores',
+                'asignacion_familiar',
+            ),
+        }),
+        (_('Equipamiento'), {
+            'classes': ('collapse',),
+            'fields': (
+                'numero_fotocheck',
+                'talla_zapato', 'talla_pantalon', 'talla_camisa',
+            ),
+        }),
+        (_('Auditoria'), {
+            'classes': ('collapse',),
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )

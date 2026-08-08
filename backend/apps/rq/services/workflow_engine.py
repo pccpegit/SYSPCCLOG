@@ -12,6 +12,7 @@ Both workflow definitions are encoded here based on the DBML schema.
 import logging
 from datetime import date
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.enums import (
@@ -184,6 +185,23 @@ TRANSITIONS: list[dict] = [
         'to_status': RQStatusChoices.GM_REJECTED,
         'to_status_reject': None,
     },
+    # ADM step 5.2: Jefe Directo evaluates necessity when out of annual plan
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.OUT_OF_ANNUAL_PLAN,
+        'action': ApprovalActionChoices.SUPERVISOR_APPROVED,
+        'required_role': RoleChoices.DIRECT_SUPERVISOR,
+        'to_status': RQStatusChoices.GM_REVIEW,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.OUT_OF_ANNUAL_PLAN,
+        'action': ApprovalActionChoices.SUPERVISOR_REJECTED,
+        'required_role': RoleChoices.DIRECT_SUPERVISOR,
+        'to_status': RQStatusChoices.SUPERVISOR_REJECTED,
+        'to_status_reject': None,
+    },
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.WITHIN_ANNUAL_PLAN,
@@ -242,7 +260,24 @@ TRANSITIONS: list[dict] = [
         'to_status': RQStatusChoices.QUOTING,
         'to_status_reject': None,
     },
-    # ADM: Jefe Logístico compares quotes
+    # OPS: Coord. Logístico compares quotes (step 11 in PDF)
+    {
+        'flow': RQFlowChoices.OPERATIONS,
+        'from_status': RQStatusChoices.QUOTING,
+        'action': ApprovalActionChoices.QUOTE_COMPARED,
+        'required_role': RoleChoices.LOGISTICS_COORDINATOR,
+        'to_status': RQStatusChoices.QUOTE_COMPARISON,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.OPERATIONS,
+        'from_status': RQStatusChoices.QUOTE_COMPARISON,
+        'action': ApprovalActionChoices.QUOTE_SELECTED,
+        'required_role': RoleChoices.LOGISTICS_COORDINATOR,
+        'to_status': RQStatusChoices.QUOTE_SELECTED,
+        'to_status_reject': None,
+    },
+    # ADM: Jefe Logístico compares quotes (step 11 in PDF)
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.QUOTING,
@@ -259,24 +294,15 @@ TRANSITIONS: list[dict] = [
         'to_status': RQStatusChoices.QUOTE_SELECTED,
         'to_status_reject': None,
     },
-    # OPS: Coord. Logístico selects directly
-    {
-        'flow': RQFlowChoices.OPERATIONS,
-        'from_status': RQStatusChoices.QUOTING,
-        'action': ApprovalActionChoices.QUOTE_SELECTED,
-        'required_role': RoleChoices.LOGISTICS_COORDINATOR,
-        'to_status': RQStatusChoices.QUOTE_SELECTED,
-        'to_status_reject': None,
-    },
 
-    # ── PHASE 3: QUOTE COST REVIEW (Control de Proyecto) ──────
-    # After provider is selected, Control de Proyecto reviews if quote is within budget
+    # ── PHASE 3: QUOTE COST REVIEW ─────────────────────────────
+    # OPS: Control de Proyecto reviews if quote is within budget
     {
         'flow': RQFlowChoices.OPERATIONS,
         'from_status': RQStatusChoices.QUOTE_SELECTED,
         'action': ApprovalActionChoices.QUOTE_COST_APPROVED,
         'required_role': RoleChoices.PROJECT_CONTROL,
-        'to_status': RQStatusChoices.PO_GENERATED,
+        'to_status': RQStatusChoices.QUOTE_COST_APPROVED,
         'to_status_reject': None,
     },
     {
@@ -287,12 +313,13 @@ TRANSITIONS: list[dict] = [
         'to_status': RQStatusChoices.COST_OVERRUN_REVIEW,
         'to_status_reject': None,
     },
+    # ADM: Gerente Administrativo reviews if quote is within budget
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.QUOTE_SELECTED,
         'action': ApprovalActionChoices.QUOTE_COST_APPROVED,
         'required_role': RoleChoices.ADMIN_MANAGER,
-        'to_status': RQStatusChoices.PO_GENERATED,
+        'to_status': RQStatusChoices.QUOTE_COST_APPROVED,
         'to_status_reject': None,
     },
     {
@@ -301,6 +328,23 @@ TRANSITIONS: list[dict] = [
         'action': ApprovalActionChoices.QUOTE_COST_REJECTED,
         'required_role': RoleChoices.ADMIN_MANAGER,
         'to_status': RQStatusChoices.COST_OVERRUN_REVIEW,
+        'to_status_reject': None,
+    },
+    # After quote cost approved, Logistics generates PO (step 13 in PDF)
+    {
+        'flow': RQFlowChoices.OPERATIONS,
+        'from_status': RQStatusChoices.QUOTE_COST_APPROVED,
+        'action': ApprovalActionChoices.PO_GENERATED,
+        'required_role': RoleChoices.LOGISTICS_COORDINATOR,
+        'to_status': RQStatusChoices.PO_GENERATED,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.QUOTE_COST_APPROVED,
+        'action': ApprovalActionChoices.PO_GENERATED,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.PO_GENERATED,
         'to_status_reject': None,
     },
     # After GG approves cost overrun, Logistics generates PO
@@ -327,24 +371,14 @@ TRANSITIONS: list[dict] = [
         'action': ApprovalActionChoices.COST_OVERRUN_APPROVED,
         'required_role': RoleChoices.GENERAL_MANAGER,
         'to_status': RQStatusChoices.COST_OVERRUN_APPROVED,
-        'to_status_reject': RQStatusChoices.COST_OVERRUN_REJECTED,
-        'terminal_on_reject': True,
-    },
-    # After cost overrun approved → PO
-    {
-        'flow': RQFlowChoices.OPERATIONS,
-        'from_status': RQStatusChoices.COST_OVERRUN_APPROVED,
-        'action': ApprovalActionChoices.PO_GENERATED,
-        'required_role': RoleChoices.LOGISTICS_COORDINATOR,
-        'to_status': RQStatusChoices.PO_GENERATED,
         'to_status_reject': None,
     },
     {
-        'flow': RQFlowChoices.ADMINISTRATIVE,
-        'from_status': RQStatusChoices.COST_OVERRUN_APPROVED,
-        'action': ApprovalActionChoices.PO_GENERATED,
-        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
-        'to_status': RQStatusChoices.PO_GENERATED,
+        'flow': ANY,
+        'from_status': RQStatusChoices.COST_OVERRUN_REVIEW,
+        'action': ApprovalActionChoices.COST_OVERRUN_REJECTED,
+        'required_role': RoleChoices.GENERAL_MANAGER,
+        'to_status': RQStatusChoices.COST_OVERRUN_REJECTED,
         'to_status_reject': None,
     },
 
@@ -458,7 +492,7 @@ TRANSITIONS: list[dict] = [
         'to_status_reject': None,
     },
 
-    # ADM: Sup. Logístico receives and checks conformity
+    # ADM: Sup. Logístico receives from supplier (step 14)
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.PO_GENERATED,
@@ -467,7 +501,7 @@ TRANSITIONS: list[dict] = [
         'to_status': RQStatusChoices.RECEIVING,
         'to_status_reject': None,
     },
-    # ADM IN_STOCK: goes directly to warehouse
+    # ADM IN_STOCK: goes directly to Central warehouse
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.IN_STOCK,
@@ -476,13 +510,72 @@ TRANSITIONS: list[dict] = [
         'to_status': RQStatusChoices.DELIVERED,
         'to_status_reject': None,
     },
+    # ADM step 15: ¿Conforme? (same cycle as OPS)
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.RECEIVING,
-        'action': ApprovalActionChoices.RECEPTION_CONFIRMED,
+        'action': ApprovalActionChoices.QUALITY_APPROVED,
         'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.QUALITY_APPROVED,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.RECEIVING,
+        'action': ApprovalActionChoices.QUALITY_REJECTED,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.QUALITY_REJECTED,
+        'to_status_reject': None,
+    },
+    # ADM step 16: Almacén Central entrega and updates records
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.QUALITY_APPROVED,
+        'action': ApprovalActionChoices.DISPATCHED,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.DISPATCHED_TO_SITE,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.DISPATCHED_TO_SITE,
+        'action': ApprovalActionChoices.WAREHOUSE_RECORDS_UPDATED,
+        'required_role': RoleChoices.CENTRAL_WAREHOUSE,
         'to_status': RQStatusChoices.DELIVERED,
-        'to_status_reject': RQStatusChoices.RECEPTION_CLAIM,
+        'to_status_reject': None,
+    },
+    # ADM: Supplier claim cycle (step 15.1)
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.QUALITY_REJECTED,
+        'action': ApprovalActionChoices.SUPPLIER_CLAIM_SENT,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.SUPPLIER_CLAIM_SENT,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.SUPPLIER_CLAIM_SENT,
+        'action': ApprovalActionChoices.SUPPLIER_REPLACEMENT_RECEIVED,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.SUPPLIER_REPLACEMENT_RECEIVED,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.SUPPLIER_REPLACEMENT_RECEIVED,
+        'action': ApprovalActionChoices.QUALITY_APPROVED,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.QUALITY_APPROVED,
+        'to_status_reject': None,
+    },
+    {
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.SUPPLIER_REPLACEMENT_RECEIVED,
+        'action': ApprovalActionChoices.QUALITY_REJECTED,
+        'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
+        'to_status': RQStatusChoices.QUALITY_REJECTED,
+        'to_status_reject': None,
     },
     # ADM: Central warehouse updates records after delivery
     {
@@ -495,48 +588,55 @@ TRANSITIONS: list[dict] = [
     },
 
     # ── PHASE 5: USER CONFORMITY ──────────────────────────────
-    # OPS: User confirms from DELIVERED
+    # OPS: User confirms or claims from DELIVERED
     {
         'flow': RQFlowChoices.OPERATIONS,
         'from_status': RQStatusChoices.DELIVERED,
         'action': ApprovalActionChoices.USER_CONFIRMED,
         'required_role': RoleChoices.REQUESTER,
         'to_status': RQStatusChoices.USER_CONFORMITY,
-        'to_status_reject': RQStatusChoices.USER_CLAIM,
+        'to_status_reject': None,
     },
-    # ADM: User confirms from WAREHOUSE_UPDATED
+    {
+        'flow': RQFlowChoices.OPERATIONS,
+        'from_status': RQStatusChoices.DELIVERED,
+        'action': ApprovalActionChoices.USER_CLAIMED,
+        'required_role': RoleChoices.REQUESTER,
+        'to_status': RQStatusChoices.CLAIM_IN_REVIEW,
+        'to_status_reject': None,
+    },
+    # ADM: User confirms or claims from WAREHOUSE_UPDATED
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.WAREHOUSE_UPDATED,
         'action': ApprovalActionChoices.USER_CONFIRMED,
         'required_role': RoleChoices.REQUESTER,
         'to_status': RQStatusChoices.USER_CONFORMITY,
-        'to_status_reject': RQStatusChoices.USER_CLAIM,
+        'to_status_reject': None,
     },
-
-    # Claims handling
     {
-        'flow': ANY,
-        'from_status': RQStatusChoices.USER_CLAIM,
+        'flow': RQFlowChoices.ADMINISTRATIVE,
+        'from_status': RQStatusChoices.WAREHOUSE_UPDATED,
         'action': ApprovalActionChoices.USER_CLAIMED,
         'required_role': RoleChoices.REQUESTER,
         'to_status': RQStatusChoices.CLAIM_IN_REVIEW,
         'to_status_reject': None,
     },
+    # Claim in review: Logistics sends claim to supplier (step 18.2 → 15.1)
     {
         'flow': RQFlowChoices.OPERATIONS,
         'from_status': RQStatusChoices.CLAIM_IN_REVIEW,
-        'action': ApprovalActionChoices.CLAIM_RESOLVED,
+        'action': ApprovalActionChoices.SUPPLIER_CLAIM_SENT,
         'required_role': RoleChoices.LOGISTICS_COORDINATOR,
-        'to_status': RQStatusChoices.DELIVERED,
+        'to_status': RQStatusChoices.SUPPLIER_CLAIM_SENT,
         'to_status_reject': None,
     },
     {
         'flow': RQFlowChoices.ADMINISTRATIVE,
         'from_status': RQStatusChoices.CLAIM_IN_REVIEW,
-        'action': ApprovalActionChoices.CLAIM_RESOLVED,
+        'action': ApprovalActionChoices.SUPPLIER_CLAIM_SENT,
         'required_role': RoleChoices.LOGISTICS_SUPERVISOR,
-        'to_status': RQStatusChoices.WAREHOUSE_UPDATED,
+        'to_status': RQStatusChoices.SUPPLIER_CLAIM_SENT,
         'to_status_reject': None,
     },
 
@@ -800,13 +900,19 @@ class WorkflowEngine:
         new_status: str,
         extra_data: dict,
     ) -> None:
-        """Apply side effects after a transition (SLA calc, budget commit, etc.)."""
+        """Apply side effects after a transition (SLA calc, budget commit, inventory, etc.)."""
         if new_status == RQStatusChoices.VALIDATED:
             self._on_validated(extra_data)
         elif new_status in (RQStatusChoices.CANCELLED, RQStatusChoices.GM_REJECTED,
                              RQStatusChoices.SUPERVISOR_REJECTED, RQStatusChoices.TECHNICAL_REJECTED,
                              RQStatusChoices.COST_OVERRUN_REJECTED):
             self._on_terminal_rejection()
+
+        # ── Inventory movements linked to RQ (central warehouse only) ──
+        if action == ApprovalActionChoices.RECEIVED:
+            self._on_material_received(extra_data)
+        elif action == ApprovalActionChoices.DISPATCHED:
+            self._on_dispatched(extra_data)
 
     def _on_validated(self, extra_data: dict) -> None:
         """When a request is validated: calculate SLA, commit budget."""
@@ -832,6 +938,223 @@ class WorkflowEngine:
             BudgetValidator.release_budget(self.request)
         except Exception as exc:
             logger.warning('Budget release failed for %s: %s', self.request.rq_number, exc)
+
+    # ── Inventory integration ─────────────────────────────────
+
+    def _resolve_inventory_item(self, item):
+        """
+        Resolve the Inventory instance for a RequestItem.
+        Prefers the direct FK; falls back to fuzzy description/code search.
+        Returns None (and logs) if no match is found.
+        """
+        from apps.warehouse.models import Inventory
+
+        inv = item.inventory_item
+        if inv:
+            return inv
+
+        # Fuzzy fallback: match by full description or first word as product_code
+        first_word = item.description.split()[0] if item.description else ''
+        inv = Inventory.objects.filter(
+            Q(description__icontains=item.description) |
+            Q(product_code__iexact=first_word)
+        ).first()
+
+        if not inv:
+            logger.info(
+                'RQ %s item "%s" has no matching inventory product — skipping movement.',
+                self.request.rq_number, item.description,
+            )
+        return inv
+
+    def _build_items_data(self, movement_type):
+        """
+        Build the items_data list for register_entry_batch / register_exit_batch.
+
+        Filtering rules:
+          - ENTRY (RECEIVED): skip items with supply_source='STOCK' (they were served
+            from existing stock, no supplier purchase happened).
+          - EXIT (DISPATCHED): include all items that have a linked inventory product.
+
+        Returns a list of dicts ready for the batch service, or [] if nothing to move.
+        """
+        items_data = []
+        line = 1
+        for item in self.request.items.select_related('inventory_item').all():
+            # ENTRY: skip items that were fulfilled from existing stock.
+            if movement_type == 'ENTRY' and item.supply_source == 'STOCK':
+                logger.info(
+                    'RQ %s item "%s" served from stock — skipping entry movement.',
+                    self.request.rq_number, item.description,
+                )
+                continue
+
+            inv = self._resolve_inventory_item(item)
+            if inv is None:
+                continue
+
+            items_data.append({
+                'inventory_id': inv.pk,
+                'quantity': item.quantity,
+                'line': line,
+            })
+            line += 1
+
+        return items_data
+
+    def _on_material_received(self, extra_data: dict) -> None:
+        """
+        RECEIVED: Material arrives from supplier.
+        1. Creates a batch ENTRY (InventoryMovement records) via MovementGroup.
+        2. Creates a formal WarehouseReceipt linked to the group and the RQ.
+        3. Creates WarehouseReceiptItem for each RequestItem with purchase supply_source.
+        Best-effort: inventory and document errors never fail the workflow transition.
+        """
+        from apps.warehouse.services.movements import register_entry_batch
+        from apps.warehouse.models import WarehouseReceipt, WarehouseReceiptItem
+
+        try:
+            items_data = self._build_items_data('ENTRY')
+            if not items_data:
+                logger.info(
+                    'RQ %s RECEIVED: no purchasable items with linked inventory — skipping entry batch.',
+                    self.request.rq_number,
+                )
+                return
+
+            # 1. Create inventory movements batch
+            group = register_entry_batch(
+                items_data=items_data,
+                warehouse='CENTRAL',
+                project_id=None,
+                source_type='PURCHASE',
+                supplier_name=f'RQ {self.request.rq_number}',
+                invoice_number='',
+                notes=f'Recepción automática RQ {self.request.rq_number}',
+                registered_by=self.user,
+            )
+            logger.info(
+                'RQ %s RECEIVED: entry batch created — group %s (%d items).',
+                self.request.rq_number, group.group_number, len(items_data),
+            )
+
+            # 2. Create formal WarehouseReceipt linked to the group
+            last_po = self.request.purchase_orders.order_by('-created_at').first()
+            receipt = WarehouseReceipt.objects.create(
+                request=self.request,
+                purchase_order=last_po,
+                received_by=self.user,
+                receipt_number=group.group_number,
+                conformity_passed=True,
+                conformity_checked_by=self.user,
+                movement_group=group,
+                notes=f'Recepción automática desde workflow RQ {self.request.rq_number}',
+            )
+
+            # 3. Create WarehouseReceiptItem per eligible RequestItem
+            for item in self.request.items.select_related('inventory_item').all():
+                if item.supply_source == 'STOCK':
+                    continue
+                last_po_item = (
+                    item.purchase_order_items.order_by('-created_at').first()
+                    if hasattr(item, 'purchase_order_items') else None
+                )
+                WarehouseReceiptItem.objects.create(
+                    receipt=receipt,
+                    request_item=item,
+                    purchase_order_item=last_po_item,
+                    quantity_received=item.quantity,
+                    quantity_accepted=item.quantity,
+                    quantity_rejected=0,
+                )
+            logger.info(
+                'RQ %s RECEIVED: WarehouseReceipt %s created and linked to group %s.',
+                self.request.rq_number, receipt.pk, group.group_number,
+            )
+        except Exception as exc:
+            logger.warning('Inventory entry batch failed for %s: %s', self.request.rq_number, exc)
+
+    def _on_dispatched(self, extra_data: dict) -> None:
+        """
+        DISPATCHED: Warehouse sends items to site/department.
+        1. Creates a batch EXIT (InventoryMovement records) via MovementGroup.
+        2. Creates a formal WarehouseDispatch linked to the group and the RQ.
+        3. Creates WarehouseDispatchItem for each RequestItem with linked inventory.
+        Best-effort: inventory and document errors never fail the workflow transition.
+        """
+        from apps.warehouse.services.movements import register_exit_batch
+        from apps.warehouse.models import WarehouseDispatch, WarehouseDispatchItem
+
+        try:
+            items_data = self._build_items_data('EXIT')
+            if not items_data:
+                logger.info(
+                    'RQ %s DISPATCHED: no items with linked inventory — skipping exit batch.',
+                    self.request.rq_number,
+                )
+                return
+
+            project_id = self.request.project_id if self.request.project_id else None
+            if self.request.project:
+                destination_type = 'PROJECT'
+                destination_detail = self.request.project.name
+            elif self.request.department:
+                destination_type = 'DEPARTMENT'
+                destination_detail = self.request.department.name
+            else:
+                destination_type = 'OTHER'
+                destination_detail = ''
+
+            # 1. Create inventory movements batch
+            group = register_exit_batch(
+                items_data=items_data,
+                warehouse='CENTRAL',
+                project_id=project_id,
+                destination_type=destination_type,
+                destination_detail=destination_detail,
+                requested_by_id=self.request.requested_by_id,
+                authorized_by_id=None,
+                notes=f'Despacho automático RQ {self.request.rq_number}',
+                registered_by=self.user,
+            )
+            logger.info(
+                'RQ %s DISPATCHED: exit batch created — group %s (%d items).',
+                self.request.rq_number, group.group_number, len(items_data),
+            )
+
+            # 2. Create formal WarehouseDispatch linked to the group
+            last_receipt = (
+                self.request.warehouse_receipts.order_by('-received_at').first()
+                if hasattr(self.request, 'warehouse_receipts') else None
+            )
+            dispatch = WarehouseDispatch.objects.create(
+                request=self.request,
+                receipt=last_receipt,
+                dispatched_by=self.user,
+                dispatch_number=group.group_number,
+                origin='CENTRAL',
+                destination_project=self.request.project,
+                destination_department=self.request.department,
+                movement_group=group,
+                notes=f'Despacho automático desde workflow RQ {self.request.rq_number}',
+            )
+
+            # 3. Create WarehouseDispatchItem per eligible RequestItem
+            for item in self.request.items.select_related('inventory_item').all():
+                inv = self._resolve_inventory_item(item)
+                if inv is None:
+                    continue
+                WarehouseDispatchItem.objects.create(
+                    dispatch=dispatch,
+                    request_item=item,
+                    quantity_dispatched=item.quantity,
+                )
+            logger.info(
+                'RQ %s DISPATCHED: WarehouseDispatch %s created and linked to group %s.',
+                self.request.rq_number, dispatch.pk, group.group_number,
+            )
+        except Exception as exc:
+            logger.warning('Inventory exit batch failed for %s: %s', self.request.rq_number, exc)
 
     def _log_activity(self, action: str, previous_status: str, new_status: str) -> None:
         from apps.rq.models import ActivityLog
@@ -875,6 +1198,7 @@ class WorkflowEngine:
         """
         ADM: ADMIN_MANAGER classifies the RQ vs annual plan.
         extra_data must contain: { 'within_plan': True | False }
+        If out of plan → goes to OUT_OF_ANNUAL_PLAN for Jefe Directo to evaluate necessity (step 5.2)
         """
         within_plan = extra_data.get('within_plan')
         if within_plan is True:
@@ -882,7 +1206,7 @@ class WorkflowEngine:
             return RQStatusChoices.WITHIN_ANNUAL_PLAN
         elif within_plan is False:
             self.request.budget_classification = BudgetClassificationChoices.BC_OUT_OF_ANNUAL_PLAN
-            return RQStatusChoices.GM_REVIEW
+            return RQStatusChoices.OUT_OF_ANNUAL_PLAN
         else:
             raise WorkflowError('within_plan (True/False) requerido en extra_data.')
 

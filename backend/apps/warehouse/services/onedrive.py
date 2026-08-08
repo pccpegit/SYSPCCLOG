@@ -74,8 +74,11 @@ class OneDriveService:
                         timeout=10,
                     ).json()
                     account_name = me.get('userPrincipalName') or me.get('displayName', '')
-                except Exception:
-                    pass
+                except (requests.RequestException, ValueError):
+                    # ValueError covers resp.json() failing on a non-JSON body.
+                    # Non-fatal: the token is already valid, we just miss the
+                    # display name — log for observability, don't lose the token.
+                    logger.warning('OneDrive: failed to fetch account info after token grant', exc_info=True)
 
                 expires_at = timezone.now() + timedelta(seconds=data.get('expires_in', 3600))
                 OneDriveToken.save_token(

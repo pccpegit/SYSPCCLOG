@@ -53,6 +53,15 @@ class WarehouseReceipt(models.Model):
     )
     conformity_checked_at = models.DateTimeField(_('conformidad verificada el'), null=True, blank=True)
     conformity_notes = models.TextField(_('notas de conformidad'), blank=True)
+    movement_group = models.OneToOneField(
+        'warehouse.MovementGroup',
+        on_delete=models.SET_NULL,
+        related_name='warehouse_receipt',
+        null=True,
+        blank=True,
+        verbose_name=_('vale de movimiento'),
+        help_text=_('MovementGroup (vale de entrada) generado automáticamente al registrar RECEIVED'),
+    )
     notes = models.TextField(_('notas'), blank=True)
 
     class Meta:

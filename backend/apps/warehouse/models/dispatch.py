@@ -73,6 +73,15 @@ class WarehouseDispatch(models.Model):
         blank=True,
         verbose_name=_('aceptado por'),
     )
+    movement_group = models.OneToOneField(
+        'warehouse.MovementGroup',
+        on_delete=models.SET_NULL,
+        related_name='warehouse_dispatch',
+        null=True,
+        blank=True,
+        verbose_name=_('vale de movimiento'),
+        help_text=_('MovementGroup (vale de salida) generado automáticamente al registrar DISPATCHED'),
+    )
     notes = models.TextField(_('notas'), blank=True)
 
     class Meta:

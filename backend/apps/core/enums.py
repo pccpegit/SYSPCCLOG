@@ -36,6 +36,9 @@ class RoleChoices(models.TextChoices):
     LOGISTICS_SUPERVISOR = 'LOGISTICS_SUPERVISOR', _('Supervisor Logístico')
     LOGISTICS_CHIEF = 'LOGISTICS_CHIEF', _('Jefe Logístico')
 
+    # Administración — Pasajes module (dedicated access, separate from ADMIN_MANAGER)
+    PASAJES_MANAGER = 'PASAJES_MANAGER', _('Gestor de Pasajes')
+
 
 class RQStatusChoices(models.TextChoices):
     # Phase 1: Request
@@ -73,6 +76,7 @@ class RQStatusChoices(models.TextChoices):
     QUOTING = 'QUOTING', _('Solicitando cotizaciones')
     QUOTE_COMPARISON = 'QUOTE_COMPARISON', _('Comparando propuestas (Jefe Logístico)')
     QUOTE_SELECTED = 'QUOTE_SELECTED', _('Proveedor seleccionado')
+    QUOTE_COST_APPROVED = 'QUOTE_COST_APPROVED', _('Cotización aprobada — pendiente generar OC')
     COST_OVERRUN_REVIEW = 'COST_OVERRUN_REVIEW', _('Sobrecosto en revisión GG')
     COST_OVERRUN_APPROVED = 'COST_OVERRUN_APPROVED', _('Sobrecosto aprobado por GG')
     COST_OVERRUN_REJECTED = 'COST_OVERRUN_REJECTED', _('Sobrecosto rechazado por GG')
@@ -190,3 +194,65 @@ class ClaimStatusChoices(models.TextChoices):
     IN_REVIEW = 'IN_REVIEW', _('En revisión')
     RESOLVED = 'RESOLVED', _('Resuelto')
     CLOSED = 'CLOSED', _('Cerrado')
+
+
+# ---------------------------------------------------------------------------
+# Standalone warehouse inventory module enums
+# ---------------------------------------------------------------------------
+
+class ItemTypeChoices(models.TextChoices):
+    EQUIPMENT = 'EQUIPMENT', _('Equipo')
+    CONSUMABLE = 'CONSUMABLE', _('Consumible')
+    TOOL = 'TOOL', _('Herramienta')
+    MATERIAL = 'MATERIAL', _('Material')
+
+
+class MovementTypeChoices(models.TextChoices):
+    ENTRY = 'ENTRY', _('Entrada')
+    EXIT = 'EXIT', _('Salida')
+    TRANSFER = 'TRANSFER', _('Transferencia')
+    ADJUSTMENT = 'ADJUSTMENT', _('Ajuste')
+
+
+class MovementSourceChoices(models.TextChoices):
+    PURCHASE = 'PURCHASE', _('Compra')
+    RETURN = 'RETURN', _('Devolución')
+    TRANSFER_IN = 'TRANSFER_IN', _('Transferencia entrante')
+    INITIAL_LOAD = 'INITIAL_LOAD', _('Carga inicial')
+    ADJUSTMENT = 'ADJUSTMENT', _('Ajuste de inventario')
+
+
+class MovementDestinationChoices(models.TextChoices):
+    PROJECT = 'PROJECT', _('Proyecto/Obra')
+    DEPARTMENT = 'DEPARTMENT', _('Departamento')
+    EMPLOYEE = 'EMPLOYEE', _('Empleado')
+    TRANSFER_OUT = 'TRANSFER_OUT', _('Transferencia saliente')
+    ADJUSTMENT = 'ADJUSTMENT', _('Ajuste de inventario')
+
+
+# ---------------------------------------------------------------------------
+# Support / IT Ticket module enums
+# ---------------------------------------------------------------------------
+
+class TicketStatusChoices(models.TextChoices):
+    OPEN = 'OPEN', _('Abierto')
+    IN_PROGRESS = 'IN_PROGRESS', _('En proceso')
+    RESOLVED = 'RESOLVED', _('Resuelto')
+    CLOSED = 'CLOSED', _('Cerrado')
+
+
+class TicketPriorityChoices(models.TextChoices):
+    LOW = 'LOW', _('Baja')
+    MEDIUM = 'MEDIUM', _('Media')
+    HIGH = 'HIGH', _('Alta')
+    CRITICAL = 'CRITICAL', _('Crítica')
+
+
+class TicketCategoryChoices(models.TextChoices):
+    HARDWARE = 'HARDWARE', _('Hardware')
+    SOFTWARE = 'SOFTWARE', _('Software')
+    NETWORK = 'NETWORK', _('Red / Conectividad')
+    ACCESS = 'ACCESS', _('Accesos / Permisos')
+    EMAIL = 'EMAIL', _('Correo electrónico')
+    PRINTER = 'PRINTER', _('Impresora / Escáner')
+    OTHER = 'OTHER', _('Otro')

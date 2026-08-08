@@ -35,11 +35,20 @@ class UserRoleSerializer(serializers.ModelSerializer):
         read_only_fields = ['assigned_at']
 
 
+class RelativeImageField(serializers.ImageField):
+    """Always return relative URL (no host prefix) for image fields."""
+    def to_representation(self, value):
+        if not value:
+            return None
+        return value.url
+
+
 class UserSerializer(serializers.ModelSerializer):
     """Full user serializer with nested roles."""
 
     user_roles = UserRoleSerializer(many=True, read_only=True)
     full_name = serializers.CharField(read_only=True)
+    signature = RelativeImageField(read_only=True)
 
     class Meta:
         model = User
@@ -54,6 +63,7 @@ class UserSerializer(serializers.ModelSerializer):
             'department',
             'phone',
             'avatar_url',
+            'signature',
             'is_active',
             'is_staff',
             'user_roles',

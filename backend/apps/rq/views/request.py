@@ -2,6 +2,8 @@
 Request (RQ) viewset - the central API resource.
 """
 
+from django.db.models import Case, When, Value, CharField
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -190,3 +192,24 @@ class RequestViewSet(viewsets.ModelViewSet):
         attachments = rq_instance.attachments.select_related('uploaded_by').all()
         serializer = AttachmentSerializer(attachments, many=True)
         return Response(serializer.data)
+
+    @extend_schema(tags=['requests'], summary='Update supply source for request items')
+    @action(detail=True, methods=['patch'], url_path='update-items')
+    def update_items(self, request, pk=None):
+        """Update supply_source for each item (set by logistics during stock check)."""
+        rq_instance = self.get_object()
+        items_data = request.data.get('items', [])
+        VALID_SOURCES = {'STOCK', 'PURCHASE'}
+        cases = []
+        item_ids = []
+        for item_update in items_data:
+            item_id = item_update.get('item_id')
+            supply_source = item_update.get('supply_source')
+            if item_id and supply_source in VALID_SOURCES:
+                cases.append(When(id=item_id, then=Value(supply_source)))
+                item_ids.append(item_id)
+        if cases:
+            rq_instance.items.filter(id__in=item_ids).update(
+                supply_source=Case(*cases, output_field=CharField())
+            )
+        return Response({'detail': 'Items actualizados.'})

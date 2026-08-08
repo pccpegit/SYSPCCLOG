@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* ── Design System Variables ── */
+@theme {
+  --font-display: "Urbanist", system-ui, sans-serif;
+  --font-body: "Figtree", system-ui, sans-serif;
+}
+
 /* ── Base ── */
 html {
   scroll-behavior: smooth;
@@ -8,15 +14,21 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #f1f5f9;
+  font-family: "Figtree", system-ui, sans-serif;
+  background-color: #f0f2f5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color: #1a1d23;
 }
 
-/* ── ADHD-friendly focus rings — thick, high-contrast ── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Urbanist", system-ui, sans-serif;
+}
+
+/* ── Focus rings ── */
 *:focus-visible {
-  outline: 3px solid #2563eb;
-  outline-offset: 3px;
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
   border-radius: 4px;
 }
 
@@ -32,13 +44,13 @@ textarea,
 select,
 [role="button"] {
   transition-property: color, background-color, border-color, box-shadow, opacity, transform;
-  transition-duration: 150ms;
-  transition-timing-function: ease-in-out;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ── Text selection ── */
 ::selection {
-  background-color: #bfdbfe;
+  background-color: #dbeafe;
   color: #1e3a5f;
 }
 
@@ -58,13 +70,17 @@ select,
   }
 }
 
-/* ── Page fade-in for route changes ── */
+/* ── Page enter animation ── */
 @keyframes pageFadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Toast slide-in from right ── */
+.page-fade-in {
+  animation: pageFadeIn 280ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ── Toast slide-in ── */
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(100%); }
   to   { opacity: 1; transform: translateX(0); }
@@ -72,15 +88,11 @@ select,
 
 /* ── Modal fade-in ── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.page-fade-in {
-  animation: pageFadeIn 200ms ease-out both;
-}
-
-/* ── Pulse for attention indicators ── */
+/* ── Attention pulse ── */
 @keyframes subtlePulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -90,10 +102,22 @@ select,
   animation: subtlePulse 2s ease-in-out infinite;
 }
 
+/* ── Stagger reveal for lists ── */
+@keyframes staggerIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Glow pulse for active indicators ── */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 4px 1px currentColor; }
+  50% { box-shadow: 0 0 8px 3px currentColor; }
+}
+
 /* ── Custom scrollbar ── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -101,10 +125,35 @@ select,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #d1d5db;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #9ca3af;
+}
+
+/* ── Table improvements ── */
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Utility class: glass effect ── */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px) saturate(1.5);
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+}
+
+/* ── Utility class: subtle noise texture overlay ── */
+.noise-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 128px;
+  z-index: 0;
 }

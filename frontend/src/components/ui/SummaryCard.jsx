@@ -1,55 +1,59 @@
-/**
- * Dashboard KPI card.
- *
- * @param {{
- *   title: string,
- *   value: string | number,
- *   icon: React.ComponentType<{ size?: number, className?: string }>,
- *   color: 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'orange' | 'teal' | 'cyan',
- *   onClick?: () => void
- * }} props
- */
-
 const COLOR_MAP = {
   blue: {
-    border: 'border-blue-500',
-    iconBg: 'bg-blue-100',
-    iconText: 'text-blue-600',
+    bg: 'bg-blue-50/80',
+    border: 'border-blue-200/50',
+    iconBg: 'bg-gradient-to-br from-blue-500 to-blue-700',
+    text: 'text-blue-700',
+    glow: 'shadow-blue-500/10',
   },
   green: {
-    border: 'border-green-500',
-    iconBg: 'bg-green-100',
-    iconText: 'text-green-600',
+    bg: 'bg-emerald-50/80',
+    border: 'border-emerald-200/50',
+    iconBg: 'bg-gradient-to-br from-emerald-500 to-emerald-700',
+    text: 'text-emerald-700',
+    glow: 'shadow-emerald-500/10',
   },
   amber: {
-    border: 'border-amber-500',
-    iconBg: 'bg-amber-100',
-    iconText: 'text-amber-600',
+    bg: 'bg-amber-50/80',
+    border: 'border-amber-200/50',
+    iconBg: 'bg-gradient-to-br from-amber-500 to-amber-600',
+    text: 'text-amber-700',
+    glow: 'shadow-amber-500/10',
   },
   red: {
-    border: 'border-red-500',
-    iconBg: 'bg-red-100',
-    iconText: 'text-red-600',
+    bg: 'bg-red-50/80',
+    border: 'border-red-200/50',
+    iconBg: 'bg-gradient-to-br from-red-500 to-red-700',
+    text: 'text-red-700',
+    glow: 'shadow-red-500/10',
   },
   purple: {
-    border: 'border-purple-500',
-    iconBg: 'bg-purple-100',
-    iconText: 'text-purple-600',
+    bg: 'bg-purple-50/80',
+    border: 'border-purple-200/50',
+    iconBg: 'bg-gradient-to-br from-purple-500 to-purple-700',
+    text: 'text-purple-700',
+    glow: 'shadow-purple-500/10',
   },
   orange: {
-    border: 'border-orange-500',
-    iconBg: 'bg-orange-100',
-    iconText: 'text-orange-600',
+    bg: 'bg-orange-50/80',
+    border: 'border-orange-200/50',
+    iconBg: 'bg-gradient-to-br from-orange-500 to-orange-600',
+    text: 'text-orange-700',
+    glow: 'shadow-orange-500/10',
   },
   teal: {
-    border: 'border-teal-500',
-    iconBg: 'bg-teal-100',
-    iconText: 'text-teal-600',
+    bg: 'bg-teal-50/80',
+    border: 'border-teal-200/50',
+    iconBg: 'bg-gradient-to-br from-teal-500 to-teal-700',
+    text: 'text-teal-700',
+    glow: 'shadow-teal-500/10',
   },
   cyan: {
-    border: 'border-cyan-500',
-    iconBg: 'bg-cyan-100',
-    iconText: 'text-cyan-600',
+    bg: 'bg-cyan-50/80',
+    border: 'border-cyan-200/50',
+    iconBg: 'bg-gradient-to-br from-cyan-500 to-cyan-700',
+    text: 'text-cyan-700',
+    glow: 'shadow-cyan-500/10',
   },
 };
 
@@ -62,24 +66,34 @@ export default function SummaryCard({ title, value, icon: Icon, color = 'blue', 
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
-      className={`bg-white rounded-xl border border-gray-200 border-l-4 ${colors.border} p-5 flex items-center gap-4 shadow-sm transition-all duration-200 ${
-        onClick ? 'cursor-pointer hover:shadow-lg hover:-translate-y-1' : 'hover:shadow-md'
-      }`}
+      className={[
+        'relative overflow-hidden rounded-2xl border p-5',
+        'bg-white',
+        colors.border,
+        'shadow-sm',
+        'transition-all duration-200',
+        onClick
+          ? `cursor-pointer hover:shadow-lg hover:-translate-y-1 hover:${colors.glow}`
+          : 'hover:shadow-md',
+      ].join(' ')}
     >
-      {/* Icon circle */}
-      <div
-        className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 ${colors.iconBg}`}
-      >
-        <Icon size={26} className={colors.iconText} />
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider truncate font-display">
+            {title}
+          </span>
+          <span className="text-3xl font-extrabold text-gray-900 leading-tight mt-1.5 font-display">
+            {value}
+          </span>
+        </div>
+
+        <div className={`w-11 h-11 rounded-xl ${colors.iconBg} flex items-center justify-center shrink-0 shadow-sm`}>
+          <Icon size={20} className="text-white" strokeWidth={2} />
+        </div>
       </div>
 
-      {/* Text */}
-      <div className="flex flex-col min-w-0">
-        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide truncate">
-          {title}
-        </span>
-        <span className="text-3xl font-bold text-gray-800 leading-tight mt-0.5">{value}</span>
-      </div>
+      {/* Decorative accent line at bottom */}
+      <div className={`absolute bottom-0 left-0 right-0 h-0.5 ${colors.iconBg}`} />
     </div>
   );
 }

@@ -46,3 +46,7 @@ export const getActivity = (id) =>
 /** GET /requests/{id}/attachments/ */
 export const getAttachments = (id) =>
   client.get(`/requests/${id}/attachments/`);
+
+/** PATCH /requests/{id}/items/ — update supply_source for items */
+export const updateRequestItems = (requestId, itemDecisions) =>
+  client.patch(`/requests/${requestId}/update-items/`, { items: itemDecisions });

@@ -38,6 +38,14 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.prefetch_related('user_roles').all()
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+    # Actions on own profile only require IsAuthenticated
+    SELF_ACTIONS = ('me', 'change_password', 'manage_signature')
+
+    def get_permissions(self):
+        if self.action in self.SELF_ACTIONS:
+            return [IsAuthenticated()]
+        return super().get_permissions()
     filterset_fields = ['is_active', 'is_staff']
     search_fields = ['username', 'email', 'first_name', 'last_name', 'position']
     ordering_fields = ['last_name', 'first_name', 'date_joined']
@@ -79,6 +87,71 @@ class UserViewSet(viewsets.ModelViewSet):
         user.set_password(serializer.validated_data['new_password'])
         user.save()
         return Response({'detail': 'Contraseña actualizada exitosamente.'})
+
+    @extend_schema(tags=['users'], summary='Manage signature (POST=upload, DELETE=remove)')
+    @action(detail=False, methods=['post', 'delete'], url_path='me/signature')
+    def manage_signature(self, request):
+        """
+        POST: Upload a signature image. Accepts:
+          - multipart/form-data with 'file' field (photo upload)
+          - JSON with 'signature_data' field (base64 from canvas drawing)
+        DELETE: Remove the user's signature.
+        """
+        user = request.user
+
+        # ── DELETE ──
+        if request.method == 'DELETE':
+            if user.signature:
+                user.signature.delete(save=True)
+            return Response({'detail': 'Firma eliminada.'})
+
+        # ── POST ──
+        from django.core.files.base import ContentFile
+        from apps.core.services.signature import process_signature_image, process_base64_signature
+
+        # Option 1: File upload (photo from camera/gallery)
+        if 'file' in request.FILES:
+            try:
+                processed = process_signature_image(request.FILES['file'])
+                user.signature.save(
+                    f'signature_{user.username}.png',
+                    ContentFile(processed.read()),
+                    save=True,
+                )
+                return Response({
+                    'detail': 'Firma guardada correctamente.',
+                    'signature': user.signature.url,
+                })
+            except Exception as exc:
+                return Response(
+                    {'detail': f'Error al procesar la imagen: {str(exc)}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Option 2: Base64 from canvas drawing
+        signature_data = request.data.get('signature_data')
+        if signature_data:
+            try:
+                processed = process_base64_signature(signature_data)
+                user.signature.save(
+                    f'signature_{user.username}.png',
+                    ContentFile(processed.read()),
+                    save=True,
+                )
+                return Response({
+                    'detail': 'Firma guardada correctamente.',
+                    'signature': user.signature.url,
+                })
+            except Exception as exc:
+                return Response(
+                    {'detail': f'Error al procesar la firma: {str(exc)}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        return Response(
+            {'detail': 'Envie un archivo (file) o datos base64 (signature_data).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 @extend_schema_view(

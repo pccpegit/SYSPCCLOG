@@ -21,7 +21,8 @@ import {
 } from 'lucide-react';
 import { ROLES, STATUS } from '../../data/constants';
 import { useAuth } from '../../context/AuthContext';
-import { getRequest, getRequests, performAction } from '../../api/requests';
+import { getRequest, getRequests, getApprovals, performAction } from '../../api/requests';
+import ApprovalChain from '../../components/requests/ApprovalChain';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
@@ -476,28 +477,58 @@ function DispatchPanel({ submitting, notes, onNotes, dispatchNumber, onDispatch,
   );
 }
 
-// DISPATCHED_TO_SITE — site warehouse confirms delivery
-function SiteReceptionPanel({ submitting, notes, onNotes, onAction }) {
+// DISPATCHED_TO_SITE — site warehouse receives and delivers to requester
+function SiteReceptionPanel({ req, items, submitting, notes, onNotes, onAction }) {
+  const requester = req?.requested_by_name ?? req?.requestedByName ?? 'el solicitante';
+
   return (
     <div className="space-y-4">
+      {/* Banner */}
       <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-teal-600 shrink-0 mt-0.5" />
+        <Package size={16} className="text-teal-600 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-teal-800">Materiales en Camino - Confirmar Recepcion en Obra</p>
+          <p className="text-sm font-semibold text-teal-800">Paso 16 — Entrega del Requerimiento al Solicitante</p>
           <p className="text-xs text-teal-700 mt-0.5 leading-relaxed">
-            Los materiales han sido despachados desde almacen central. Confirme la recepcion
-            fisica en la obra y actualice los registros del almacen de obra.
+            Los materiales fueron despachados desde Almacén Central. Reciba los materiales,
+            verifique que estén completos y entréguelos a <strong>{requester}</strong>.
           </p>
         </div>
       </div>
 
+      {/* Items to deliver */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+          <p className="text-sm font-semibold text-gray-700">Materiales a Entregar ({items?.length ?? 0})</p>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {(items ?? []).map((item) => (
+            <div key={item.id} className="px-5 py-3 flex items-center justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-800">{item.description}</p>
+                <p className="text-xs text-gray-400">{item.quantity} {item.unit}</p>
+              </div>
+              <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3">
+                Entregar
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Delivery info */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-700">Confirmacion de Recepcion en Obra</h2>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-3">
+          <User size={16} className="text-blue-600 shrink-0" />
+          <div>
+            <p className="text-xs text-blue-600 font-medium">Entregar a:</p>
+            <p className="text-sm font-bold text-blue-800">{requester}</p>
+          </div>
+        </div>
 
         <NotesField
           value={notes}
           onChange={onNotes}
-          placeholder="Estado de los materiales al llegar, ubicacion en obra, responsable de recepcion..."
+          placeholder="Observaciones de la entrega: estado de los materiales, firma del solicitante, ubicación..."
         />
 
         <button
@@ -507,11 +538,11 @@ function SiteReceptionPanel({ submitting, notes, onNotes, onAction }) {
           className="w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 bg-green-600 text-white text-base font-bold rounded-xl hover:bg-green-700 hover:shadow-lg transition-all duration-200 disabled:opacity-50 shadow-md"
         >
           <SendHorizonal size={20} />
-          {submitting ? 'Procesando...' : 'Confirmar Recepcion en Obra'}
+          {submitting ? 'Procesando...' : 'Confirmar Entrega al Solicitante'}
         </button>
 
         <p className="text-xs text-gray-400 text-center">
-          Esta accion cierra el ciclo de entrega y actualiza los registros del almacen.
+          Se registrará la entrega y el solicitante podrá confirmar la conformidad del requerimiento.
         </p>
       </div>
     </div>
@@ -572,6 +603,7 @@ export default function WarehouseActionPage() {
   const { showToast }   = useToast();
 
   const [req,             setReq]             = useState(null);
+  const [approvals,       setApprovals]       = useState([]);
   const [loading,         setLoading]         = useState(true);
   const [notFound,        setNotFound]        = useState(false);
   const [notes,           setNotes]           = useState('');
@@ -607,6 +639,10 @@ export default function WarehouseActionPage() {
           setNotFound(true);
         } else {
           setReq(requestData);
+          try {
+            const { data } = await getApprovals(requestData.id);
+            setApprovals(data.results ?? data ?? []);
+          } catch { /* non-fatal */ }
         }
       } catch (err) {
         console.error('Error fetching request:', err);
@@ -820,6 +856,8 @@ export default function WarehouseActionPage() {
       case STATUS.DISPATCHED_TO_SITE:
         return (
           <SiteReceptionPanel
+            req={req}
+            items={items}
             submitting={submitting}
             notes={notes}
             onNotes={setNotes}
@@ -913,7 +951,7 @@ export default function WarehouseActionPage() {
             <InfoRow
               icon={Building2}
               label="Proyecto"
-              value={`${req.project_code ?? req.projectCode ?? ''} — ${req.project_name ?? req.projectName ?? ''}`}
+              value={(req.project_code ?? req.projectCode) ? `${req.project_code ?? req.projectCode} — ${req.project_name ?? req.projectName}` : req.flow === 'ADMINISTRATIVE' ? 'Oficina Central' : '—'}
             />
             <InfoRow
               icon={User}
@@ -956,6 +994,7 @@ export default function WarehouseActionPage() {
             onQcToggle={handleQcToggle}
             showQC={showQC}
           />
+
         </div>
 
         {/* RIGHT: Action panel */}
@@ -963,6 +1002,14 @@ export default function WarehouseActionPage() {
           {renderActionPanel()}
         </div>
       </div>
+
+      {/* Historial section - full width */}
+      {approvals.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <h2 className="text-base font-semibold text-gray-800 mb-4">Historial del Requerimiento</h2>
+          <ApprovalChain approvals={approvals} />
+        </div>
+      )}
     </div>
 
     {/* Confirm modal */}

@@ -16,12 +16,17 @@ const LOGISTICS_STATUSES = [
   STATUS.STOCK_CHECK,
   STATUS.REQUIRES_PURCHASE,
   STATUS.QUOTING,
+  STATUS.QUOTE_COMPARISON,
   STATUS.QUOTE_SELECTED,
+  STATUS.QUOTE_COST_APPROVED,
   STATUS.COST_OVERRUN_REVIEW,
+  STATUS.COST_OVERRUN_APPROVED,
   STATUS.PO_GENERATED,
   STATUS.RECEIVING,
   STATUS.QUALITY_APPROVED,
   STATUS.QUALITY_REJECTED,
+  STATUS.USER_CONFORMITY,
+  STATUS.CLAIM_IN_REVIEW,
   'SUPPLIER_CLAIM_SENT',
   'SUPPLIER_CLAIM_PENDING',
   'SUPPLIER_REPLACEMENT_RECEIVED',
@@ -44,12 +49,12 @@ export default function LogisticsPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const results = await Promise.all(
-          LOGISTICS_STATUSES.map((s) => getRequests({ status: s, page_size: 100, ordering: '-created_at' }))
-        );
-        const merged = results.flatMap((r) => r.data.results ?? []);
-        const unique = [...new Map(merged.map((r) => [r.id, r])).values()];
-        setRequests(unique);
+        const { data } = await getRequests({
+          status_in: LOGISTICS_STATUSES.join(','),
+          page_size: 200,
+          ordering: '-created_at',
+        });
+        setRequests(data.results ?? []);
       } catch (err) {
         console.error('Error fetching logistics requests:', err);
       } finally {
@@ -172,7 +177,7 @@ export default function LogisticsPage() {
                       <td className="py-3 px-4 text-gray-800 max-w-xs">
                         <span className="line-clamp-1">{req.description}</span>
                       </td>
-                      <td className="py-3 px-4 text-xs text-gray-500 hidden md:table-cell">{req.project_code ?? req.projectCode}</td>
+                      <td className="py-3 px-4 text-xs text-gray-500 hidden md:table-cell">{req.project_code ?? req.projectCode ?? (req.flow === 'ADMINISTRATIVE' ? 'Oficina Central' : '—')}</td>
                       <td className="py-3 px-4 hidden sm:table-cell"><PriorityBadge priority={req.priority} /></td>
                       <td className="py-3 px-4"><StatusBadge status={req.status} /></td>
                       <td className="py-3 px-4 text-right font-medium text-gray-700 hidden lg:table-cell">

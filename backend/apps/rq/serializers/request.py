@@ -27,6 +27,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'presupuestado_adicional',
             'rfi_fwo',
             'estatus_guia',
+            'supply_source',
             'comentarios',
             'created_at',
         ]
@@ -53,6 +54,7 @@ class RequestListSerializer(serializers.ModelSerializer):
             'rq_number',
             'flow',
             'flow_display',
+            'description',
             'project',
             'project_code',
             'project_name',

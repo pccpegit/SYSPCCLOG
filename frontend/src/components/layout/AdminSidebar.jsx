@@ -9,15 +9,26 @@ import {
   X,
   Briefcase,
   Settings,
+  Users,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { label: 'Pasajes',   to: '/admin/pasajes',   icon: Plane,           end: false },
   { label: 'Dashboard', to: '/admin/dashboard', icon: LayoutDashboard, end: false },
   { section: 'Gestión' },
   { label: 'Pagos',       to: '/admin/pagos',       icon: CreditCard, end: false },
   { label: 'Politicas',   to: '/admin/politicas',   icon: Shield,     end: false },
   { label: 'Proveedores', to: '/admin/proveedores', icon: Building2,  end: false },
+];
+
+// SYSPCC-018 — Usuarios/Proyectos are superuser-only (no business
+// SUPERADMIN role exists); appended only when `isSuperUser` is true so a
+// non-superuser admin never even sees the nav entries.
+const SUPERUSER_NAV_ITEMS = [
+  { section: 'Administración del sistema' },
+  { label: 'Usuarios',  to: '/admin/usuarios',  icon: Users,     end: false },
+  { label: 'Proyectos', to: '/admin/proyectos', icon: Building2, end: false },
 ];
 
 const ACCENT = {
@@ -33,6 +44,9 @@ const ACCENT = {
 
 export default function AdminSidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
+  const { isSuperUser } = useAuth();
+
+  const NAV_ITEMS = isSuperUser ? [...BASE_NAV_ITEMS, ...SUPERUSER_NAV_ITEMS] : BASE_NAV_ITEMS;
 
   return (
     <>

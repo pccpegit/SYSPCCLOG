@@ -27,3 +27,7 @@ export const getAnnualPlanLines = (planId) =>
 /** GET /users/ */
 export const getUsers = (params) =>
   client.get('/users/', { params });
+
+/** GET /users/{id}/ — used by UserFormPage (SYSPCC-018) to load a user for editing. */
+export const getUser = (id) =>
+  client.get(`/users/${id}/`);

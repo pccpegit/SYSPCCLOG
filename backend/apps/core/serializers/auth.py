@@ -58,6 +58,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'avatar_url': user.avatar_url,
             'signature': user.signature.url if user.signature else None,
             'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+            'must_change_password': user.must_change_password,
             'roles': roles,
         }
 

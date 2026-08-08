@@ -7,22 +7,28 @@ import {
   ArrowRight,
   ChevronLeft,
   LogOut,
+  Users,
+  Building2,
 } from 'lucide-react';
 
 // ── Módulos administrativos ───────────────────────────────────────────────────
-// Por ahora solo "Pasajes" está disponible. El resto queda como módulos futuros.
+// "Pasajes" está siempre disponible. Los dos módulos restantes son
+// "Próximamente" para la mayoría, pero SYSPCC-018 los reemplaza por
+// Usuarios/Proyectos para el superadmin (is_superuser) — no hay rol de
+// negocio SUPERADMIN, así que ese es el único gate posible aquí.
 
-const MODULES = [
-  {
-    id: 'pasajes',
-    name: 'Pasajes',
-    subtitle: 'Personal',
-    description: 'Gestión de pasajes de personal: registro, pagos, políticas de devolución, proveedores y dashboard.',
-    icon: Plane,
-    color: 'indigo',
-    path: '/admin/pasajes',
-    available: true,
-  },
+const PASAJES_MODULE = {
+  id: 'pasajes',
+  name: 'Pasajes',
+  subtitle: 'Personal',
+  description: 'Gestión de pasajes de personal: registro, pagos, políticas de devolución, proveedores y dashboard.',
+  icon: Plane,
+  color: 'indigo',
+  path: '/admin/pasajes',
+  available: true,
+};
+
+const PLACEHOLDER_MODULES = [
   {
     id: 'futuro-1',
     name: 'Próximamente',
@@ -45,6 +51,29 @@ const MODULES = [
   },
 ];
 
+const SUPERUSER_MODULES = [
+  {
+    id: 'usuarios',
+    name: 'Usuarios',
+    subtitle: 'Sistema',
+    description: 'Cuentas, roles y accesos: crear, editar, restablecer contraseñas y activar/desactivar usuarios.',
+    icon: Users,
+    color: 'emerald',
+    path: '/admin/usuarios',
+    available: true,
+  },
+  {
+    id: 'proyectos',
+    name: 'Proyectos',
+    subtitle: 'Sistema',
+    description: 'Obras registradas en el sistema: crear, editar y activar/desactivar proyectos.',
+    icon: Building2,
+    color: 'amber',
+    path: '/admin/proyectos',
+    available: true,
+  },
+];
+
 const COLOR_MAP = {
   indigo: {
     card: 'from-indigo-600 to-blue-700',
@@ -54,13 +83,26 @@ const COLOR_MAP = {
     card: 'from-slate-600 to-slate-800',
     hoverGlow: 'group-hover:shadow-slate-500/25',
   },
+  emerald: {
+    card: 'from-emerald-600 to-teal-700',
+    hoverGlow: 'group-hover:shadow-emerald-500/25',
+  },
+  amber: {
+    card: 'from-amber-600 to-orange-700',
+    hoverGlow: 'group-hover:shadow-amber-500/25',
+  },
 };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AdminMenuPage() {
-  const { currentUser, isAuthenticated, isLoading, logout } = useAuth();
+  const { currentUser, isAuthenticated, isLoading, logout, isSuperUser } = useAuth();
   const navigate = useNavigate();
+
+  const MODULES = [
+    PASAJES_MODULE,
+    ...(isSuperUser ? SUPERUSER_MODULES : PLACEHOLDER_MODULES),
+  ];
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) navigate('/login', { replace: true });

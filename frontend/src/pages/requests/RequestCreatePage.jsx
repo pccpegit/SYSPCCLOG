@@ -6,6 +6,8 @@ import { getProjects, getDepartments } from '../../api/core';
 import { createRequest } from '../../api/requests';
 import { exportRQToExcel } from '../../utils/exportRQ';
 import { useToast } from '../../context/ToastContext';
+import { isOficinaCentral } from '../../data/constants';
+import { extractErrorMessage } from '../../utils/apiErrors';
 
 const UNITS = [
   'UND', 'KG', 'M', 'M2', 'M3', 'GLB', 'SACO', 'L',
@@ -101,7 +103,7 @@ export default function RequestCreatePage() {
   const userProjectCode = primaryRoleObj?.project_code ?? '';
   const autoServicio = isOps
     ? (userProjectCode && userProjectName ? `${userProjectCode} — ${userProjectName}` : userProjectName)
-    : userDepartmentName;
+    : (isOficinaCentral(userDepartmentFrente) ? 'Oficina Central' : userDepartmentName);
 
   const [projects,    setProjects]    = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -164,7 +166,7 @@ export default function RequestCreatePage() {
               ...f,
               destinationKey: `dept-${dept.id}`,
               frente: dept.frente || '',
-              servicio: dept.name || '',
+              servicio: isOficinaCentral(dept.frente) ? 'Oficina Central' : (dept.name || ''),
             }));
           }
         }
@@ -202,11 +204,11 @@ export default function RequestCreatePage() {
       const next = { ...prev, [name]: value };
       // When frente changes, reset servicio and proyecto
       if (name === 'frente') {
-        const hasProjects = projects.some((p) => p.frente === value);
-        if (!hasProjects && userDepartmentId) {
-          // No projects for this frente → auto-fill with user's department
-          next.servicio = currentUser?.department || '';
-          next.destinationKey = `dept-${userDepartmentId}`;
+        if (isOficinaCentral(value)) {
+          // SYSPCC-019: frente Oficina Central → Servicio/Proyecto fijos,
+          // para todo usuario tenga o no departamento propio asignado.
+          next.servicio = 'Oficina Central';
+          next.destinationKey = userDepartmentId ? `dept-${userDepartmentId}` : 'dept-oficina';
         } else {
           next.servicio = '';
           next.destinationKey = '';
@@ -346,8 +348,10 @@ export default function RequestCreatePage() {
       setTimeout(() => navigate('/rq/requests'), 250);
     } catch (err) {
       console.error('Error al crear requerimiento:', err);
-      const detail = err?.response?.data?.detail ?? err?.response?.data ?? 'Error al guardar el requerimiento.';
-      showToast({ type: 'error', message: typeof detail === 'string' ? detail : JSON.stringify(detail) });
+      // Cubre también el 400 { flow: [...] } del backend (SYSPCC-019) si la
+      // combinación front_area/flow llegara a ser inconsistente — no debería
+      // ocurrir desde esta UI, pero es la red de seguridad.
+      showToast({ type: 'error', message: extractErrorMessage(err, 'Error al guardar el requerimiento.') });
       setSubmitting(false);
     }
   }
@@ -625,6 +629,10 @@ export default function RequestCreatePage() {
                     <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
                       {form.servicio || '—'}
                     </span>
+                  ) : isOficinaCentral(form.frente) ? (
+                    <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
+                      Oficina Central
+                    </span>
                   ) : form.frente && !projects.some((p) => p.frente === form.frente) ? (
                     <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block">
                       {form.servicio || '—'}
@@ -661,7 +669,9 @@ export default function RequestCreatePage() {
                 </td>
                 <td colSpan={3} className="px-2 py-2">
                   <span className="text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 rounded px-2 py-1.5 block max-w-xl">
-                    {selectedProject
+                    {isOficinaCentral(form.frente)
+                      ? 'Oficina Central'
+                      : selectedProject
                       ? `${selectedProject.code} — ${selectedProject.name}`
                       : selectedDepartment
                       ? `${selectedDepartment.name}`

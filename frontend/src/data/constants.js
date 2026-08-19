@@ -4,6 +4,18 @@
 // ============================================================
 
 // ------------------------------------------------------------
+// SYSPCC-019: frente "Oficina Central" — discriminador de UI usado en
+// "Nuevo Requerimiento" (RequestCreatePage) para fijar Servicio/Proyecto
+// y forzar flujo ADMINISTRATIVE. Mirror del backend
+// (apps/core/enums.py::OFICINA_CENTRAL_FRENTE), comparar .trim().toUpperCase().
+// ------------------------------------------------------------
+export const FRENTE_OFICINA_CENTRAL = 'OFICINA CENTRAL';
+
+export function isOficinaCentral(frente) {
+  return (frente || '').trim().toUpperCase() === FRENTE_OFICINA_CENTRAL;
+}
+
+// ------------------------------------------------------------
 // ROLES
 // ------------------------------------------------------------
 export const ROLES = {

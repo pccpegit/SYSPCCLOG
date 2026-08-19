@@ -39,6 +39,55 @@ def auth_client(user):
 
 
 @pytest.fixture
+def superuser(db):
+    """
+    SYSPCC-018: Django superuser — the sole gate for the admin module
+    (users/projects management). No business-level SUPERADMIN role exists
+    in `RoleChoices`; `is_superuser` is what `IsSuperUser` checks.
+    """
+    return User.objects.create_superuser(
+        username='superadmin',
+        email='superadmin@test.com',
+        password='TestPass2026!',
+        first_name='Super',
+        last_name='Admin',
+    )
+
+
+@pytest.fixture
+def other_superuser(db):
+    """A second superuser, distinct from `superuser` — used for self-action
+    guards (e.g. auto-deactivation) where the actor must differ from the
+    target."""
+    return User.objects.create_superuser(
+        username='superadmin2',
+        email='superadmin2@test.com',
+        password='TestPass2026!',
+        first_name='Super',
+        last_name='Admin2',
+    )
+
+
+@pytest.fixture
+def staff_user(db):
+    """
+    `is_staff=True` but NOT a superuser — pre-SYSPCC-018 this role could
+    write to `UserViewSet`/`ProjectViewSet` via `IsAdminOrReadOnly`; the
+    admin module now requires `IsSuperUser` instead, so this fixture models
+    the "used to have access, must not anymore" actor for permission tests.
+    """
+    u = User.objects.create_user(
+        username='staffuser',
+        email='staffuser@test.com',
+        password='TestPass2026!',
+        first_name='Staff',
+        last_name='User',
+        is_staff=True,
+    )
+    return u
+
+
+@pytest.fixture
 def project(db):
     """Demo project."""
     return Project.objects.create(

@@ -29,6 +29,15 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 # Relaxed CORS in development
 CORS_ALLOW_ALL_ORIGINS = True
 
+# The browser runs the SPA on the Vite dev server while the API lives on
+# Django's port, so state-changing requests arrive with a cross-origin
+# Origin header that the CSRF check must trust (see base.py).
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+]
+
 # Higher rate limits for development
 REST_FRAMEWORK_THROTTLE_RATES = {
     'anon': '300/min',

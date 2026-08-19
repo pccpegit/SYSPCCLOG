@@ -15,7 +15,15 @@ import PasajesPage        from './pages/admin/PasajesPage';
 import PagosPage          from './pages/admin/PagosPage';
 import PoliticasPage      from './pages/admin/PoliticasPage';
 import ProveedoresPage    from './pages/admin/ProveedoresPage';
+import SystemAdminShell   from './components/layout/SystemAdminShell';
+import UsersPage          from './pages/sistema/UsersPage';
+import UserFormPage       from './pages/sistema/UserFormPage';
+import ProjectsPage       from './pages/sistema/ProjectsPage';
+import ProjectFormPage    from './pages/sistema/ProjectFormPage';
 import RoleRoute from './components/auth/RoleRoute';
+import SuperUserRoute from './components/auth/SuperUserRoute';
+import RequirePasswordChangeLayout from './components/auth/RequirePasswordChangeLayout';
+import ChangePasswordRequiredPage from './pages/auth/ChangePasswordRequiredPage';
 import AlmacenDashboardPage from './pages/almacen/AlmacenDashboardPage';
 import InventarioPage       from './pages/almacen/InventarioPage';
 import KardexPage           from './pages/almacen/KardexPage';
@@ -49,6 +57,14 @@ export default function App() {
         <Routes>
           {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
+
+          {/* SYSPCC-018 — forced password change, standalone: must stay
+              OUTSIDE the RequirePasswordChangeLayout wrapper below, or a
+              user who needs it would be redirected back to itself in a
+              loop. Everything else authenticated goes inside that layout. */}
+          <Route path="/cambiar-password" element={<ChangePasswordRequiredPage />} />
+
+          <Route element={<RequirePasswordChangeLayout />}>
 
           {/* System selection — after login, before entering any module */}
           <Route path="/" element={<SystemSelectPage />} />
@@ -158,7 +174,10 @@ export default function App() {
           <Route
             path="/admin"
             element={
-              <RoleRoute requiredRoles={['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER']} redirectTo="/">
+              <RoleRoute
+                requiredRoles={['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER']}
+                redirectTo="/"
+              >
                 <AdminMenuPage />
               </RoleRoute>
             }
@@ -168,7 +187,10 @@ export default function App() {
           <Route
             path="/admin"
             element={
-              <RoleRoute requiredRoles={['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER']} redirectTo="/">
+              <RoleRoute
+                requiredRoles={['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER']}
+                redirectTo="/"
+              >
                 <AdminShell />
               </RoleRoute>
             }
@@ -178,6 +200,28 @@ export default function App() {
             <Route path="pagos"       element={<PagosPage />}       />
             <Route path="politicas"   element={<PoliticasPage />}   />
             <Route path="proveedores" element={<ProveedoresPage />} />
+          </Route>
+
+          {/* Administración del Sistema — /sistema, exclusive to Django
+              is_superuser (no business SUPERADMIN role exists). Separate
+              module from /admin (business admin: Pasajes/Pagos/etc.) — the
+              whole shell is gated by a single SuperUserRoute, so pages
+              underneath don't need their own per-route guard. */}
+          <Route
+            path="/sistema"
+            element={
+              <SuperUserRoute>
+                <SystemAdminShell />
+              </SuperUserRoute>
+            }
+          >
+            <Route index element={<Navigate to="usuarios" replace />} />
+            <Route path="usuarios"        element={<UsersPage />} />
+            <Route path="usuarios/nuevo"  element={<UserFormPage />} />
+            <Route path="usuarios/:id"    element={<UserFormPage />} />
+            <Route path="proyectos"       element={<ProjectsPage />} />
+            <Route path="proyectos/nuevo" element={<ProjectFormPage />} />
+            <Route path="proyectos/:id"   element={<ProjectFormPage />} />
           </Route>
 
           {/* Support System — /soporte */}
@@ -193,6 +237,10 @@ export default function App() {
 
           {/* Future systems placeholder */}
           {/* <Route path="/rrhh" element={<RRHHShell />} /> */}
+
+          </Route>
+          {/* ^ closes RequirePasswordChangeLayout — every authenticated
+              route above this line is gated on must_change_password */}
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

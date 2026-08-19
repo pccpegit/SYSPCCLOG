@@ -105,6 +105,11 @@ export function AuthProvider({ children }) {
     [userRoles]
   );
 
+  // SYSPCC-018: derived from the `is_superuser` flag the backend now sends
+  // both at login and on /users/me/ — gates the admin-only Usuarios/
+  // Proyectos pages. There is no business-level SUPERADMIN role.
+  const isSuperUser = !!currentUser?.is_superuser;
+
   return (
     <AuthContext.Provider
       value={{
@@ -117,6 +122,7 @@ export function AuthProvider({ children }) {
         primaryRole,
         userRoles,
         hasRole,
+        isSuperUser,
       }}
     >
       {children}

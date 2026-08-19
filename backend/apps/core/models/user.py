@@ -34,6 +34,11 @@ class User(AbstractUser):
         blank=True,
         help_text=_('Imagen de firma del usuario (PNG transparente)'),
     )
+    must_change_password = models.BooleanField(
+        _('debe cambiar contraseña'),
+        default=False,
+        help_text=_('Si está activo, el usuario solo puede cambiar su contraseña hasta que lo haga'),
+    )
 
     USERNAME_FIELD = 'username'
     REQUIRED_FIELDS = ['email', 'first_name', 'last_name']

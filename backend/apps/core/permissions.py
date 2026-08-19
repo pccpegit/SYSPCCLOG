@@ -114,6 +114,17 @@ class IsAdminOrReadOnly(BasePermission):
         return request.user and request.user.is_staff
 
 
+class IsSuperUser(BasePermission):
+    """
+    SYSPCC-018: only Django superusers may pass. Used to gate the admin
+    module (user/project management) — there is no business-level
+    SUPERADMIN role in `RoleChoices`, superuser status is the gate.
+    """
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
 class IsOwnerOrAdmin(BasePermission):
     """Allow access to resource owner or admin users."""
 

@@ -40,7 +40,7 @@ const EMPTY_FORM = {
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
     hasError
-      ? 'border-red-300 focus:ring-red-400'
+      ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400'
       : 'border-gray-200 focus:ring-indigo-500 focus:border-indigo-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
@@ -125,8 +125,8 @@ function PoliticaModal({ politica, onClose, onSuccess }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 ring-1 ring-indigo-100 flex items-center justify-center">
-              <Shield size={17} className="text-indigo-600" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 ring-1 ring-indigo-100 dark:ring-indigo-500/30 flex items-center justify-center">
+              <Shield size={17} className="text-indigo-600 dark:text-indigo-400" />
             </div>
             <p className="text-sm font-semibold text-gray-900">
               {isEdit ? 'Editar politica' : 'Nueva politica de devolucion'}
@@ -159,7 +159,7 @@ function PoliticaModal({ politica, onClose, onSuccess }) {
                   key={opt.value}
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all select-none ${
                     form.tipo_trabajador === opt.value
-                      ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-1 ring-indigo-200'
+                      ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30'
                       : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -343,7 +343,7 @@ export default function PoliticasPage() {
                 onClick={() => setFilterTipo(filterTipo === t.value ? '' : t.value)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap ${
                   filterTipo === t.value
-                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-1 ring-indigo-200'
+                    ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30'
                     : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                 }`}
               >
@@ -355,7 +355,7 @@ export default function PoliticasPage() {
 
         {/* ── Error ───────────────────────────────────────────── */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
             <AlertTriangle size={16} className="shrink-0" />
             {error}
           </div>
@@ -365,7 +365,7 @@ export default function PoliticasPage() {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-40">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" />
             </div>
           ) : politicas.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
@@ -375,7 +375,7 @@ export default function PoliticasPage() {
               <p className="text-sm font-medium text-gray-500">No hay politicas configuradas</p>
               <button
                 onClick={openCreate}
-                className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold"
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold"
               >
                 Crear primera politica
               </button>
@@ -401,8 +401,8 @@ export default function PoliticasPage() {
                       <td className="px-5 sm:px-6 py-3.5">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold ${
                           p.tipo_trabajador === 'STAFF'
-                            ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
-                            : 'bg-orange-50 text-orange-700 ring-1 ring-orange-100'
+                            ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 ring-1 ring-blue-100 dark:ring-blue-500/30'
+                            : 'bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-300 ring-1 ring-orange-100 dark:ring-orange-500/30'
                         }`}>
                           {p.tipo_trabajador === 'STAFF' ? 'Staff' : 'Trabajador'}
                         </span>
@@ -415,13 +415,13 @@ export default function PoliticasPage() {
                       </td>
                       <td className="px-5 sm:px-6 py-3.5 text-center hidden md:table-cell">
                         {p.en_dolares
-                          ? <span className="text-green-600 font-bold text-xs">Si</span>
+                          ? <span className="text-green-600 dark:text-green-400 font-bold text-xs">Si</span>
                           : <span className="text-gray-300 text-xs">No</span>
                         }
                       </td>
                       <td className="px-5 sm:px-6 py-3.5 text-center">
                         {p.no_devolucion
-                          ? <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-red-50 text-red-600 ring-1 ring-red-100">Sin devol.</span>
+                          ? <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-100 dark:ring-red-500/30">Sin devol.</span>
                           : <span className="text-gray-300 text-xs">No</span>
                         }
                       </td>
@@ -429,7 +429,7 @@ export default function PoliticasPage() {
                         <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => openEdit(p)}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 transition-colors"
                             title="Editar"
                           >
                             <Pencil size={15} />
@@ -453,7 +453,7 @@ export default function PoliticasPage() {
                           ) : (
                             <button
                               onClick={() => setDeletingId(p.id)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 transition-colors"
                               title="Eliminar"
                             >
                               <Trash2 size={15} />

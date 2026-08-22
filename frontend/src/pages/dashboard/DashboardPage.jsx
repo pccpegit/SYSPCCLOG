@@ -109,7 +109,7 @@ function RequestsTable({ requests, onRowClick }) {
             <tr
               key={req.id}
               onClick={() => onRowClick(req.rq_number ?? req.rqNumber)}
-              className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
+              className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-500/10 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
             >
               <td className="py-3.5 px-5 font-mono font-bold text-blue-600 whitespace-nowrap text-xs">
                 {req.rq_number ?? req.rqNumber}
@@ -405,7 +405,7 @@ export default function DashboardPage() {
               </SectionHeading>
               <button
                 onClick={() => navigate('/rq/requests')}
-                className="text-sm font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg hover:bg-blue-50 font-display"
+                className="text-sm font-bold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-500/10 font-display"
               >
                 Ver todos &rarr;
               </button>

@@ -15,9 +15,9 @@ import { fmtNum } from '../../utils/format';
 
 function KpiCard({ label, value, icon: Icon, color, loading, prefix }) {
   const colorMap = {
-    indigo: { bg: 'bg-indigo-50', icon: 'text-indigo-600', ring: 'ring-indigo-100' },
-    amber:  { bg: 'bg-amber-50',  icon: 'text-amber-600',  ring: 'ring-amber-100'  },
-    blue:   { bg: 'bg-blue-50',   icon: 'text-blue-600',   ring: 'ring-blue-100'   },
+    indigo: { bg: 'bg-indigo-50 dark:bg-indigo-500/10', icon: 'text-indigo-600 dark:text-indigo-400', ring: 'ring-indigo-100 dark:ring-indigo-500/30' },
+    amber:  { bg: 'bg-amber-50 dark:bg-amber-500/10',  icon: 'text-amber-600 dark:text-amber-400',  ring: 'ring-amber-100 dark:ring-amber-500/30'  },
+    blue:   { bg: 'bg-blue-50 dark:bg-blue-500/10',   icon: 'text-blue-600 dark:text-blue-400',   ring: 'ring-blue-100 dark:ring-blue-500/30'   },
     slate:  { bg: 'bg-slate-50',  icon: 'text-slate-600',  ring: 'ring-slate-100'  },
   };
   const c = colorMap[color] ?? colorMap.indigo;
@@ -138,7 +138,7 @@ export default function AdminDashboardPage() {
 
       {/* ── Error banner ────────────────────────────────────── */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
           <AlertTriangle size={16} className="shrink-0" />
           {error}
         </div>

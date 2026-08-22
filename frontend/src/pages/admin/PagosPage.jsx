@@ -22,14 +22,14 @@ function formatDate(str) {
 function EstadoBadge({ estado }) {
   if (estado === 'PAGADO') {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-green-50 text-green-700 ring-1 ring-green-100">
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 ring-1 ring-green-100 dark:ring-green-500/30">
         <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
         Pagado
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-100 dark:ring-amber-500/30">
       <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
       Pendiente
     </span>
@@ -45,7 +45,7 @@ const ESTADO_FILTERS = [
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
     hasError
-      ? 'border-red-300 focus:ring-red-400'
+      ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400'
       : 'border-gray-200 focus:ring-indigo-500 focus:border-indigo-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
@@ -91,8 +91,8 @@ function PagoModal({ pasaje, onClose, onSuccess }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-green-50 ring-1 ring-green-100 flex items-center justify-center">
-              <CheckCircle size={17} className="text-green-600" />
+            <div className="w-9 h-9 rounded-xl bg-green-50 dark:bg-green-500/10 ring-1 ring-green-100 dark:ring-green-500/30 flex items-center justify-center">
+              <CheckCircle size={17} className="text-green-600 dark:text-green-400" />
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-900">Marcar como pagado</p>
@@ -121,7 +121,7 @@ function PagoModal({ pasaje, onClose, onSuccess }) {
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Total a pagar:</span>
-              <span className="font-bold text-indigo-700 text-base">S/ {fmtNum(pasaje.total_soles ?? 0)}</span>
+              <span className="font-bold text-indigo-700 dark:text-indigo-300 text-base">S/ {fmtNum(pasaje.total_soles ?? 0)}</span>
             </div>
           </div>
 
@@ -268,7 +268,7 @@ export default function PagosPage() {
                   onClick={() => setFilterEstado(filterEstado === f.value ? '' : f.value)}
                   className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap ${
                     filterEstado === f.value
-                      ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-1 ring-indigo-200'
+                      ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30'
                       : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -281,7 +281,7 @@ export default function PagosPage() {
 
         {/* ── Error ───────────────────────────────────────────── */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
             <AlertTriangle size={16} className="shrink-0" />
             {error}
           </div>
@@ -291,7 +291,7 @@ export default function PagosPage() {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-48">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" />
             </div>
           ) : pasajes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
@@ -333,7 +333,7 @@ export default function PagosPage() {
                       </td>
                       <td className="px-4 sm:px-5 py-3.5 font-mono text-xs text-gray-400 hidden sm:table-cell">{p.factura ?? '\u2014'}</td>
                       <td className="px-4 sm:px-5 py-3.5 text-gray-400 text-xs hidden lg:table-cell max-w-[140px] truncate">{p.razon_social ?? '\u2014'}</td>
-                      <td className="px-4 sm:px-5 py-3.5 text-right font-bold text-indigo-700 tabular-nums whitespace-nowrap">
+                      <td className="px-4 sm:px-5 py-3.5 text-right font-bold text-indigo-700 dark:text-indigo-300 tabular-nums whitespace-nowrap">
                         S/ {fmtNum(p.total_soles ?? 0)}
                       </td>
                       <td className="px-4 sm:px-5 py-3.5 text-center">
@@ -352,7 +352,7 @@ export default function PagosPage() {
                         {p.estado === 'PENDIENTE' && (
                           <button
                             onClick={() => setSelectedPasaje(p)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors opacity-0 group-hover:opacity-100 whitespace-nowrap"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-500/10 hover:bg-green-100 dark:hover:bg-green-500/15 border border-green-200 dark:border-green-500/30 transition-colors opacity-0 group-hover:opacity-100 whitespace-nowrap"
                           >
                             <CheckCircle size={13} /> Marcar pagado
                           </button>

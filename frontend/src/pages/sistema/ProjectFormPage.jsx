@@ -30,7 +30,7 @@ const EMPTY_FORM = {
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
     hasError
-      ? 'border-red-300 focus:ring-red-400'
+      ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400'
       : 'border-gray-200 focus:ring-indigo-500 focus:border-indigo-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
@@ -48,7 +48,7 @@ function Field({ label, required, id, error, hint, children }) {
       </label>
       {children}
       {hint && !error && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
-      {error && <p id={`${id}-error`} role="alert" className="text-[11px] text-red-500 mt-1 font-medium">{error}</p>}
+      {error && <p id={`${id}-error`} role="alert" className="text-[11px] text-red-500 dark:text-red-400 mt-1 font-medium">{error}</p>}
     </div>
   );
 }
@@ -180,7 +180,7 @@ export default function ProjectFormPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-indigo-600" aria-hidden="true" />
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" aria-hidden="true" />
         <span className="sr-only">Cargando proyecto…</span>
       </div>
     );
@@ -188,7 +188,7 @@ export default function ProjectFormPage() {
 
   if (loadError) {
     return (
-      <div role="alert" className="max-w-2xl mx-auto bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+      <div role="alert" className="max-w-2xl mx-auto bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
         <span className="flex items-center gap-2"><AlertTriangle size={16} className="shrink-0" aria-hidden="true" /> {loadError}</span>
         <button onClick={loadProject} className="font-semibold underline underline-offset-2 shrink-0">Reintentar</button>
       </div>
@@ -207,8 +207,8 @@ export default function ProjectFormPage() {
         >
           <ArrowLeft size={18} aria-hidden="true" />
         </button>
-        <div className="w-9 h-9 rounded-xl bg-indigo-50 ring-1 ring-indigo-100 flex items-center justify-center shrink-0">
-          {isEdit ? <Building2 size={17} className="text-indigo-600" aria-hidden="true" /> : <FolderPlus size={17} className="text-indigo-600" aria-hidden="true" />}
+        <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 ring-1 ring-indigo-100 dark:ring-indigo-500/30 flex items-center justify-center shrink-0">
+          {isEdit ? <Building2 size={17} className="text-indigo-600 dark:text-indigo-400" aria-hidden="true" /> : <FolderPlus size={17} className="text-indigo-600 dark:text-indigo-400" aria-hidden="true" />}
         </div>
         <div>
           <h1 className="text-xl font-bold text-gray-900">
@@ -225,7 +225,7 @@ export default function ProjectFormPage() {
             ref={formErrorRef}
             tabIndex={-1}
             role="alert"
-            className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-400"
           >
             <AlertTriangle size={16} className="shrink-0" aria-hidden="true" /> {formError}
           </div>
@@ -343,7 +343,7 @@ export default function ProjectFormPage() {
               checked={form.is_active}
               onChange={(e) => setF('is_active', e.target.checked)}
               disabled={saving}
-              className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded border-gray-300 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
             />
             <span className="text-sm text-gray-700">Proyecto activo</span>
           </label>
@@ -358,7 +358,7 @@ export default function ProjectFormPage() {
               </p>
               <Link
                 to={`/sistema/usuarios?project=${id}`}
-                className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold"
+                className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold"
               >
                 Ver en Usuarios
               </Link>
@@ -376,9 +376,9 @@ export default function ProjectFormPage() {
                 ))}
               </ul>
             )}
-            <div className="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-2.5">
-              <Info size={13} className="shrink-0 mt-0.5 text-blue-500" aria-hidden="true" />
-              <p className="text-[11px] text-blue-700 leading-relaxed">
+            <div className="flex items-start gap-2 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 rounded-xl px-3.5 py-2.5">
+              <Info size={13} className="shrink-0 mt-0.5 text-blue-500 dark:text-blue-400" aria-hidden="true" />
+              <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
                 La asignación de residentes se hace desde la ficha del usuario (rol Residente de Proyecto), no aquí.
               </p>
             </div>

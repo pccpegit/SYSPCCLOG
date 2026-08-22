@@ -22,7 +22,7 @@ function formatDate(dateStr) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 dark:border-t-blue-400" />
     </div>
   );
 }
@@ -107,7 +107,7 @@ export default function RequestListPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 flex items-center gap-2.5 tracking-tight font-display">
-            <FileText size={26} className="text-blue-600" strokeWidth={2} />
+            <FileText size={26} className="text-blue-600 dark:text-blue-400" strokeWidth={2} />
             Requerimientos
           </h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -135,7 +135,7 @@ export default function RequestListPage() {
             <span className="ml-auto">
               <button
                 onClick={clearFilters}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg font-display"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-500/10 px-3 py-1.5 rounded-lg font-display"
               >
                 <X size={13} />
                 Limpiar
@@ -183,7 +183,7 @@ export default function RequestListPage() {
           <div className="mt-3.5 flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-display">Activos:</span>
             {filters.search && (
-              <span className="text-[11px] font-bold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full border border-blue-200/60">
+              <span className="text-[11px] font-bold bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-full border border-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300 dark:border-blue-500/30">
                 "{filters.search}"
               </span>
             )}
@@ -193,12 +193,12 @@ export default function RequestListPage() {
               </span>
             )}
             {filters.project && selectedProject && (
-              <span className="text-[11px] font-bold bg-teal-50 text-teal-700 px-2.5 py-0.5 rounded-full border border-teal-200/60">
+              <span className="text-[11px] font-bold bg-teal-50 text-teal-700 px-2.5 py-0.5 rounded-full border border-teal-200/60 dark:bg-teal-500/10 dark:text-teal-300 dark:border-teal-500/30">
                 {selectedProject.code}
               </span>
             )}
             {filters.priority && (
-              <span className="text-[11px] font-bold bg-orange-50 text-orange-700 px-2.5 py-0.5 rounded-full border border-orange-200/60">
+              <span className="text-[11px] font-bold bg-orange-50 text-orange-700 px-2.5 py-0.5 rounded-full border border-orange-200/60 dark:bg-orange-500/10 dark:text-orange-300 dark:border-orange-500/30">
                 {PRIORITY_CONFIG[filters.priority]?.label ?? filters.priority}
               </span>
             )}
@@ -250,9 +250,9 @@ export default function RequestListPage() {
                   <tr
                     key={req.id}
                     onClick={() => navigate(`/rq/requests/${req.rq_number ?? req.rqNumber}`)}
-                    className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
+                    className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-500/10 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
                   >
-                    <td className="py-3.5 px-5 font-mono font-bold text-blue-600 whitespace-nowrap text-xs">
+                    <td className="py-3.5 px-5 font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap text-xs">
                       {req.rq_number ?? req.rqNumber}
                     </td>
                     <td className="py-3.5 px-5 text-gray-700 max-w-xs">
@@ -294,7 +294,7 @@ export default function RequestListPage() {
               requerimiento{total !== 1 ? 's' : ''}
             </span>
             <span className="text-xs font-bold text-gray-700 font-display">
-              Total estimado: <span className="text-blue-600">{formatCurrency(totalEstimated)}</span>
+              Total estimado: <span className="text-blue-600 dark:text-blue-400">{formatCurrency(totalEstimated)}</span>
             </span>
           </div>
         )}

@@ -39,7 +39,7 @@ const WAREHOUSE_STATUSES = [
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 dark:border-orange-400" />
     </div>
   );
 }
@@ -81,7 +81,7 @@ export default function WarehousePage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-extrabold text-gray-900 flex items-center gap-2">
-          <Warehouse size={28} className="text-orange-600" />
+          <Warehouse size={28} className="text-orange-600 dark:text-orange-400" />
           Panel de Almacén
         </h1>
         <p className="text-sm text-gray-500 mt-1">
@@ -95,8 +95,8 @@ export default function WarehousePage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-amber-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <Package size={20} className="text-amber-600" />
+            <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-500/10 flex items-center justify-center">
+              <Package size={20} className="text-amber-600 dark:text-amber-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Por Recibir</p>
@@ -106,8 +106,8 @@ export default function WarehousePage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-blue-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-              <ClipboardCheck size={20} className="text-blue-600" />
+            <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
+              <ClipboardCheck size={20} className="text-blue-600 dark:text-blue-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">En Recepción/QC</p>
@@ -117,8 +117,8 @@ export default function WarehousePage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-teal-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-teal-100 flex items-center justify-center">
-              <Truck size={20} className="text-teal-600" />
+            <div className="w-10 h-10 rounded-lg bg-teal-100 dark:bg-teal-500/10 flex items-center justify-center">
+              <Truck size={20} className="text-teal-600 dark:text-teal-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Despachados</p>
@@ -128,8 +128,8 @@ export default function WarehousePage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-green-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-              <CheckCircle size={20} className="text-green-600" />
+            <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-500/10 flex items-center justify-center">
+              <CheckCircle size={20} className="text-green-600 dark:text-green-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Entregados</p>
@@ -178,9 +178,9 @@ export default function WarehousePage() {
                     <tr
                       key={req.id}
                       onClick={() => navigate(`/rq/warehouse/${rqId}`)}
-                      className={`border-b border-gray-50 hover:bg-blue-50/60 cursor-pointer transition-all duration-150 ${idx % 2 !== 0 ? 'bg-gray-50/40' : ''}`}
+                      className={`border-b border-gray-50 hover:bg-blue-50/60 dark:hover:bg-blue-500/10 cursor-pointer transition-all duration-150 ${idx % 2 !== 0 ? 'bg-gray-50/40' : ''}`}
                     >
-                      <td className="py-3 px-4 font-mono font-semibold text-blue-700 text-xs">{rqId}</td>
+                      <td className="py-3 px-4 font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs">{rqId}</td>
                       <td className="py-3 px-4 text-gray-800 max-w-xs">
                         <span className="line-clamp-1">{req.description}</span>
                       </td>
@@ -191,7 +191,7 @@ export default function WarehousePage() {
                         {formatCurrency(req.estimated_cost ?? req.estimatedCost)}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium">
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium">
                           Ver <ArrowRight size={12} />
                         </span>
                       </td>
@@ -207,8 +207,8 @@ export default function WarehousePage() {
       {/* Demo Inventory Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center shrink-0">
-            <LayoutGrid size={16} className="text-teal-600" />
+          <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-500/10 flex items-center justify-center shrink-0">
+            <LayoutGrid size={16} className="text-teal-600 dark:text-teal-400" />
           </div>
           <div>
             <h2 className="text-base font-semibold text-gray-800">Inventario Actual (Demo)</h2>
@@ -248,12 +248,12 @@ export default function WarehousePage() {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <span className={`font-semibold ${item.central > 0 ? 'text-blue-700' : 'text-gray-400'}`}>
+                      <span className={`font-semibold ${item.central > 0 ? 'text-blue-700 dark:text-blue-300' : 'text-gray-400'}`}>
                         {item.central.toLocaleString('es-PE')}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <span className={`font-semibold ${item.obra > 0 ? 'text-teal-700' : 'text-gray-400'}`}>
+                      <span className={`font-semibold ${item.obra > 0 ? 'text-teal-700 dark:text-teal-300' : 'text-gray-400'}`}>
                         {item.obra.toLocaleString('es-PE')}
                       </span>
                     </td>
@@ -262,12 +262,12 @@ export default function WarehousePage() {
                     </td>
                     <td className="py-3 px-4 text-center">
                       {isBelowMin ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-red-100 text-red-700">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-red-100 dark:bg-red-500/10 text-red-700 dark:text-red-300">
                           <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
                           Bajo minimo
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-300">
                           <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
                           Suficiente
                         </span>

@@ -20,7 +20,7 @@ import {
 function StockBadge({ stock, minStock }) {
   if (stock === 0) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-red-50 text-red-600 ring-1 ring-red-100">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-red-50 text-red-600 ring-1 ring-red-100 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/30">
         <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
         Sin stock
       </span>
@@ -28,14 +28,14 @@ function StockBadge({ stock, minStock }) {
   }
   if (stock <= minStock) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-600 ring-1 ring-amber-100">
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
         Bajo
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/30">
       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
       OK
     </span>
@@ -122,7 +122,7 @@ function NewItemModal({ onClose, onCreated, categories }) {
 
   const inputCls = (field) =>
     `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
-      errors[field] ? 'border-red-300 focus:ring-red-400 focus:border-red-400' : 'border-gray-200 focus:ring-emerald-500 focus:border-emerald-500'
+      errors[field] ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400 focus:border-red-400' : 'border-gray-200 focus:ring-emerald-500 focus:border-emerald-500'
     } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
   const Field = ({ label, id, error, children }) => (
@@ -312,9 +312,9 @@ export default function InventarioPage() {
               <span className="font-bold text-gray-800">{totalStock.toLocaleString()}</span>
             </span>
             {lowStockCount > 0 && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-100 text-sm">
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-100 dark:bg-amber-500/10 dark:border-amber-500/30 text-sm">
                 <AlertTriangle size={14} className="text-amber-500" />
-                <span className="text-amber-700 font-medium">{lowStockCount} item{lowStockCount !== 1 ? 's' : ''} con stock bajo</span>
+                <span className="text-amber-700 dark:text-amber-300 font-medium">{lowStockCount} item{lowStockCount !== 1 ? 's' : ''} con stock bajo</span>
               </span>
             )}
           </div>
@@ -354,14 +354,14 @@ export default function InventarioPage() {
 
         {/* ── Error ───────────────────────────────────────── */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+          <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
         )}
 
         {/* ── Table ───────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden relative">
           {/* Subtle progress bar at top when searching */}
           {searching && !initialLoad && (
-            <div className="absolute top-0 left-0 right-0 h-0.5 z-10 bg-emerald-100 overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-0.5 z-10 bg-emerald-100 dark:bg-emerald-500/10 overflow-hidden">
               <div className="h-full w-1/3 bg-emerald-500 rounded-full animate-[searchbar_1s_ease-in-out_infinite]" />
               <style>{`@keyframes searchbar{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}`}</style>
             </div>
@@ -369,7 +369,7 @@ export default function InventarioPage() {
 
           {initialLoad ? (
             <div className="flex items-center justify-center h-48">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
             </div>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
@@ -402,7 +402,7 @@ export default function InventarioPage() {
                     return (
                       <tr
                         key={item.id}
-                        className="hover:bg-emerald-50/30 cursor-pointer transition-colors group"
+                        className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/10 cursor-pointer transition-colors group"
                         onClick={() => navigate(`/almacen/inventario/${item.id}`)}
                       >
                         {/* Item: code + description + unit + stock pills */}
@@ -413,7 +413,7 @@ export default function InventarioPage() {
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="font-mono text-[11px] text-emerald-600 font-semibold">{item.product_code}</span>
+                                <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{item.product_code}</span>
                                 <span className="text-[10px] text-gray-300 hidden sm:inline">\u00B7</span>
                                 <span className="text-[11px] text-gray-400 hidden sm:inline">{ucFirst(item.unit)}</span>
                               </div>

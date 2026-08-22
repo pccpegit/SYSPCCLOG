@@ -56,7 +56,7 @@ export default function KardexPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600" />
+        <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
       </div>
     );
   }
@@ -67,7 +67,7 @@ export default function KardexPage() {
         <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 active:scale-95 transition-all">
           <ArrowLeft size={16} /> Volver
         </button>
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
       </div>
     );
   }
@@ -81,9 +81,9 @@ export default function KardexPage() {
 
   const strokeColors = { red: '#ef4444', amber: '#f59e0b', emerald: '#10b981' };
   const statusConfig = {
-    red:     { label: 'Sin stock', bg: 'bg-red-50', text: 'text-red-600', ring: 'ring-red-100', dot: 'bg-red-500 animate-pulse' },
-    amber:   { label: 'Stock bajo', bg: 'bg-amber-50', text: 'text-amber-600', ring: 'ring-amber-100', dot: 'bg-amber-500' },
-    emerald: { label: 'Disponible', bg: 'bg-emerald-50', text: 'text-emerald-600', ring: 'ring-emerald-100', dot: 'bg-emerald-500' },
+    red:     { label: 'Sin stock', bg: 'bg-red-50 dark:bg-red-500/10', text: 'text-red-600 dark:text-red-400', ring: 'ring-red-100 dark:ring-red-500/30', dot: 'bg-red-500 animate-pulse' },
+    amber:   { label: 'Stock bajo', bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', ring: 'ring-amber-100 dark:ring-amber-500/30', dot: 'bg-amber-500' },
+    emerald: { label: 'Disponible', bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', ring: 'ring-emerald-100 dark:ring-emerald-500/30', dot: 'bg-emerald-500' },
   };
   const sc = statusConfig[stockColor];
   const tc = HERO_TYPE_COLORS[item?.item_type] ?? HERO_TYPE_COLORS.MATERIAL;
@@ -242,7 +242,7 @@ export default function KardexPage() {
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-40">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
             </div>
           ) : movements.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">

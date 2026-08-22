@@ -143,7 +143,7 @@ export default function ProjectsPage() {
 
         {/* Error */}
         {status === 'error' && (
-          <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <div role="alert" className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
             <span className="flex items-center gap-2"><AlertTriangle size={16} className="shrink-0" aria-hidden="true" /> No se pudieron cargar los proyectos.</span>
             <button onClick={fetchProjects} className="font-semibold underline underline-offset-2 shrink-0">Reintentar</button>
           </div>
@@ -153,7 +153,7 @@ export default function ProjectsPage() {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" aria-busy={status === 'loading'}>
           {status === 'loading' ? (
             <div className="flex items-center justify-center h-40" role="status" aria-live="polite">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600" aria-hidden="true" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" aria-hidden="true" />
               <span className="sr-only">Cargando proyectos…</span>
             </div>
           ) : status === 'ready' && projects.length === 0 ? (
@@ -167,7 +167,7 @@ export default function ProjectsPage() {
               {!search && !statusFilter && (
                 <button
                   onClick={() => navigate('/sistema/proyectos/nuevo')}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold"
                 >
                   Registrar primer proyecto
                 </button>
@@ -203,7 +203,7 @@ export default function ProjectsPage() {
                       </td>
                       <td className="px-5 sm:px-6 py-3.5 text-center">
                         {p.is_active ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">Activo</span>
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-100 dark:ring-emerald-500/30">Activo</span>
                         ) : (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-gray-100 text-gray-500 ring-1 ring-gray-200">Inactivo</span>
                         )}
@@ -213,7 +213,7 @@ export default function ProjectsPage() {
                           <button
                             onClick={() => navigate(`/sistema/proyectos/${p.id}`)}
                             disabled={actionBusyId === p.id}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-40"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 transition-colors disabled:opacity-40"
                             title="Editar"
                             aria-label={`Editar proyecto ${p.code} — ${p.name}`}
                           >
@@ -224,8 +224,8 @@ export default function ProjectsPage() {
                             disabled={actionBusyId === p.id}
                             className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
                               p.is_active
-                                ? 'text-gray-400 hover:text-red-600 hover:bg-red-50'
-                                : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                ? 'text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15'
+                                : 'text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/15'
                             }`}
                             title={p.is_active ? 'Desactivar' : 'Activar'}
                             aria-label={`${p.is_active ? 'Desactivar' : 'Activar'} proyecto ${p.code} — ${p.name}`}

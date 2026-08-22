@@ -41,7 +41,7 @@ function InfoRow({ icon: Icon, label, value, highlight }) {
       <Icon size={14} className="text-gray-400 mt-0.5 shrink-0" />
       <div className="min-w-0">
         <span className="text-xs text-gray-400">{label}: </span>
-        <span className={`text-sm font-semibold ${highlight ? 'text-orange-700' : 'text-gray-800'}`}>
+        <span className={`text-sm font-semibold ${highlight ? 'text-orange-700 dark:text-orange-300' : 'text-gray-800'}`}>
           {value || '—'}
         </span>
       </div>
@@ -52,7 +52,7 @@ function InfoRow({ icon: Icon, label, value, highlight }) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400" />
     </div>
   );
 }
@@ -160,7 +160,7 @@ export default function ManagerApprovalPage() {
       <div className="flex flex-col items-center justify-center min-h-96 text-center">
         <AlertCircle size={48} className="text-red-300 mb-4" />
         <h2 className="text-xl font-bold text-gray-800">Requerimiento no encontrado</h2>
-        <button onClick={() => navigate('/rq')} className="mt-4 text-sm text-blue-600 hover:underline">
+        <button onClick={() => navigate('/rq')} className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">
           Ir al Dashboard
         </button>
       </div>
@@ -190,7 +190,12 @@ export default function ManagerApprovalPage() {
 
   const isAdditional         = budgClassRaw === 'BC_ADDITIONAL' || budgClassRaw === 'BC_OUT_OF_ANNUAL_PLAN';
   const classificationLabel  = 'REQUERIMIENTO ADICIONAL';
-  const bannerColor = { banner: 'bg-amber-50 border-amber-300', icon: 'text-amber-600', text: 'text-amber-800', badge: 'bg-amber-100 text-amber-800 border-amber-300' };
+  const bannerColor = {
+    banner: 'bg-amber-50 border-amber-300 dark:bg-amber-500/10 dark:border-amber-500/30',
+    icon:   'text-amber-600 dark:text-amber-400',
+    text:   'text-amber-800 dark:text-amber-300',
+    badge:  'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  };
 
   const projectCode = req.project_code ?? req.projectCode ?? project?.code ?? '';
 
@@ -208,9 +213,9 @@ export default function ManagerApprovalPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl">
-          <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 rounded-xl">
+          <AlertCircle size={18} className="text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
 
@@ -241,7 +246,7 @@ export default function ManagerApprovalPage() {
             Aprobación Gerencia General
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            <span className="font-mono font-semibold text-blue-700">{rqNumber}</span>
+            <span className="font-mono font-semibold text-blue-700 dark:text-blue-300">{rqNumber}</span>
             {' '}— {req.description}
           </p>
         </div>
@@ -346,19 +351,19 @@ export default function ManagerApprovalPage() {
                   <p className="text-xs text-gray-400 mb-1">Presupuesto Total</p>
                   <p className="text-sm font-bold text-gray-800">{formatCurrency(totalBudget)}</p>
                 </div>
-                <div className="p-3 bg-amber-50 rounded-lg border border-amber-100 text-center">
-                  <p className="text-xs text-amber-600 mb-1">Ya Ejecutado</p>
-                  <p className="text-sm font-bold text-amber-700">{formatCurrency(spentBudget)}</p>
+                <div className="p-3 bg-amber-50 dark:bg-amber-500/10 rounded-lg border border-amber-100 dark:border-amber-500/30 text-center">
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mb-1">Ya Ejecutado</p>
+                  <p className="text-sm font-bold text-amber-700 dark:text-amber-300">{formatCurrency(spentBudget)}</p>
                 </div>
               </div>
 
-              <div className={`p-3 rounded-lg border mb-4 ${overBudget ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'}`}>
+              <div className={`p-3 rounded-lg border mb-4 ${overBudget ? 'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/30' : 'bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/30'}`}>
                 <p className="text-xs font-semibold text-gray-600 mb-1">Este requerimiento</p>
-                <p className={`text-lg font-bold ${overBudget ? 'text-red-700' : 'text-orange-700'}`}>
+                <p className={`text-lg font-bold ${overBudget ? 'text-red-700 dark:text-red-300' : 'text-orange-700 dark:text-orange-300'}`}>
                   + {formatCurrency(reqCost)}
                 </p>
                 {overBudget && (
-                  <p className="text-xs text-red-600 mt-1">
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
                     Supera el presupuesto en {formatCurrency(newSpent - totalBudget)}
                   </p>
                 )}
@@ -366,7 +371,7 @@ export default function ManagerApprovalPage() {
 
               <div className="mb-1 flex justify-between text-xs text-gray-500">
                 <span>Actual: {usedPct}%</span>
-                <span className={`font-semibold ${overBudget ? 'text-red-600' : 'text-orange-600'}`}>
+                <span className={`font-semibold ${overBudget ? 'text-red-600 dark:text-red-400' : 'text-orange-600 dark:text-orange-400'}`}>
                   Con RQ: {projectedPct}%
                 </span>
               </div>
@@ -376,7 +381,7 @@ export default function ManagerApprovalPage() {
                   style={{ width: `${usedPct}%` }}
                 />
                 <div
-                  className={`absolute top-0 h-4 ${overBudget ? 'bg-red-600' : 'bg-orange-500'} opacity-70`}
+                  className={`absolute top-0 h-4 ${overBudget ? 'bg-red-600 dark:bg-red-400' : 'bg-orange-500'} opacity-70`}
                   style={{ left: `${usedPct}%`, width: `${Math.min(projectedPct - usedPct, 100 - usedPct)}%` }}
                 />
               </div>

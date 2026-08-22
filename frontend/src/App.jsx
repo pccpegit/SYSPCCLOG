@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { ThemeProvider } from './context/ThemeContext';
 import AppShell from './components/layout/AppShell';
 import WarehouseShell from './components/layout/WarehouseShell';
 import AdminShell from './components/layout/AdminShell';
@@ -51,6 +52,7 @@ import SettingsPage        from './pages/settings/SettingsPage';
 
 export default function App() {
   return (
+    <ThemeProvider>
     <ToastProvider>
     <AuthProvider>
       <BrowserRouter>
@@ -248,5 +250,6 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
     </ToastProvider>
+    </ThemeProvider>
   );
 }

@@ -53,7 +53,7 @@ function InfoRow({ icon: Icon, label, value }) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 dark:border-purple-400" />
     </div>
   );
 }
@@ -148,7 +148,7 @@ export default function QuoteCostReviewPage() {
   if (notFound || !req) return (
     <div className="max-w-xl mx-auto mt-20 text-center">
       <p className="text-gray-500">Requerimiento no encontrado.</p>
-      <button onClick={() => navigate('/rq/approvals')} className="mt-4 text-purple-600 font-medium hover:underline">Volver</button>
+      <button onClick={() => navigate('/rq/approvals')} className="mt-4 text-purple-600 dark:text-purple-400 font-medium hover:underline">Volver</button>
     </div>
   );
 
@@ -170,7 +170,7 @@ export default function QuoteCostReviewPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Verificación de Costos</h1>
             <p className="text-sm text-gray-500 mt-1">
-              <span className="font-semibold text-purple-700">{rqNumber}</span> — {req.description || ''}
+              <span className="font-semibold text-purple-700 dark:text-purple-300">{rqNumber}</span> — {req.description || ''}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -193,9 +193,9 @@ export default function QuoteCostReviewPage() {
           </div>
 
           {/* Selected quotation */}
-          <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-200">
-              <h2 className="text-base font-semibold text-indigo-800">Cotización Seleccionada por Logística</h2>
+          <div className="bg-white rounded-xl border border-indigo-200 dark:border-indigo-500/30 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 bg-indigo-50 dark:bg-indigo-500/10 border-b border-indigo-200 dark:border-indigo-500/30">
+              <h2 className="text-base font-semibold text-indigo-800 dark:text-indigo-300">Cotización Seleccionada por Logística</h2>
             </div>
             {selectedQuotation ? (
               <div className="p-6 space-y-4">
@@ -205,7 +205,7 @@ export default function QuoteCostReviewPage() {
                       <p className="text-lg font-bold text-gray-800">{selectedQuotation.supplier_name}</p>
                       <p className="text-xs text-gray-400">RUC: {selectedQuotation.supplier_ruc ?? '—'}</p>
                     </div>
-                    <p className="text-2xl font-bold text-indigo-700 shrink-0">{formatCurrency(selectedQuotation.total_amount)}</p>
+                    <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300 shrink-0">{formatCurrency(selectedQuotation.total_amount)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {selectedQuotation.delivery_days && (
@@ -228,9 +228,9 @@ export default function QuoteCostReviewPage() {
                       <p className="text-sm font-bold text-gray-800 shrink-0 ml-3">{formatCurrency(qi.total_price)}</p>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between bg-indigo-50 rounded-lg px-4 py-3 border border-indigo-200">
-                    <p className="text-sm font-bold text-indigo-800">TOTAL COTIZACIÓN</p>
-                    <p className="text-lg font-bold text-indigo-700">{formatCurrency(selectedQuotation.total_amount)}</p>
+                  <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-500/10 rounded-lg px-4 py-3 border border-indigo-200 dark:border-indigo-500/30">
+                    <p className="text-sm font-bold text-indigo-800 dark:text-indigo-300">TOTAL COTIZACIÓN</p>
+                    <p className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{formatCurrency(selectedQuotation.total_amount)}</p>
                   </div>
                 </div>
 
@@ -245,11 +245,11 @@ export default function QuoteCostReviewPage() {
                       </div>
                       <div className="bg-white rounded-lg border border-gray-200 p-3">
                         <p className="text-xs text-gray-400">Cotización</p>
-                        <p className="text-sm font-bold text-indigo-700">{formatCurrency(quotationAmount)}</p>
+                        <p className="text-sm font-bold text-indigo-700 dark:text-indigo-300">{formatCurrency(quotationAmount)}</p>
                       </div>
                       <div className="bg-white rounded-lg border border-gray-200 p-3">
                         <p className="text-xs text-gray-400">% del Presup.</p>
-                        <p className={`text-sm font-bold ${Number(budgetPct) > 10 ? 'text-orange-600' : 'text-green-600'}`}>
+                        <p className={`text-sm font-bold ${Number(budgetPct) > 10 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
                           {budgetPct}%
                         </p>
                       </div>
@@ -324,8 +324,8 @@ export default function QuoteCostReviewPage() {
             />
           </div>
 
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs text-blue-700 font-medium">
+          <div className="p-3 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg">
+            <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
               Si aprueba, Logística generará la Orden de Compra. Si excede el presupuesto, el Gerente General deberá autorizar el sobrecosto.
             </p>
           </div>

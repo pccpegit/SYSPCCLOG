@@ -18,10 +18,10 @@ import { fmtNum } from '../../utils/format';
 
 function KpiCard({ label, value, icon: Icon, color, loading }) {
   const colorMap = {
-    emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600', ring: 'ring-emerald-100' },
-    amber:   { bg: 'bg-amber-50',   icon: 'text-amber-600',   ring: 'ring-amber-100'   },
-    teal:    { bg: 'bg-teal-50',    icon: 'text-teal-600',    ring: 'ring-teal-100'    },
-    rose:    { bg: 'bg-rose-50',    icon: 'text-rose-600',    ring: 'ring-rose-100'    },
+    emerald: { bg: 'bg-emerald-50 dark:bg-emerald-500/10', icon: 'text-emerald-600 dark:text-emerald-400', ring: 'ring-emerald-100 dark:ring-emerald-500/30' },
+    amber:   { bg: 'bg-amber-50 dark:bg-amber-500/10',     icon: 'text-amber-600 dark:text-amber-400',     ring: 'ring-amber-100 dark:ring-amber-500/30'   },
+    teal:    { bg: 'bg-teal-50 dark:bg-teal-500/10',       icon: 'text-teal-600 dark:text-teal-400',       ring: 'ring-teal-100 dark:ring-teal-500/30'    },
+    rose:    { bg: 'bg-rose-50 dark:bg-rose-500/10',       icon: 'text-rose-600 dark:text-rose-400',       ring: 'ring-rose-100 dark:ring-rose-500/30'    },
   };
   const c = colorMap[color] ?? colorMap.emerald;
 
@@ -122,7 +122,7 @@ export default function AlmacenDashboardPage() {
 
       {/* ── Error banner ────────────────────────────────────── */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
           <AlertTriangle size={16} className="shrink-0" />
           {error}
         </div>
@@ -170,8 +170,8 @@ export default function AlmacenDashboardPage() {
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 ring-1 ring-amber-100 flex items-center justify-center">
-              <AlertTriangle size={17} className="text-amber-600" />
+            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 ring-1 ring-amber-100 dark:ring-amber-500/30 flex items-center justify-center">
+              <AlertTriangle size={17} className="text-amber-600 dark:text-amber-400" />
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-semibold text-gray-900 font-display">Alertas de stock bajo</h2>
@@ -180,7 +180,7 @@ export default function AlmacenDashboardPage() {
           </div>
           <button
             onClick={() => navigate('/almacen/inventario', { state: { lowStock: true } })}
-            className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1 transition-all active:scale-95 font-display"
+            className="text-xs text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 font-semibold flex items-center gap-1 transition-all active:scale-95 font-display"
           >
             Ver todos
             <ChevronRight size={14} />
@@ -189,11 +189,11 @@ export default function AlmacenDashboardPage() {
 
         {loadingAlerts ? (
           <div className="flex items-center justify-center h-40">
-            <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600" />
+            <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
           </div>
         ) : alerts.length === 0 ? (
           <div className="px-6 py-12 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
               <Package size={22} className="text-emerald-500" />
             </div>
             <p className="text-sm font-medium text-gray-600">Sin alertas</p>
@@ -220,7 +220,7 @@ export default function AlmacenDashboardPage() {
                   return (
                     <tr
                       key={item.id}
-                      className="hover:bg-amber-50/40 cursor-pointer transition-colors group"
+                      className="hover:bg-amber-50/40 dark:hover:bg-amber-500/10 cursor-pointer transition-colors group"
                       onClick={() => navigate(`/almacen/inventario/${item.id}`)}
                     >
                       <td className="px-5 sm:px-6 py-3.5 font-mono text-xs text-gray-500 font-medium">
@@ -233,7 +233,7 @@ export default function AlmacenDashboardPage() {
                         {item.category ?? '\u2014'}
                       </td>
                       <td className="px-5 sm:px-6 py-3.5 text-right">
-                        <span className={`text-sm font-bold ${isCrit ? 'text-red-600' : 'text-amber-600'}`}>
+                        <span className={`text-sm font-bold ${isCrit ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
                           {fmtNum(stock)}
                         </span>
                       </td>
@@ -243,8 +243,8 @@ export default function AlmacenDashboardPage() {
                       <td className="px-5 sm:px-6 py-3.5 text-center">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide ${
                           isCrit
-                            ? 'bg-red-50 text-red-600 ring-1 ring-red-100'
-                            : 'bg-amber-50 text-amber-600 ring-1 ring-amber-100'
+                            ? 'bg-red-50 text-red-600 ring-1 ring-red-100 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/30'
+                            : 'bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${isCrit ? 'bg-red-500' : 'bg-amber-500'}`} />
                           {isCrit ? 'Sin stock' : 'Bajo'}

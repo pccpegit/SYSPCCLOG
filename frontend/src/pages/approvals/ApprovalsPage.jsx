@@ -62,7 +62,7 @@ function getApprovalRoute(role, rqId, status) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 dark:border-t-blue-400" />
     </div>
   );
 }
@@ -116,7 +116,7 @@ export default function ApprovalsPage() {
   if (!hasApprovals) {
     return (
       <div className="flex flex-col items-center justify-center min-h-96 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mb-4">
+        <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center mb-4">
           <AlertTriangle size={28} className="text-amber-400" />
         </div>
         <h2 className="text-xl font-extrabold text-gray-800 font-display">Sin acceso</h2>
@@ -125,7 +125,7 @@ export default function ApprovalsPage() {
         </p>
         <button
           onClick={() => navigate('/rq')}
-          className="mt-5 text-sm font-bold text-blue-600 hover:underline font-display"
+          className="mt-5 text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline font-display"
         >
           Ir al Dashboard
         </button>
@@ -137,7 +137,7 @@ export default function ApprovalsPage() {
     <div className="max-w-5xl mx-auto space-y-5">
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 flex items-center gap-2.5 tracking-tight font-display">
-          <ClipboardList size={24} className="text-blue-600" strokeWidth={2} />
+          <ClipboardList size={24} className="text-blue-600 dark:text-blue-400" strokeWidth={2} />
           Bandeja de Aprobaciones
         </h1>
         <p className="text-sm text-gray-500 mt-0.5">
@@ -156,7 +156,7 @@ export default function ApprovalsPage() {
           <p className="text-sm text-gray-400 mt-1">Está todo al día. Vuelva más tarde.</p>
           <button
             onClick={() => navigate('/rq')}
-            className="mt-4 text-sm font-bold text-blue-600 hover:underline font-display"
+            className="mt-4 text-sm font-bold text-blue-600 dark:text-blue-400 hover:underline font-display"
           >
             Ir al Dashboard
           </button>
@@ -169,7 +169,7 @@ export default function ApprovalsPage() {
             return (
               <div
                 key={req.id}
-                className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5 sm:p-6 hover:shadow-lg hover:border-blue-300/60 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+                className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5 sm:p-6 hover:shadow-lg hover:border-blue-300/60 dark:hover:border-blue-500/30 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
                 onClick={() => navigate(route)}
                 style={{
                   animation: `staggerIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) ${idx * 0.05}s both`,
@@ -178,7 +178,7 @@ export default function ApprovalsPage() {
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                      <span className="font-mono text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100/60">
+                      <span className="font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-100/60 dark:border-blue-500/30">
                         {rqId}
                       </span>
                       <PriorityBadge priority={req.priority} />

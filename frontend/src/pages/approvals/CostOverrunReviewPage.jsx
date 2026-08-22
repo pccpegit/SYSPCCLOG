@@ -36,7 +36,7 @@ function InfoRow({ icon: Icon, label, value, highlight }) {
       <Icon size={14} className="text-gray-400 mt-0.5 shrink-0" />
       <div className="min-w-0">
         <span className="text-xs text-gray-400">{label}: </span>
-        <span className={`text-sm font-semibold ${highlight ? 'text-red-700' : 'text-gray-800'}`}>{value || '—'}</span>
+        <span className={`text-sm font-semibold ${highlight ? 'text-red-700 dark:text-red-300' : 'text-gray-800'}`}>{value || '—'}</span>
       </div>
     </div>
   );
@@ -123,11 +123,11 @@ export default function CostOverrunReviewPage() {
     }
   }
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600" /></div>;
+  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 dark:border-red-400" /></div>;
   if (notFound || !req) return (
     <div className="max-w-xl mx-auto mt-20 text-center">
       <p className="text-gray-500">Requerimiento no encontrado.</p>
-      <button onClick={() => navigate('/rq/approvals')} className="mt-4 text-red-600 font-medium hover:underline">Volver</button>
+      <button onClick={() => navigate('/rq/approvals')} className="mt-4 text-red-600 dark:text-red-400 font-medium hover:underline">Volver</button>
     </div>
   );
 
@@ -148,7 +148,7 @@ export default function CostOverrunReviewPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Revisión de Sobrecosto</h1>
             <p className="text-sm text-gray-500 mt-1">
-              <span className="font-semibold text-red-700">{rqNumber}</span> — {req.description || ''}
+              <span className="font-semibold text-red-700 dark:text-red-300">{rqNumber}</span> — {req.description || ''}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -159,13 +159,13 @@ export default function CostOverrunReviewPage() {
       </div>
 
       {/* Alert */}
-      <div className="rounded-xl border-2 bg-red-50 border-red-300 px-5 py-4 flex items-start gap-3">
-        <AlertTriangle size={22} className="text-red-600 shrink-0 mt-0.5" />
+      <div className="rounded-xl border-2 bg-red-50 dark:bg-red-500/10 border-red-300 dark:border-red-500/30 px-5 py-4 flex items-start gap-3">
+        <AlertTriangle size={22} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-bold text-red-800">
+          <p className="text-sm font-bold text-red-800 dark:text-red-300">
             La cotización seleccionada excede el presupuesto aprobado
           </p>
-          <p className="text-xs mt-1 text-red-700 opacity-80">
+          <p className="text-xs mt-1 text-red-700 dark:text-red-300 opacity-80">
             Control de Proyecto ha determinado que el costo de la cotización supera el monto presupuestado. Se requiere su autorización para proceder con la compra.
           </p>
         </div>
@@ -185,9 +185,9 @@ export default function CostOverrunReviewPage() {
 
           {/* Quotation */}
           {selectedQuotation && (
-            <div className="bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 bg-red-50 border-b border-red-200">
-                <h2 className="text-base font-semibold text-red-800">Cotización que Excede Presupuesto</h2>
+            <div className="bg-white rounded-xl border border-red-200 dark:border-red-500/30 shadow-sm overflow-hidden">
+              <div className="px-6 py-4 bg-red-50 dark:bg-red-500/10 border-b border-red-200 dark:border-red-500/30">
+                <h2 className="text-base font-semibold text-red-800 dark:text-red-300">Cotización que Excede Presupuesto</h2>
               </div>
               <div className="p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
@@ -195,7 +195,7 @@ export default function CostOverrunReviewPage() {
                     <p className="text-lg font-bold text-gray-800">{selectedQuotation.supplier_name}</p>
                     <p className="text-xs text-gray-400">RUC: {selectedQuotation.supplier_ruc ?? '—'}</p>
                   </div>
-                  <p className="text-2xl font-bold text-red-700 shrink-0">{formatCurrency(selectedQuotation.total_amount)}</p>
+                  <p className="text-2xl font-bold text-red-700 dark:text-red-300 shrink-0">{formatCurrency(selectedQuotation.total_amount)}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selectedQuotation.delivery_days && (
@@ -215,9 +215,9 @@ export default function CostOverrunReviewPage() {
                       <p className="text-sm font-bold text-gray-800 shrink-0 ml-3">{formatCurrency(qi.total_price)}</p>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between bg-red-50 rounded-lg px-4 py-3 border border-red-200">
-                    <p className="text-sm font-bold text-red-800">TOTAL COTIZACIÓN</p>
-                    <p className="text-lg font-bold text-red-700">{formatCurrency(selectedQuotation.total_amount)}</p>
+                  <div className="flex items-center justify-between bg-red-50 dark:bg-red-500/10 rounded-lg px-4 py-3 border border-red-200 dark:border-red-500/30">
+                    <p className="text-sm font-bold text-red-800 dark:text-red-300">TOTAL COTIZACIÓN</p>
+                    <p className="text-lg font-bold text-red-700 dark:text-red-300">{formatCurrency(selectedQuotation.total_amount)}</p>
                   </div>
                 </div>
               </div>
@@ -241,9 +241,9 @@ export default function CostOverrunReviewPage() {
                   <p className="text-xs text-gray-400 mb-1">Presupuesto</p>
                   <p className="text-sm font-bold text-gray-800">{formatCurrency(totalBudget)}</p>
                 </div>
-                <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-center">
-                  <p className="text-xs text-red-600 mb-1">Cotización</p>
-                  <p className="text-sm font-bold text-red-700">{formatCurrency(quotationAmount)}</p>
+                <div className="p-3 bg-red-50 dark:bg-red-500/10 rounded-lg border border-red-200 dark:border-red-500/30 text-center">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-1">Cotización</p>
+                  <p className="text-sm font-bold text-red-700 dark:text-red-300">{formatCurrency(quotationAmount)}</p>
                 </div>
               </div>
             </div>

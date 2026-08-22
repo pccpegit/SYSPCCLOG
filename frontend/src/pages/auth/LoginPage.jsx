@@ -51,7 +51,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-dvh flex bg-[#f0f2f5]">
+    <div className="min-h-dvh flex bg-app">
 
       {/* ── LEFT PANEL — Branding ── */}
       <div className="hidden lg:flex lg:w-[48%] xl:w-[52%] relative overflow-hidden">
@@ -151,7 +151,7 @@ export default function LoginPage() {
 
             {/* Error banner */}
             {error && (
-              <div className="flex items-start gap-2.5 bg-red-50 border border-red-200/80 rounded-xl px-4 py-3 text-red-700 text-sm animate-[fadeIn_0.2s_ease-out]">
+              <div className="flex items-start gap-2.5 bg-red-50 dark:bg-red-500/10 border border-red-200/80 dark:border-red-500/30 rounded-xl px-4 py-3 text-red-700 dark:text-red-300 text-sm animate-[fadeIn_0.2s_ease-out]">
                 <AlertCircle size={16} className="shrink-0 mt-0.5 text-red-500" />
                 <span className="font-medium">{error}</span>
               </div>

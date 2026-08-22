@@ -109,7 +109,7 @@ const inputCls = (hasError, disabled) =>
     disabled ? 'bg-gray-100 text-gray-600' : 'bg-gray-50/50'
   } ${
     hasError
-      ? 'border-red-300 focus:ring-red-400'
+      ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400'
       : 'border-gray-200 focus:ring-indigo-500 focus:border-indigo-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
@@ -134,7 +134,7 @@ function RadioGroup({ options, value, onChange, name }) {
           key={opt.value}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition-all select-none ${
             value === opt.value
-              ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-1 ring-indigo-200'
+              ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30'
               : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
           }`}
         >
@@ -156,14 +156,14 @@ function RadioGroup({ options, value, onChange, name }) {
 function EstadoBadge({ estado }) {
   if (estado === 'PAGADO') {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-green-50 text-green-700 ring-1 ring-green-100">
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-300 ring-1 ring-green-100 dark:ring-green-500/30">
         <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
         Pagado
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-100 dark:ring-amber-500/30">
       <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
       Pendiente
     </span>
@@ -597,8 +597,8 @@ export default function PasajesPage() {
           className="w-full flex items-center justify-between px-5 sm:px-7 py-4 sm:py-5 hover:bg-gray-50/50 transition-colors"
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 ring-1 ring-indigo-100 flex items-center justify-center">
-              <Plus size={17} className="text-indigo-600" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 ring-1 ring-indigo-100 dark:ring-indigo-500/30 flex items-center justify-center">
+              <Plus size={17} className="text-indigo-600 dark:text-indigo-400" />
             </div>
             <div className="text-left">
               <p className="text-sm font-semibold text-gray-900">Registrar nuevo pasaje</p>
@@ -651,7 +651,7 @@ export default function PasajesPage() {
                         </div>
                       </div>
                       {dniValidated && (
-                        <p className="text-[11px] text-green-600 mt-1 font-medium flex items-center gap-1">
+                        <p className="text-[11px] text-green-600 dark:text-green-400 mt-1 font-medium flex items-center gap-1">
                           <CheckCircle2 size={11} /> Personal validado
                         </p>
                       )}
@@ -721,15 +721,15 @@ export default function PasajesPage() {
 
               {/* ── DNI history ── */}
               {dniHistory.length > 0 && (
-                <div className="bg-indigo-50/60 rounded-xl border border-indigo-100 p-4">
+                <div className="bg-indigo-50/60 dark:bg-indigo-500/10 rounded-xl border border-indigo-100 dark:border-indigo-500/30 p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5">
+                    <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
                       <User size={13} /> Historial de pasajes ({dniHistory.length})
                     </p>
                     <button
                       type="button"
                       onClick={() => setDniHistory([])}
-                      className="text-indigo-400 hover:text-indigo-600 transition-colors"
+                      className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                     >
                       <X size={14} />
                     </button>
@@ -745,18 +745,18 @@ export default function PasajesPage() {
                           <th className="text-right pb-2 text-indigo-500 font-semibold">Total S/</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-indigo-100">
+                      <tbody className="divide-y divide-indigo-100 dark:divide-indigo-500/30">
                         {dniHistory.slice(0, 10).map((h) => (
                           <tr key={h.id}>
-                            <td className="py-1.5 text-indigo-700 pr-4">{formatDate(h.fecha)}</td>
-                            <td className="py-1.5 text-indigo-700 pr-4">{h.tipo_display ?? h.tipo}</td>
-                            <td className="py-1.5 text-indigo-700 pr-4">
+                            <td className="py-1.5 text-indigo-700 dark:text-indigo-300 pr-4">{formatDate(h.fecha)}</td>
+                            <td className="py-1.5 text-indigo-700 dark:text-indigo-300 pr-4">{h.tipo_display ?? h.tipo}</td>
+                            <td className="py-1.5 text-indigo-700 dark:text-indigo-300 pr-4">
                               {h.embarque_bajada || h.embarque_subida || ''} - {h.destino_bajada || h.destino_subida || ''}
                             </td>
-                            <td className="py-1.5 text-right text-indigo-700 pr-4">
+                            <td className="py-1.5 text-right text-indigo-700 dark:text-indigo-300 pr-4">
                               S/ {fmtNum(h.monto_con_igv_soles ?? 0)}
                             </td>
-                            <td className="py-1.5 text-right font-bold text-indigo-800">
+                            <td className="py-1.5 text-right font-bold text-indigo-800 dark:text-indigo-300">
                               S/ {fmtNum(h.total ?? 0)}
                             </td>
                           </tr>
@@ -854,7 +854,7 @@ export default function PasajesPage() {
                       </div>
                     </div>
                     {rucValidated && (
-                      <p className="text-[11px] text-green-600 mt-1 font-medium flex items-center gap-1">
+                      <p className="text-[11px] text-green-600 dark:text-green-400 mt-1 font-medium flex items-center gap-1">
                         <CheckCircle2 size={11} /> Proveedor validado
                       </p>
                     )}
@@ -894,16 +894,16 @@ export default function PasajesPage() {
                 </div>
 
                 {form.moneda === 'DOLARES' && (tipoCambioSunat || tcLoading) && (
-                  <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-100 mb-4">
+                  <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 mb-4">
                     {tcLoading ? (
                       <>
                         <Loader2 size={16} className="animate-spin text-blue-500" />
-                        <p className="text-xs text-blue-600 font-medium">Consultando tipo de cambio SUNAT...</p>
+                        <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Consultando tipo de cambio SUNAT...</p>
                       </>
                     ) : tipoCambioSunat && (
                       <>
                         <CheckCircle2 size={16} className="text-blue-500 shrink-0" />
-                        <div className="text-xs text-blue-700">
+                        <div className="text-xs text-blue-700 dark:text-blue-300">
                           <span className="font-semibold">Tipo de cambio SUNAT ({tipoCambioSunat.fecha}):</span>{' '}
                           Compra <span className="font-bold">S/ {tipoCambioSunat.compra?.toFixed(3)}</span> — Venta <span className="font-bold">S/ {tipoCambioSunat.venta?.toFixed(3)}</span>
                         </div>
@@ -973,9 +973,9 @@ export default function PasajesPage() {
                   </div>
 
                   <div className="flex items-end">
-                    <div className="w-full px-3.5 py-2.5 rounded-xl bg-green-50 border border-green-100">
-                      <p className="text-[10px] text-green-600 mb-0.5 font-semibold">Devolución</p>
-                      <p className="text-sm font-bold text-green-700">
+                    <div className="w-full px-3.5 py-2.5 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-100 dark:border-green-500/30">
+                      <p className="text-[10px] text-green-600 dark:text-green-400 mb-0.5 font-semibold">Devolución</p>
+                      <p className="text-sm font-bold text-green-700 dark:text-green-300">
                         {selectedPolitica?.monto_dolares > 0 && selectedPolitica?.monto_soles == 0
                           ? `$ ${fmtNum(devolucion)}`
                           : `S/ ${fmtNum(devolucion)}`
@@ -985,9 +985,9 @@ export default function PasajesPage() {
                   </div>
 
                   <div className="flex items-end">
-                    <div className="w-full px-3.5 py-2.5 rounded-xl bg-indigo-50 border border-indigo-100">
-                      <p className="text-[10px] text-indigo-600 mb-0.5 font-semibold">Total a pagar</p>
-                      <p className="text-lg font-bold text-indigo-700">S/ {fmtNum(total)}</p>
+                    <div className="w-full px-3.5 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/30">
+                      <p className="text-[10px] text-indigo-600 dark:text-indigo-400 mb-0.5 font-semibold">Total a pagar</p>
+                      <p className="text-lg font-bold text-indigo-700 dark:text-indigo-300">S/ {fmtNum(total)}</p>
                     </div>
                   </div>
                 </div>
@@ -1030,13 +1030,13 @@ export default function PasajesPage() {
 
             <div className="flex flex-wrap gap-2">
               {TIPO_PASAJE_FILTER.map((t) => (
-                <button key={t.value} onClick={() => setFilterTipo(filterTipo === t.value ? '' : t.value)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap ${filterTipo === t.value ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-1 ring-indigo-200' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                <button key={t.value} onClick={() => setFilterTipo(filterTipo === t.value ? '' : t.value)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap ${filterTipo === t.value ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
                   {t.label}
                 </button>
               ))}
               <div className="w-px bg-gray-200 mx-1" />
               {ESTADO_OPTIONS.map((e) => (
-                <button key={e.value} onClick={() => setFilterEstado(filterEstado === e.value ? '' : e.value)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap ${filterEstado === e.value ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-1 ring-indigo-200' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                <button key={e.value} onClick={() => setFilterEstado(filterEstado === e.value ? '' : e.value)} className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap ${filterEstado === e.value ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
                   {e.label}
                 </button>
               ))}
@@ -1050,7 +1050,7 @@ export default function PasajesPage() {
         </div>
 
         {tableError && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
             <AlertTriangle size={16} className="shrink-0" />
             {tableError}
           </div>
@@ -1059,7 +1059,7 @@ export default function PasajesPage() {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-48">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" />
             </div>
           ) : pasajes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
@@ -1114,8 +1114,8 @@ export default function PasajesPage() {
                       <td className="px-4 py-3 text-right text-gray-700 font-medium tabular-nums whitespace-nowrap text-xs">{fmtNum(p.monto_con_igv_soles)}</td>
                       <td className="px-4 py-3 text-right text-gray-500 tabular-nums whitespace-nowrap text-xs hidden md:table-cell">{Number(p.monto_con_igv_dolares) > 0 ? fmtNum(p.monto_con_igv_dolares) : '—'}</td>
                       <td className="px-4 py-3 text-right text-gray-400 tabular-nums text-xs hidden md:table-cell">{Number(p.tipo_cambio) > 0 ? fmtNum(p.tipo_cambio) : '—'}</td>
-                      <td className="px-4 py-3 text-right text-green-600 font-medium tabular-nums hidden md:table-cell text-xs whitespace-nowrap">{fmtNum(p.devolucion)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-indigo-700 tabular-nums whitespace-nowrap text-xs">S/ {fmtNum(p.total)}</td>
+                      <td className="px-4 py-3 text-right text-green-600 dark:text-green-400 font-medium tabular-nums hidden md:table-cell text-xs whitespace-nowrap">{fmtNum(p.devolucion)}</td>
+                      <td className="px-4 py-3 text-right font-bold text-indigo-700 dark:text-indigo-300 tabular-nums whitespace-nowrap text-xs">S/ {fmtNum(p.total)}</td>
                       <td className="px-4 py-3 text-center"><EstadoBadge estado={p.estado} /></td>
                       <td className="px-4 py-3 text-gray-400 text-xs hidden sm:table-cell whitespace-nowrap">{p.fecha_pago ? formatDate(p.fecha_pago) : '—'}</td>
                     </tr>

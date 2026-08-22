@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import {
   User, Lock, Shield, ArrowLeft, Cloud, CloudOff, Loader2, Copy, ExternalLink,
   Mail, Briefcase, Building2, Eye, EyeOff, Check, AlertCircle, CheckCircle2,
-  PenTool, Camera, Trash2, Upload,
+  PenTool, Camera, Trash2, Upload, Sun, Moon, SunMoon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import { useTheme } from '../../context/ThemeContext';
 import { changePassword, uploadSignatureFile, uploadSignatureDrawing, deleteSignature } from '../../api/auth';
 import { getOneDriveStatus, oneDriveConnect, oneDrivePoll, oneDriveDisconnect } from '../../api/almacen';
 import { BACKEND_URL } from '../../api/config';
@@ -25,18 +26,21 @@ function getAvatarColor(name) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+// Used both inside the always-dark hero card (theme-invariant there) and on
+// regular, theme-aware cards further down (RolesTab) — carries its own
+// `dark:` per Decisión 1, same as Header's ROLE_BADGE_COLORS.
 const ROLE_COLORS = {
-  REQUESTER:             'bg-sky-50 text-sky-700 ring-sky-200',
-  PROJECT_RESIDENT:      'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  PROJECT_CONTROL:       'bg-violet-50 text-violet-700 ring-violet-200',
-  GENERAL_MANAGER:       'bg-amber-50 text-amber-700 ring-amber-200',
-  LOGISTICS_COORDINATOR: 'bg-orange-50 text-orange-700 ring-orange-200',
-  LOGISTICS_SUPERVISOR:  'bg-orange-50 text-orange-700 ring-orange-200',
-  LOGISTICS_CHIEF:       'bg-rose-50 text-rose-700 ring-rose-200',
-  CENTRAL_WAREHOUSE:     'bg-teal-50 text-teal-700 ring-teal-200',
-  SITE_WAREHOUSE:        'bg-cyan-50 text-cyan-700 ring-cyan-200',
-  DIRECT_SUPERVISOR:     'bg-indigo-50 text-indigo-700 ring-indigo-200',
-  ADMIN_MANAGER:         'bg-purple-50 text-purple-700 ring-purple-200',
+  REQUESTER:             'bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/30',
+  PROJECT_RESIDENT:      'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30',
+  PROJECT_CONTROL:       'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-300 dark:ring-violet-500/30',
+  GENERAL_MANAGER:       'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30',
+  LOGISTICS_COORDINATOR: 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/15 dark:text-orange-300 dark:ring-orange-500/30',
+  LOGISTICS_SUPERVISOR:  'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/15 dark:text-orange-300 dark:ring-orange-500/30',
+  LOGISTICS_CHIEF:       'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/30',
+  CENTRAL_WAREHOUSE:     'bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-500/15 dark:text-teal-300 dark:ring-teal-500/30',
+  SITE_WAREHOUSE:        'bg-cyan-50 text-cyan-700 ring-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-300 dark:ring-cyan-500/30',
+  DIRECT_SUPERVISOR:     'bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30',
+  ADMIN_MANAGER:         'bg-purple-50 text-purple-700 ring-purple-200 dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/30',
 };
 
 // ── Section wrapper ─────────────────────────────────────────────────────────
@@ -62,6 +66,7 @@ function Section({ icon: Icon, title, subtitle, children }) {
 
 const BASE_TABS = [
   { id: 'profile',      label: 'Perfil',        icon: User },
+  { id: 'appearance',   label: 'Apariencia',    icon: SunMoon },
   { id: 'signature',    label: 'Firma',          icon: PenTool },
   { id: 'security',     label: 'Seguridad',     icon: Lock },
   { id: 'roles',        label: 'Roles',         icon: Shield },
@@ -106,7 +111,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-dvh bg-gray-50">
       {/* ── Top bar ── */}
-      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-lg border-b border-gray-200/80">
+      <header className="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-200/80 dark:border-gray-700/80">
         <div className="max-w-4xl mx-auto flex items-center gap-3 px-4 sm:px-6 h-14">
           <button
             onClick={() => navigate(-1)}
@@ -118,7 +123,10 @@ export default function SettingsPage() {
           <div className="h-5 w-px bg-gray-200" />
           <h1 className="text-sm font-bold text-gray-900">Configuracion</h1>
           <div className="flex-1" />
-          <img src="/images/logo-blanco.png" alt="PCC" className="h-7 w-auto object-contain opacity-60 invert" />
+          {/* logo-blanco.png is a white/light-colored mark: `invert` renders
+              it dark for the light top bar; dark:invert-0 undoes that so the
+              original light mark shows through on the dark top bar instead. */}
+          <img src="/images/logo-blanco.png" alt="PCC" className="h-7 w-auto object-contain opacity-60 invert dark:invert-0" />
         </div>
       </header>
 
@@ -175,6 +183,7 @@ export default function SettingsPage() {
 
         {/* ── Tab content ── */}
         {activeTab === 'profile'  && <ProfileTab user={currentUser} displayName={displayName} />}
+        {activeTab === 'appearance' && <AppearanceTab />}
         {activeTab === 'signature' && <SignatureTab user={currentUser} showToast={showToast} />}
         {activeTab === 'security' && <SecurityTab showToast={showToast} />}
         {activeTab === 'roles'    && <RolesTab user={currentUser} primaryRole={primaryRole} />}
@@ -212,10 +221,171 @@ function ProfileTab({ user, displayName }) {
       </div>
 
       <div className="mt-5 pt-5 border-t border-gray-100">
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50/60 ring-1 ring-blue-100">
-          <AlertCircle size={16} className="text-blue-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-blue-700 leading-relaxed">
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50/60 dark:bg-blue-500/10 ring-1 ring-blue-100 dark:ring-blue-500/30">
+          <AlertCircle size={16} className="text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
             Para modificar tus datos personales, contacta al administrador del sistema.
+          </p>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+// ── Appearance Tab ───────────────────────────────────────────────────────────
+
+const MODE_OPTIONS = [
+  { id: 'light', label: 'Claro',       icon: Sun },
+  { id: 'dark',  label: 'Oscuro',      icon: Moon },
+  { id: 'auto',  label: 'Automático',  icon: SunMoon },
+];
+
+// Converts an { hour, minute } pair to the "HH:MM" string <input type="time">
+// expects/emits, and back. Kept local to this tab — ThemeContext works with
+// the { startHour, startMinute, endHour, endMinute } shape everywhere else.
+function toTimeInputValue(hour, minute) {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function parseTimeInputValue(value) {
+  const [h, m] = value.split(':').map(Number);
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return null;
+  return { hour: h, minute: m };
+}
+
+function AppearanceTab() {
+  const { mode, setMode, autoRange, setAutoRange, resolvedTheme } = useTheme();
+  const { showToast } = useToast();
+  const radioRefs = useRef([]);
+
+  const persistenceWarning = () => {
+    showToast({
+      type: 'error',
+      message: 'No se pudo guardar tu preferencia de tema en este dispositivo. Se aplicó igual, pero podría no recordarse la próxima vez.',
+    });
+  };
+
+  const handleModeChange = (nextMode) => {
+    if (nextMode === mode) return;
+    const ok = setMode(nextMode);
+    if (!ok) persistenceWarning();
+  };
+
+  const handleRangeChange = (field, value) => {
+    const parsed = parseTimeInputValue(value);
+    if (!parsed) return; // input cleared/invalid mid-edit — ignore, keep last valid range
+    const nextRange = field === 'start'
+      ? { ...autoRange, startHour: parsed.hour, startMinute: parsed.minute }
+      : { ...autoRange, endHour: parsed.hour, endMinute: parsed.minute };
+    const ok = setAutoRange(nextRange);
+    if (!ok) persistenceWarning();
+  };
+
+  // WAI-ARIA radiogroup pattern: only the checked option sits in the Tab
+  // order (roving tabindex); arrow keys move focus AND selection between
+  // options, same as a native <input type="radio"> group. Without this,
+  // screen reader users landing on a "radio group, 3 options" would expect
+  // arrow-key navigation that a plain Tab-through-buttons setup doesn't give
+  // them (a11y audit, SYSPCC-020).
+  const handleRadioKeyDown = (e) => {
+    const currentIndex = MODE_OPTIONS.findIndex((opt) => opt.id === mode);
+    if (currentIndex === -1) return;
+    let nextIndex = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      nextIndex = (currentIndex + 1) % MODE_OPTIONS.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      nextIndex = (currentIndex - 1 + MODE_OPTIONS.length) % MODE_OPTIONS.length;
+    } else if (e.key === 'Home') {
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      nextIndex = MODE_OPTIONS.length - 1;
+    }
+    if (nextIndex === null) return;
+    e.preventDefault();
+    handleModeChange(MODE_OPTIONS[nextIndex].id);
+    radioRefs.current[nextIndex]?.focus();
+  };
+
+  return (
+    <Section icon={SunMoon} title="Apariencia" subtitle="Elige cómo se ve SYSPCC en este dispositivo">
+      <div
+        role="radiogroup"
+        aria-label="Modo de tema"
+        className="flex gap-1 p-1 bg-gray-100 rounded-xl"
+        onKeyDown={handleRadioKeyDown}
+      >
+        {MODE_OPTIONS.map((opt, index) => {
+          const Icon = opt.icon;
+          const isActive = mode === opt.id;
+          return (
+            <button
+              key={opt.id}
+              ref={(el) => { radioRefs.current[index] = el; }}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => handleModeChange(opt.id)}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                isActive
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Icon size={16} className={isActive ? 'text-blue-600' : 'text-gray-400'} aria-hidden="true" />
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {mode === 'auto' && (
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="dark-range-start" className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Inicio del modo oscuro
+            </label>
+            <input
+              id="dark-range-start"
+              type="time"
+              value={toTimeInputValue(autoRange.startHour, autoRange.startMinute)}
+              onChange={(e) => handleRangeChange('start', e.target.value)}
+              className="w-full px-4 py-3 text-sm rounded-xl border border-gray-200 bg-gray-50/50 dark:bg-gray-800/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors"
+            />
+          </div>
+          <div>
+            <label htmlFor="dark-range-end" className="block text-xs font-semibold text-gray-600 mb-1.5">
+              Fin del modo oscuro
+            </label>
+            <input
+              id="dark-range-end"
+              type="time"
+              value={toTimeInputValue(autoRange.endHour, autoRange.endMinute)}
+              onChange={(e) => handleRangeChange('end', e.target.value)}
+              className="w-full px-4 py-3 text-sm rounded-xl border border-gray-200 bg-gray-50/50 dark:bg-gray-800/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:bg-white transition-colors"
+            />
+          </div>
+          <p className="sm:col-span-2 text-xs text-gray-400">
+            Entre estas horas, SYSPCC se mostrará en modo oscuro automáticamente.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 pt-5 border-t border-gray-100">
+        {/* This text is derived from resolvedTheme, which can change while
+            this tab stays mounted (auto mode crossing a day/night boundary,
+            or the header toggle used from elsewhere) — aria-live="polite"
+            so screen reader users get the update without it interrupting
+            whatever they're doing (a11y audit, SYSPCC-020). */}
+        <div
+          className="flex items-start gap-3 p-4 rounded-xl bg-blue-50/60 dark:bg-blue-500/10 ring-1 ring-blue-100 dark:ring-blue-500/30"
+          aria-live="polite"
+        >
+          <AlertCircle size={16} className="text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+            {resolvedTheme === 'dark'
+              ? 'Ahora mismo se está aplicando el modo oscuro.'
+              : 'Ahora mismo se está aplicando el modo claro.'}
           </p>
         </div>
       </div>
@@ -360,7 +530,7 @@ function SignatureTab({ user, showToast }) {
             <button
               onClick={handleDelete}
               disabled={saving}
-              className="px-4 py-3 rounded-xl border border-red-200 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors"
+              className="px-4 py-3 rounded-xl border border-red-200 dark:border-red-500/30 text-sm font-medium text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
             >
               <Trash2 size={16} />
             </button>
@@ -445,9 +615,9 @@ function SignatureTab({ user, showToast }) {
       )}
 
       <div className="mt-5 pt-5 border-t border-gray-100">
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50/60 ring-1 ring-blue-100">
-          <AlertCircle size={16} className="text-blue-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-blue-700 leading-relaxed">
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50/60 dark:bg-blue-500/10 ring-1 ring-blue-100 dark:ring-blue-500/30">
+          <AlertCircle size={16} className="text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
             Tu firma se estampa automaticamente en los vales PDF que generas. Si subes una foto, el sistema elimina el fondo y limpia la imagen. Puedes usar el celular para tomar una foto de tu firma en papel o dibujarla directamente.
           </p>
         </div>
@@ -501,8 +671,8 @@ function SecurityTab({ showToast }) {
   };
 
   const inputCls = (field) =>
-    `w-full pl-4 pr-12 py-3 text-sm rounded-xl border bg-gray-50/50 ${
-      errors[field] ? 'border-red-300 focus:ring-red-400' : 'border-gray-200 focus:ring-blue-500 focus:border-blue-500'
+    `w-full pl-4 pr-12 py-3 text-sm rounded-xl border bg-gray-50/50 dark:bg-gray-800/50 ${
+      errors[field] ? 'border-red-300 dark:border-red-500/40 focus:ring-red-400' : 'border-gray-200 focus:ring-blue-500 focus:border-blue-500'
     } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
   return (
@@ -553,7 +723,7 @@ function SecurityTab({ showToast }) {
                 { ok: /[^A-Za-z0-9]/.test(form.new_password), text: 'Simbolo' },
               ].map((h) => (
                 <span key={h.text} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold ring-1 ${
-                  h.ok ? 'bg-emerald-50 text-emerald-600 ring-emerald-200' : 'bg-gray-50 text-gray-400 ring-gray-200'
+                  h.ok ? 'bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:ring-emerald-500/30' : 'bg-gray-50 text-gray-400 ring-gray-200'
                 }`}>
                   {h.ok ? <Check size={10} /> : <span className="w-2.5 h-2.5 rounded-full border border-current opacity-40" />}
                   {h.text}
@@ -610,7 +780,7 @@ function RolesTab({ user, primaryRole }) {
             <div
               key={i}
               className={`relative rounded-xl p-4 ring-1 transition-colors ${
-                isPrimary ? 'bg-blue-50/50 ring-blue-200' : 'bg-gray-50/50 ring-gray-100 hover:ring-gray-200'
+                isPrimary ? 'bg-blue-50/50 dark:bg-blue-500/10 ring-blue-200 dark:ring-blue-500/30' : 'bg-gray-50/50 dark:bg-gray-800/40 ring-gray-100 hover:ring-gray-200'
               }`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -622,7 +792,7 @@ function RolesTab({ user, primaryRole }) {
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-gray-900">{ROLE_LABELS[r.role] ?? r.role}</p>
                       {isPrimary && (
-                        <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-bold uppercase tracking-wide">Principal</span>
+                        <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[10px] font-bold uppercase tracking-wide">Principal</span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
@@ -655,9 +825,9 @@ function RolesTab({ user, primaryRole }) {
       )}
 
       <div className="mt-5 pt-5 border-t border-gray-100">
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50/60 ring-1 ring-amber-100">
-          <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700 leading-relaxed">
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50/60 dark:bg-amber-500/10 ring-1 ring-amber-100 dark:ring-amber-500/30">
+          <AlertCircle size={16} className="text-amber-500 dark:text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
             Los roles son asignados por el administrador del sistema. Si necesitas un cambio de rol o permisos adicionales, contacta al area de TI.
           </p>
         </div>
@@ -773,13 +943,13 @@ function OneDriveTab({ showToast }) {
       {status?.connected ? (
         /* ── Connected state ── */
         <div className="space-y-4">
-          <div className="flex items-center gap-4 p-5 rounded-xl bg-emerald-50 ring-1 ring-emerald-200">
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
-              <CheckCircle2 size={24} className="text-emerald-600" />
+          <div className="flex items-center gap-4 p-5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-200 dark:ring-emerald-500/30">
+            <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
+              <CheckCircle2 size={24} className="text-emerald-600 dark:text-emerald-400" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-emerald-900">Conectado a OneDrive</p>
-              <p className="text-xs text-emerald-700 mt-0.5 truncate">{status.account_name}</p>
+              <p className="text-sm font-bold text-emerald-900 dark:text-emerald-300">Conectado a OneDrive</p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5 truncate">{status.account_name}</p>
             </div>
           </div>
 
@@ -793,7 +963,7 @@ function OneDriveTab({ showToast }) {
 
           <button
             onClick={handleDisconnect}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 ring-1 ring-red-200 transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 ring-1 ring-red-200 dark:ring-red-500/30 transition-colors"
           >
             <CloudOff size={16} /> Desconectar OneDrive
           </button>
@@ -801,17 +971,17 @@ function OneDriveTab({ showToast }) {
       ) : deviceInfo ? (
         /* ── Device code entry state ── */
         <div className="space-y-5">
-          <div className="text-center p-6 rounded-2xl bg-blue-50 ring-1 ring-blue-200">
-            <p className="text-sm text-blue-800 font-medium mb-4">
+          <div className="text-center p-6 rounded-2xl bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-200 dark:ring-blue-500/30">
+            <p className="text-sm text-blue-800 dark:text-blue-300 font-medium mb-4">
               Ingresa este codigo en la pagina de Microsoft:
             </p>
             <div className="flex items-center justify-center gap-3 mb-4">
-              <span className="text-3xl font-mono font-extrabold text-blue-900 tracking-[0.15em] select-all">
+              <span className="text-3xl font-mono font-extrabold text-blue-900 dark:text-blue-200 tracking-[0.15em] select-all">
                 {deviceInfo.user_code}
               </span>
               <button
                 onClick={copyCode}
-                className="p-2 rounded-lg hover:bg-blue-100 text-blue-600 transition-colors"
+                className="p-2 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 transition-colors"
                 title="Copiar codigo"
               >
                 <Copy size={18} />

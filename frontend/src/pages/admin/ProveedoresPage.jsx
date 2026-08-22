@@ -25,7 +25,7 @@ function formatDate(str) {
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
     hasError
-      ? 'border-red-300 focus:ring-red-400'
+      ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400'
       : 'border-gray-200 focus:ring-indigo-500 focus:border-indigo-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
@@ -91,8 +91,8 @@ function ProveedorModal({ onClose, onSuccess }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 ring-1 ring-indigo-100 flex items-center justify-center">
-              <Building2 size={17} className="text-indigo-600" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 ring-1 ring-indigo-100 dark:ring-indigo-500/30 flex items-center justify-center">
+              <Building2 size={17} className="text-indigo-600 dark:text-indigo-400" />
             </div>
             <p className="text-sm font-semibold text-gray-900">Nuevo proveedor</p>
           </div>
@@ -125,7 +125,7 @@ function ProveedorModal({ onClose, onSuccess }) {
                 type="button"
                 onClick={handleRucSearch}
                 disabled={rucSearching || ruc.length < 11}
-                className="px-3.5 rounded-xl border border-gray-200 text-gray-400 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-colors disabled:opacity-40"
+                className="px-3.5 rounded-xl border border-gray-200 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-300 dark:hover:border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 transition-colors disabled:opacity-40"
                 title="Buscar en SUNAT"
               >
                 {rucSearching
@@ -252,7 +252,7 @@ export default function ProveedoresPage() {
 
         {/* ── Error ───────────────────────────────────────────── */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
+          <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
             <AlertTriangle size={16} className="shrink-0" />
             {error}
           </div>
@@ -262,7 +262,7 @@ export default function ProveedoresPage() {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-40">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600" />
+              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" />
             </div>
           ) : filteredProveedores.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
@@ -275,7 +275,7 @@ export default function ProveedoresPage() {
               {!search && (
                 <button
                   onClick={() => setModalOpen(true)}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold"
                 >
                   Registrar primer proveedor
                 </button>

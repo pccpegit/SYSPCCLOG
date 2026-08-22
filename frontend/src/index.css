@@ -1,9 +1,102 @@
 @import "tailwindcss";
 
+/* Enables `dark:` variants scoped to an ancestor `.dark` class (applied to
+   <html> by ThemeContext / the anti-FOUC script in index.html), instead of
+   Tailwind's default `prefers-color-scheme` media query — SYSPCC-020,
+   Decisión 1. Used sparingly, only for saturated/semantic colors that the
+   compat layer below deliberately does not cover (role badges, toasts). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ── Design System Variables ── */
 @theme {
   --font-display: "Urbanist", system-ui, sans-serif;
   --font-body: "Figtree", system-ui, sans-serif;
+
+  --color-app-bg: #f0f2f5;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f9fafb;
+  --color-surface-hover: #f3f4f6;
+  --color-border-default: #e5e7eb;
+  --color-border-subtle: #f3f4f6;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #9ca3af;
+}
+
+:root { color-scheme: light; }
+
+/* SYSPCC-020 — dark theme tokens + "compat layer" (Decisión 1).
+   `.dark` redefines the tokens above, and the rules that follow map the
+   project's existing neutral Tailwind utilities (bg-white, bg-gray-50/100,
+   text-gray-*, border-gray-*, etc.) onto those tokens WITHOUT touching
+   Tailwind's own `--color-gray-*`/`--color-white` theme values — those stay
+   available undisturbed for surfaces that are intentionally dark in both
+   themes (e.g. the SettingsPage hero card, `from-gray-900 via-gray-800`).
+   Deliberately NOT covered here: bg-gray-700/800/900, gradient stops
+   (from-/via-/to-*), and saturated colors (role badges, toast variants) —
+   those get explicit `dark:` classes at the call site instead.
+   Written after @theme, with no @layer, so these rules win by not being
+   layered — Tailwind's own utilities are layered and lose to plain CSS. */
+.dark {
+  color-scheme: dark;
+  --color-app-bg: #0a0e14;
+  --color-surface: #111827;
+  --color-surface-muted: #1f2937;
+  --color-surface-hover: #374151;
+  --color-border-default: #374151;
+  --color-border-subtle: #2a3341;
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #d1d5db;
+  --color-text-muted: #9ca3af;
+}
+
+.dark .bg-app          { background-color: var(--color-app-bg); }
+.dark .bg-white        { background-color: var(--color-surface); }
+.dark .bg-gray-50      { background-color: var(--color-surface-muted); }
+.dark .bg-gray-100     { background-color: var(--color-surface-hover); }
+.dark .text-gray-900,
+.dark .text-gray-800   { color: var(--color-text-primary); }
+.dark .text-gray-700,
+.dark .text-gray-600   { color: var(--color-text-secondary); }
+.dark .text-gray-500,
+.dark .text-gray-400   { color: var(--color-text-muted); }
+.dark .border-gray-100,
+.dark .border-gray-200 { border-color: var(--color-border-default); }
+.dark .divide-gray-100,
+.dark .divide-gray-200 { border-color: var(--color-border-default); }
+.dark .ring-gray-100,
+.dark .ring-gray-200   { --tw-ring-color: var(--color-border-default); }
+.dark .placeholder-gray-400::placeholder { color: var(--color-text-muted); }
+
+/* Interaction-state variants of the same neutral utilities above. Tailwind
+   generates a distinct class per variant (`.hover\:bg-gray-50`, not
+   `.bg-gray-50`), so the base compat rules don't reach them — extended
+   here after auditing real usage across frontend/src (excluding the
+   sidebars, which stay permanently dark and don't use these). */
+.dark .hover\:bg-gray-50:hover   { background-color: var(--color-surface-muted); }
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-gray-200:hover  { background-color: var(--color-surface-hover); }
+.dark .hover\:text-gray-900:hover,
+.dark .hover\:text-gray-800:hover { color: var(--color-text-primary); }
+.dark .hover\:text-gray-700:hover,
+.dark .hover\:text-gray-600:hover { color: var(--color-text-secondary); }
+.dark .hover\:text-gray-500:hover,
+.dark .hover\:text-gray-400:hover { color: var(--color-text-muted); }
+.dark .hover\:border-gray-200:hover,
+.dark .hover\:border-gray-300:hover,
+.dark .hover\:border-gray-400:hover { border-color: var(--color-border-default); }
+.dark .hover\:ring-gray-200:hover { --tw-ring-color: var(--color-border-default); }
+.dark .active\:bg-gray-100:active,
+.dark .active\:bg-gray-200:active { background-color: var(--color-surface-hover); }
+.dark .focus\:bg-white:focus     { background-color: var(--color-surface); }
+
+/* Theme-change pulse: transitions are OFF by default (large tables would
+   jank if every bg-/text-/border- utility transitioned permanently) and are
+   switched on for ~250ms only while ThemeContext has this class on <html>,
+   during a manual toggle or an automatic day/night boundary crossing. */
+html.theme-transitioning,
+html.theme-transitioning * {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease !important;
 }
 
 /* ── Base ── */
@@ -15,10 +108,19 @@ body {
   margin: 0;
   min-height: 100vh;
   font-family: "Figtree", system-ui, sans-serif;
-  background-color: #f0f2f5;
+  /* Theme tokens (SYSPCC-020, Decisión 1) instead of hardcoded hex: any
+     element that inherits body's `color` without its own `text-gray-*`
+     class — notably plain <input>/<textarea>/<select> text, which nothing
+     else in this file re-colors — must also flip in dark mode. Before this
+     fix, body kept color:#1a1d23 in both themes, so typed text in e.g. the
+     password fields or the Apariencia time pickers rendered near-black on
+     the new dark surfaces (~1.1:1 contrast, effectively invisible) —
+     caught during the SYSPCC-020 a11y audit by inspecting computed styles
+     live, not by inspection of Tailwind classes alone. */
+  background-color: var(--color-app-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #1a1d23;
+  color: var(--color-text-primary);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -67,6 +169,10 @@ select,
   .page-fade-in {
     animation: none !important;
     opacity: 1 !important;
+  }
+  .theme-transitioning,
+  .theme-transitioning * {
+    transition: none !important;
   }
 }
 

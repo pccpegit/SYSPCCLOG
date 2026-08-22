@@ -51,7 +51,7 @@ function formatCurrency(val) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 dark:border-teal-400" />
     </div>
   );
 }
@@ -136,7 +136,7 @@ function WarehouseProgressBar({ currentStatus }) {
                     isDone
                       ? 'bg-teal-500 border-teal-500'
                       : isActive
-                        ? 'bg-teal-600 border-teal-600 ring-4 ring-teal-100'
+                        ? 'bg-teal-600 dark:bg-teal-400 border-teal-600 dark:border-teal-400 ring-4 ring-teal-100 dark:ring-teal-500/30'
                         : 'bg-white border-gray-200'
                   }`}
                 >
@@ -148,7 +148,7 @@ function WarehouseProgressBar({ currentStatus }) {
                 <span
                   className={`mt-1.5 text-xs font-medium text-center leading-tight max-w-[70px] ${
                     isActive
-                      ? 'text-teal-700'
+                      ? 'text-teal-700 dark:text-teal-300'
                       : isDone
                         ? 'text-teal-500'
                         : 'text-gray-400'
@@ -216,7 +216,7 @@ function ItemsTable({ items, qcChecked, onQcToggle, showQC }) {
                 <tr
                   key={lineNum}
                   className={`border-b border-gray-50 ${
-                    hasIssue ? 'bg-red-50/60' : idx % 2 !== 0 ? 'bg-gray-50/40' : ''
+                    hasIssue ? 'bg-red-50/60 dark:bg-red-500/10' : idx % 2 !== 0 ? 'bg-gray-50/40' : ''
                   }`}
                 >
                   {showQC && (
@@ -233,7 +233,7 @@ function ItemsTable({ items, qcChecked, onQcToggle, showQC }) {
                   <td className="py-3 px-4 text-gray-800 font-medium leading-snug">
                     {item.description}
                     {hasIssue && (
-                      <span className="ml-2 text-xs font-medium text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
+                      <span className="ml-2 text-xs font-medium text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-500/10 px-1.5 py-0.5 rounded">
                         Con observacion
                       </span>
                     )}
@@ -314,11 +314,11 @@ function TextField({ label, value, onChange, placeholder }) {
 function ReceptionPanel({ submitting, notes, onNotes, guideNumber, onGuide, onAction }) {
   return (
     <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
+      <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4 flex gap-3">
+        <Info size={16} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-amber-800">Recepcion Pendiente</p>
-          <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Recepcion Pendiente</p>
+          <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5 leading-relaxed">
             Registre la recepcion fisica de los materiales. Ingrese el numero de guia de
             remision del proveedor.
           </p>
@@ -352,7 +352,7 @@ function ReceptionPanel({ submitting, notes, onNotes, guideNumber, onGuide, onAc
         </button>
 
         {!guideNumber.trim() && (
-          <p className="text-xs text-amber-600 text-center">
+          <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
             Ingrese el numero de guia de remision para continuar.
           </p>
         )}
@@ -367,11 +367,11 @@ function QualityControlPanel({ submitting, notes, onNotes, qcChecked, onQcToggle
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+      <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl p-4 flex gap-3">
+        <Info size={16} className="text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-blue-800">Control de Calidad</p>
-          <p className="text-xs text-blue-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">Control de Calidad</p>
+          <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5 leading-relaxed">
             Revise cada item de la tabla. Marque los items con observaciones. Si todo esta
             conforme, apruebe la calidad. Si hay problemas graves, genere el reclamo.
           </p>
@@ -382,9 +382,9 @@ function QualityControlPanel({ submitting, notes, onNotes, qcChecked, onQcToggle
         <h2 className="text-sm font-semibold text-gray-700">Resultado del Control de Calidad</h2>
 
         {hasIssues && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg">
             <AlertCircle size={14} className="text-red-500 shrink-0" />
-            <p className="text-xs text-red-700 font-medium">
+            <p className="text-xs text-red-700 dark:text-red-300 font-medium">
               {qcChecked.size} item{qcChecked.size !== 1 ? 's' : ''} con observaciones marcado{qcChecked.size !== 1 ? 's' : ''}.
             </p>
           </div>
@@ -430,11 +430,11 @@ function QualityControlPanel({ submitting, notes, onNotes, qcChecked, onQcToggle
 function DispatchPanel({ submitting, notes, onNotes, dispatchNumber, onDispatch, onAction }) {
   return (
     <div className="space-y-4">
-      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+      <div className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 rounded-xl p-4 flex gap-3">
+        <Info size={16} className="text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-indigo-800">Calidad Aprobada - Listo para Despacho</p>
-          <p className="text-xs text-indigo-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-indigo-800 dark:text-indigo-300">Calidad Aprobada - Listo para Despacho</p>
+          <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-0.5 leading-relaxed">
             Los materiales pasaron el control de calidad. Registre el despacho al almacen de obra
             con la guia de despacho correspondiente.
           </p>
@@ -468,7 +468,7 @@ function DispatchPanel({ submitting, notes, onNotes, dispatchNumber, onDispatch,
         </button>
 
         {!dispatchNumber.trim() && (
-          <p className="text-xs text-amber-600 text-center">
+          <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
             Ingrese el numero de guia de despacho para continuar.
           </p>
         )}
@@ -484,11 +484,11 @@ function SiteReceptionPanel({ req, items, submitting, notes, onNotes, onAction }
   return (
     <div className="space-y-4">
       {/* Banner */}
-      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3">
-        <Package size={16} className="text-teal-600 shrink-0 mt-0.5" />
+      <div className="bg-teal-50 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-500/30 rounded-xl p-4 flex gap-3">
+        <Package size={16} className="text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-teal-800">Paso 16 — Entrega del Requerimiento al Solicitante</p>
-          <p className="text-xs text-teal-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">Paso 16 — Entrega del Requerimiento al Solicitante</p>
+          <p className="text-xs text-teal-700 dark:text-teal-300 mt-0.5 leading-relaxed">
             Los materiales fueron despachados desde Almacén Central. Reciba los materiales,
             verifique que estén completos y entréguelos a <strong>{requester}</strong>.
           </p>
@@ -507,7 +507,7 @@ function SiteReceptionPanel({ req, items, submitting, notes, onNotes, onAction }
                 <p className="text-sm font-medium text-gray-800">{item.description}</p>
                 <p className="text-xs text-gray-400">{item.quantity} {item.unit}</p>
               </div>
-              <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3">
+              <span className="text-xs bg-teal-100 dark:bg-teal-500/10 text-teal-700 dark:text-teal-300 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3">
                 Entregar
               </span>
             </div>
@@ -517,11 +517,11 @@ function SiteReceptionPanel({ req, items, submitting, notes, onNotes, onAction }
 
       {/* Delivery info */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-3">
-          <User size={16} className="text-blue-600 shrink-0" />
+        <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-lg p-3 flex items-center gap-3">
+          <User size={16} className="text-blue-600 dark:text-blue-400 shrink-0" />
           <div>
-            <p className="text-xs text-blue-600 font-medium">Entregar a:</p>
-            <p className="text-sm font-bold text-blue-800">{requester}</p>
+            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Entregar a:</p>
+            <p className="text-sm font-bold text-blue-800 dark:text-blue-300">{requester}</p>
           </div>
         </div>
 
@@ -552,10 +552,10 @@ function SiteReceptionPanel({ req, items, submitting, notes, onNotes, onAction }
 // Terminal states — success
 function DeliveredPanel({ navigate }) {
   return (
-    <div className="bg-green-50 border border-green-300 rounded-xl p-6 flex flex-col items-center text-center gap-3">
+    <div className="bg-green-50 dark:bg-green-500/10 border border-green-300 dark:border-green-500/30 rounded-xl p-6 flex flex-col items-center text-center gap-3">
       <CheckCircle2 size={44} className="text-green-500" />
-      <p className="text-base font-bold text-green-800">Materiales entregados exitosamente</p>
-      <p className="text-sm text-green-700 max-w-xs leading-relaxed">
+      <p className="text-base font-bold text-green-800 dark:text-green-300">Materiales entregados exitosamente</p>
+      <p className="text-sm text-green-700 dark:text-green-300 max-w-xs leading-relaxed">
         La entrega ha sido confirmada y los registros del almacen de obra han sido actualizados.
       </p>
       <button
@@ -573,10 +573,10 @@ function DeliveredPanel({ navigate }) {
 // Terminal state — quality rejected
 function QualityRejectedPanel({ navigate }) {
   return (
-    <div className="bg-red-50 border border-red-300 rounded-xl p-6 flex flex-col items-center text-center gap-3">
+    <div className="bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 rounded-xl p-6 flex flex-col items-center text-center gap-3">
       <ShieldX size={44} className="text-red-400" />
-      <p className="text-base font-bold text-red-800">Materiales rechazados por calidad</p>
-      <p className="text-sm text-red-700 max-w-xs leading-relaxed">
+      <p className="text-base font-bold text-red-800 dark:text-red-300">Materiales rechazados por calidad</p>
+      <p className="text-sm text-red-700 dark:text-red-300 max-w-xs leading-relaxed">
         Se ha generado un reclamo al proveedor. El equipo de logistica gestionara la devolucion
         o reposicion de los materiales.
       </p>
@@ -799,7 +799,7 @@ export default function WarehouseActionPage() {
         <h2 className="text-xl font-bold text-gray-800">Requerimiento no encontrado</h2>
         <button
           onClick={() => navigate('/rq/warehouse')}
-          className="mt-4 text-sm text-blue-600 hover:underline"
+          className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline"
         >
           Volver al Panel de Almacen
         </button>
@@ -880,7 +880,7 @@ export default function WarehouseActionPage() {
             </p>
             <button
               onClick={() => navigate('/rq/warehouse')}
-              className="mt-4 text-sm text-blue-600 hover:underline"
+              className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline"
             >
               Volver al Panel de Almacen
             </button>
@@ -903,15 +903,15 @@ export default function WarehouseActionPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl">
+        <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 rounded-xl">
           <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-red-700">Error al procesar la accion</p>
-            <p className="text-sm text-red-600 mt-0.5">{error}</p>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">Error al procesar la accion</p>
+            <p className="text-sm text-red-600 dark:text-red-400 mt-0.5">{error}</p>
           </div>
           <button
             onClick={() => setError(null)}
-            className="shrink-0 text-red-400 hover:text-red-600"
+            className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-400"
           >
             <XCircle size={18} />
           </button>
@@ -922,11 +922,11 @@ export default function WarehouseActionPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900 flex items-center gap-2">
-            <Warehouse size={26} className="text-teal-600" />
+            <Warehouse size={26} className="text-teal-600 dark:text-teal-400" />
             Gestion de Almacen
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            <span className="font-mono font-semibold text-teal-700">{rqNumber}</span>
+            <span className="font-mono font-semibold text-teal-700 dark:text-teal-300">{rqNumber}</span>
             {' '}— {req.description}
           </p>
         </div>

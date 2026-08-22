@@ -29,13 +29,13 @@ const CATEGORIES = [
 ];
 
 const CAT_COLORS = {
-  blue:   { bg: 'bg-blue-50',   border: 'border-blue-200',   ring: 'ring-blue-400',   iconBg: 'bg-blue-500',   text: 'text-blue-700' },
-  violet: { bg: 'bg-violet-50', border: 'border-violet-200', ring: 'ring-violet-400', iconBg: 'bg-violet-500', text: 'text-violet-700' },
-  orange: { bg: 'bg-orange-50', border: 'border-orange-200', ring: 'ring-orange-400', iconBg: 'bg-orange-500', text: 'text-orange-700' },
-  rose:   { bg: 'bg-rose-50',   border: 'border-rose-200',   ring: 'ring-rose-400',   iconBg: 'bg-rose-500',   text: 'text-rose-700' },
-  sky:    { bg: 'bg-sky-50',    border: 'border-sky-200',    ring: 'ring-sky-400',    iconBg: 'bg-sky-500',    text: 'text-sky-700' },
-  amber:  { bg: 'bg-amber-50',  border: 'border-amber-200',  ring: 'ring-amber-400',  iconBg: 'bg-amber-500',  text: 'text-amber-700' },
-  slate:  { bg: 'bg-slate-50',  border: 'border-slate-200',  ring: 'ring-slate-400',  iconBg: 'bg-slate-500',  text: 'text-slate-700' },
+  blue:   { bg: 'bg-blue-50 dark:bg-blue-500/10',     border: 'border-blue-200 dark:border-blue-500/30',     ring: 'ring-blue-400',   iconBg: 'bg-blue-500',   text: 'text-blue-700 dark:text-blue-300' },
+  violet: { bg: 'bg-violet-50 dark:bg-violet-500/10', border: 'border-violet-200 dark:border-violet-500/30', ring: 'ring-violet-400', iconBg: 'bg-violet-500', text: 'text-violet-700 dark:text-violet-300' },
+  orange: { bg: 'bg-orange-50 dark:bg-orange-500/10', border: 'border-orange-200 dark:border-orange-500/30', ring: 'ring-orange-400', iconBg: 'bg-orange-500', text: 'text-orange-700 dark:text-orange-300' },
+  rose:   { bg: 'bg-rose-50 dark:bg-rose-500/10',     border: 'border-rose-200 dark:border-rose-500/30',     ring: 'ring-rose-400',   iconBg: 'bg-rose-500',   text: 'text-rose-700 dark:text-rose-300' },
+  sky:    { bg: 'bg-sky-50 dark:bg-sky-500/10',       border: 'border-sky-200 dark:border-sky-500/30',       ring: 'ring-sky-400',    iconBg: 'bg-sky-500',    text: 'text-sky-700 dark:text-sky-300' },
+  amber:  { bg: 'bg-amber-50 dark:bg-amber-500/10',   border: 'border-amber-200 dark:border-amber-500/30',   ring: 'ring-amber-400',  iconBg: 'bg-amber-500',  text: 'text-amber-700 dark:text-amber-300' },
+  slate:  { bg: 'bg-slate-50 dark:bg-slate-500/10',   border: 'border-slate-200 dark:border-slate-500/30',   ring: 'ring-slate-400',  iconBg: 'bg-slate-500',  text: 'text-slate-700 dark:text-slate-300' },
 };
 
 function StepNumber({ n, done }) {
@@ -121,9 +121,9 @@ export default function TicketCreatePage() {
           </div>
 
           <div className="px-8 py-8 space-y-5">
-            <div className="bg-teal-50 rounded-2xl px-5 py-4 border border-teal-100">
+            <div className="bg-teal-50 rounded-2xl px-5 py-4 border border-teal-100 dark:bg-teal-500/10 dark:border-teal-500/30">
               <p className="text-[10px] font-bold text-teal-500 uppercase tracking-widest mb-1">Numero de ticket</p>
-              <p className="text-2xl font-extrabold text-teal-700 font-display tracking-wide">
+              <p className="text-2xl font-extrabold text-teal-700 dark:text-teal-300 font-display tracking-wide">
                 {success.ticket_number}
               </p>
             </div>
@@ -161,9 +161,9 @@ export default function TicketCreatePage() {
 
       {/* ── Header ── */}
       <div className="text-center sm:text-left">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-100 mb-3">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-100 dark:bg-teal-500/10 dark:border-teal-500/30 mb-3">
           <Sparkles size={13} className="text-teal-500" />
-          <span className="text-[11px] font-bold text-teal-600 uppercase tracking-wider font-display">Soporte TI</span>
+          <span className="text-[11px] font-bold text-teal-600 dark:text-teal-400 uppercase tracking-wider font-display">Soporte TI</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 font-display leading-tight">
           Necesitas ayuda?

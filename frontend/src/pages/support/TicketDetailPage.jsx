@@ -59,7 +59,7 @@ function PriorityBadge({ priority }) {
 function CategoryBadge({ category }) {
   const cfg = TICKET_CATEGORY_CONFIG[category] ?? { label: category };
   return (
-    <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">
+    <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-500/10 dark:text-teal-300 dark:border-teal-500/30">
       {cfg.label}
     </span>
   );
@@ -120,7 +120,7 @@ function CommentBubble({ comment }) {
               {fromCfg.label}
             </span>
             <span>a</span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">
               <span className={`w-1.5 h-1.5 rounded-full ${toCfg.dot}`} />
               {toCfg.label}
             </span>
@@ -220,7 +220,7 @@ export default function TicketDetailPage() {
     return (
       <div className="max-w-3xl mx-auto">
         <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-8 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center mx-auto mb-4">
             <AlertTriangle size={22} className="text-red-500" />
           </div>
           <p className="text-sm font-semibold text-gray-700 font-display">{error ?? 'Ticket no encontrado'}</p>

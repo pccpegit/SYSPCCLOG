@@ -44,7 +44,7 @@ function newRoleRow() {
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
     hasError
-      ? 'border-red-300 focus:ring-red-400'
+      ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400'
       : 'border-gray-200 focus:ring-indigo-500 focus:border-indigo-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
@@ -56,7 +56,7 @@ function Field({ label, required, id, error, hint, children }) {
       </label>
       {children}
       {hint && !error && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
-      {error && <p id={`${id}-error`} role="alert" className="text-[11px] text-red-500 mt-1 font-medium">{error}</p>}
+      {error && <p id={`${id}-error`} role="alert" className="text-[11px] text-red-500 dark:text-red-400 mt-1 font-medium">{error}</p>}
     </div>
   );
 }
@@ -244,7 +244,7 @@ export default function UserFormPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-indigo-600" aria-hidden="true" />
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-indigo-600 dark:border-t-indigo-400" aria-hidden="true" />
         <span className="sr-only">Cargando usuario…</span>
       </div>
     );
@@ -252,7 +252,7 @@ export default function UserFormPage() {
 
   if (loadError) {
     return (
-      <div role="alert" className="max-w-2xl mx-auto bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+      <div role="alert" className="max-w-2xl mx-auto bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center justify-between gap-3">
         <span className="flex items-center gap-2"><AlertTriangle size={16} className="shrink-0" aria-hidden="true" /> {loadError}</span>
         <button onClick={loadUser} className="font-semibold underline underline-offset-2 shrink-0">Reintentar</button>
       </div>
@@ -272,8 +272,8 @@ export default function UserFormPage() {
           >
             <ArrowLeft size={18} aria-hidden="true" />
           </button>
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 ring-1 ring-indigo-100 flex items-center justify-center shrink-0">
-            {isEdit ? <UserCog size={17} className="text-indigo-600" aria-hidden="true" /> : <UserPlus size={17} className="text-indigo-600" aria-hidden="true" />}
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 ring-1 ring-indigo-100 dark:ring-indigo-500/30 flex items-center justify-center shrink-0">
+            {isEdit ? <UserCog size={17} className="text-indigo-600 dark:text-indigo-400" aria-hidden="true" /> : <UserPlus size={17} className="text-indigo-600 dark:text-indigo-400" aria-hidden="true" />}
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">
@@ -292,7 +292,7 @@ export default function UserFormPage() {
               ref={formErrorRef}
               tabIndex={-1}
               role="alert"
-              className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-400"
+              className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-400"
             >
               <AlertTriangle size={16} className="shrink-0" aria-hidden="true" /> {formError}
             </div>
@@ -402,7 +402,7 @@ export default function UserFormPage() {
               <button
                 type="button"
                 onClick={addRoleRow}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 hover:bg-indigo-50 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 transition-colors"
               >
                 <Plus size={14} aria-hidden="true" /> Agregar rol
               </button>
@@ -454,7 +454,7 @@ export default function UserFormPage() {
                       checked={row.is_primary}
                       onChange={(e) => setRoleField(row.key, 'is_primary', e.target.checked)}
                       disabled={saving}
-                      className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="w-4 h-4 rounded border-gray-300 text-indigo-600 dark:text-indigo-400 focus:ring-indigo-500"
                     />
                     <Star size={12} className={row.is_primary ? 'text-amber-500 fill-amber-500' : 'text-gray-300'} aria-hidden="true" />
                     Primario
@@ -463,7 +463,7 @@ export default function UserFormPage() {
                     type="button"
                     onClick={() => removeRoleRow(row.key)}
                     disabled={saving}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 transition-colors shrink-0"
                     aria-label={`Quitar rol (fila ${idx + 1})`}
                   >
                     <Trash2 size={15} aria-hidden="true" />

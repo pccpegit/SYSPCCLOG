@@ -35,7 +35,7 @@ const LOGISTICS_STATUSES = [
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 dark:border-teal-400" />
     </div>
   );
 }
@@ -76,7 +76,7 @@ export default function LogisticsPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-extrabold text-gray-900 flex items-center gap-2">
-          <Truck size={28} className="text-teal-600" />
+          <Truck size={28} className="text-teal-600 dark:text-teal-400" />
           Panel de Logística
         </h1>
         <p className="text-sm text-gray-500 mt-1">
@@ -88,8 +88,8 @@ export default function LogisticsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-teal-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-teal-100 flex items-center justify-center">
-              <CheckCircle size={20} className="text-teal-600" />
+            <div className="w-10 h-10 rounded-lg bg-teal-100 dark:bg-teal-500/10 flex items-center justify-center">
+              <CheckCircle size={20} className="text-teal-600 dark:text-teal-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Validados</p>
@@ -99,8 +99,8 @@ export default function LogisticsPage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-cyan-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-cyan-100 flex items-center justify-center">
-              <FileSearch size={20} className="text-cyan-600" />
+            <div className="w-10 h-10 rounded-lg bg-cyan-100 dark:bg-cyan-500/10 flex items-center justify-center">
+              <FileSearch size={20} className="text-cyan-600 dark:text-cyan-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Verif. Stock</p>
@@ -110,8 +110,8 @@ export default function LogisticsPage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-indigo-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
-              <ShoppingCart size={20} className="text-indigo-600" />
+            <div className="w-10 h-10 rounded-lg bg-indigo-100 dark:bg-indigo-500/10 flex items-center justify-center">
+              <ShoppingCart size={20} className="text-indigo-600 dark:text-indigo-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Cotizando</p>
@@ -121,8 +121,8 @@ export default function LogisticsPage() {
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 border-l-4 border-l-blue-500">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-              <Package size={20} className="text-blue-600" />
+            <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-500/10 flex items-center justify-center">
+              <Package size={20} className="text-blue-600 dark:text-blue-400" />
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase font-medium">Orden de Compra</p>
@@ -171,9 +171,9 @@ export default function LogisticsPage() {
                     <tr
                       key={req.id}
                       onClick={() => navigate(`/rq/logistics/${rqId}`)}
-                      className={`border-b border-gray-50 hover:bg-teal-50/60 cursor-pointer transition-all duration-150 ${idx % 2 !== 0 ? 'bg-gray-50/40' : ''}`}
+                      className={`border-b border-gray-50 hover:bg-teal-50/60 dark:hover:bg-teal-500/10 cursor-pointer transition-all duration-150 ${idx % 2 !== 0 ? 'bg-gray-50/40' : ''}`}
                     >
-                      <td className="py-3 px-4 font-mono font-semibold text-blue-700 text-xs">{rqId}</td>
+                      <td className="py-3 px-4 font-mono font-semibold text-blue-700 dark:text-blue-300 text-xs">{rqId}</td>
                       <td className="py-3 px-4 text-gray-800 max-w-xs">
                         <span className="line-clamp-1">{req.description}</span>
                       </td>
@@ -184,7 +184,7 @@ export default function LogisticsPage() {
                         {formatCurrency(req.estimated_cost ?? req.estimatedCost)}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium">
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium">
                           Ver <ArrowRight size={12} />
                         </span>
                       </td>

@@ -41,8 +41,11 @@ services:
     #   ya carga pandas/openpyxl (excel-processing) en memoria; un solo
     #   worker con varios hilos evita duplicar esa memoria por worker,
     #   mientras los hilos siguen permitiendo concurrencia de I/O.
+    # OJO: sin `sh -c "..."` — Render ya ejecuta dockerCommand dentro de un
+    # shell, y anidarlo hace que todo el string quotado se trate como UN solo
+    # nombre de comando (exit 127, deploy dep-daat6c15 del 2026-08-31).
     dockerCommand: >-
-      sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"
+      python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
 
     envVars:
       # Fijas: seleccionan el módulo de settings de esta guía y lo marcan

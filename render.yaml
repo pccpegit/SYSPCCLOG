@@ -1,0 +1,102 @@
+# ============================================================
+# Render Blueprint — SYSPCC demo (SYSPCC-021)
+# ============================================================
+# Despliega SOLO el backend Django como servicio web Docker sobre el plan
+# free de Render. La base de datos vive fuera de Render (Supabase Postgres
+# free) y el frontend se despliega aparte en Vercel — ver
+# docs/07_Guia_Demo_Supabase_Vercel.md para el paso a paso completo y
+# .claude/handoffs/demo-supabase-vercel.md para el diseño (FASE 0).
+#
+# Uso: en el dashboard de Render, "New +" -> "Blueprint" -> selecciona este
+# repo -> rama `develop` -> Render detecta este archivo automáticamente.
+#
+# Límites del plan free que este blueprint asume (ver settings/demo.py):
+#   - 512 MB RAM, sin shell interactivo, sin procesos en background
+#     (por eso Celery corre en modo eager, sin worker ni beat aparte).
+#   - El servicio "duerme" tras 15 min sin tráfico (cold start ~50s al
+#     despertar).
+#   - Sin Redis gestionado en el plan free -> demo.py usa LocMemCache.
+
+services:
+  - type: web
+    name: syspcc-demo-backend
+    runtime: docker
+    plan: free
+    region: ohio
+    branch: develop
+    autoDeploy: true
+
+    # Dockerfile real del backend (el mismo que usa docker-compose local).
+    # Rutas relativas a la raíz del repo, NO se usa `rootDir` porque estas
+    # dos rutas ya incluyen el prefijo `backend/`.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+
+    # El Dockerfile local termina en `CMD ["python", "manage.py",
+    # "runserver", ...]` para uso con docker-compose (hot reload en dev).
+    # dockerCommand SOBREESCRIBE ese CMD solo para este servicio en Render:
+    # aplica migraciones, recolecta estáticos para WhiteNoise y arranca
+    # gunicorn. NO se toca backend/Dockerfile.
+    #   --workers 1 --threads 4: el plan free da 512 MB de RAM y el proceso
+    #   ya carga pandas/openpyxl (excel-processing) en memoria; un solo
+    #   worker con varios hilos evita duplicar esa memoria por worker,
+    #   mientras los hilos siguen permitiendo concurrencia de I/O.
+    dockerCommand: >-
+      sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"
+
+    envVars:
+      # Fijas: seleccionan el módulo de settings de esta guía y lo marcan
+      # como entorno "demo" (no "production") para
+      # apps/core/management/seed_guard.py::abort_if_production(), que
+      # exige DEBUG=True y DJANGO_ENV != 'production' antes de sembrar
+      # datos demo. Aquí DEBUG nunca se define -> queda en False (ver
+      # settings/demo.py) y el servicio desplegado jamás puede correr
+      # seed_demo contra sí mismo.
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.demo
+      - key: DJANGO_ENV
+        value: demo
+
+      # Generada automáticamente por Render al crear el servicio (firma
+      # JWT/sesiones vía SIMPLE_JWT.SIGNING_KEY = SECRET_KEY en base.py).
+      # Nunca se versiona en git.
+      - key: SECRET_KEY
+        generateValue: true
+
+      # --- Credenciales de Supabase Postgres (Session Pooler) ---
+      # `sync: false` = Render NO les asigna valor por blueprint; el
+      # usuario las completa a mano en el dashboard del servicio después
+      # de crear el proyecto en Supabase (Project Settings -> Database ->
+      # Connection pooling -> Session mode). Usar SIEMPRE el Session
+      # Pooler, no el host directo `db.<ref>.supabase.co`: ese host solo
+      # resuelve por IPv6 y Render free no tiene egress IPv6 (ver
+      # handoff FASE 0).
+      #   DB_HOST -> aws-X-<region>.pooler.supabase.com
+      #   DB_USER -> postgres.<project-ref>  (formato del pooler, con el
+      #              project ref incluido en el username)
+      #   DB_PORT -> 5432 (puerto del Session Pooler; 6543 es el
+      #              Transaction Pooler, no usar ese aquí)
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+
+      # Host público que Render asigna a este servicio, ej.
+      # `syspcc-demo-backend.onrender.com` (SIN protocolo, tal como lo
+      # exige ALLOWED_HOSTS de Django). Se conoce recién después del primer
+      # deploy -> se completa a mano en el dashboard.
+      - key: ALLOWED_HOSTS
+        sync: false
+
+      # Origen del frontend en Vercel que puede enviar requests que
+      # modifican estado (CSRF double-submit, ver base.py). Formato
+      # completo con esquema: `https://<proyecto>.vercel.app` (sin barra
+      # final). Se completa a mano una vez creado el proyecto en Vercel.
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false

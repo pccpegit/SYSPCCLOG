@@ -58,3 +58,7 @@ django-celery-beat==2.7.0
 
 # Production
 gunicorn==23.0.0
+
+# Static files on platforms without a CDN/object storage (SYSPCC-021 demo
+# deploy on Render free tier — see config/settings/demo.py)
+whitenoise==6.8.2

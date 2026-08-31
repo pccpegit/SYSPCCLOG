@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://syspcc-demo-backend.onrender.com/api/$1"
+    },
+    {
+      "source": "/media/(.*)",
+      "destination": "https://syspcc-demo-backend.onrender.com/media/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

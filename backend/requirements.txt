@@ -43,6 +43,17 @@ requests==2.32.3
 # Encryption at rest (OneDrive token storage — SYSPCC-016)
 cryptography==43.0.3
 
+# RR. HH. contract generator (SYSPCC-022): Word templating, amount-in-words,
+# Claude assistant (structured extraction only). pydantic is pinned explicitly
+# because the app imports it directly (it also ships transitively via anthropic).
+docxtpl==0.20.2
+# imported directly by apps/hr (inspect_zip); also a transitive dep of docxtpl/python-docx
+lxml==6.1.3
+python-docx==1.2.0
+num2words==0.5.14
+anthropic==1.11.0
+pydantic==2.13.5
+
 # Development / Testing
 pytest==8.3.4
 pytest-django==4.9.0

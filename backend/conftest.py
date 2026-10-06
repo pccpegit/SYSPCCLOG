@@ -195,6 +195,24 @@ def admin_manager(db):
 
 
 @pytest.fixture
+def hr_manager(db):
+    """User with HR_MANAGER role (RR. HH. contract generator, SYSPCC-022)."""
+    u = User.objects.create_user(
+        username='hr_manager',
+        email='hr_manager@test.com',
+        password='TestPass2026!',
+        first_name='HR',
+        last_name='Manager',
+    )
+    UserRole.objects.create(
+        user=u,
+        role=RoleChoices.HR_MANAGER,
+        is_primary=True,
+    )
+    return u
+
+
+@pytest.fixture
 def pasajes_manager(db):
     """User with PASAJES_MANAGER role (dedicated pasajes module access)."""
     u = User.objects.create_user(

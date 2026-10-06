@@ -79,3 +79,12 @@ describe('SystemSelectPage — tarjeta "Administración del Sistema"', () => {
     expect(screen.queryByText('Administración del Sistema')).not.toBeInTheDocument();
   });
 });
+
+describe('SystemSelectPage — tarjeta RR. HH.', () => {
+  it('muestra el subtítulo "RR. HH." y la descripción con tilde a un HR_MANAGER', () => {
+    useAuth.mockReturnValue(baseAuth({ userRoles: ['HR_MANAGER'], primaryRole: 'HR_MANAGER' }));
+    renderWithProviders(<SystemSelectPage />);
+    expect(screen.getByText('RR. HH.')).toBeInTheDocument();
+    expect(screen.getByText(/generación de contratos/i)).toBeInTheDocument();
+  });
+});

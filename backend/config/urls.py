@@ -42,6 +42,9 @@ urlpatterns = [
         # Administración app
         path('administracion/', include('apps.administracion.urls', namespace='administracion')),
 
+        # RR. HH. app (SYSPCC-022)
+        path('hr/', include('apps.hr.urls', namespace='hr')),
+
         # Support / IT tickets app
         path('support/', include('apps.support.urls', namespace='support')),
     ])),

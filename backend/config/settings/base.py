@@ -51,6 +51,7 @@ LOCAL_APPS = [
     'apps.warehouse',
     'apps.administracion',
     'apps.support',
+    'apps.hr',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -62,6 +63,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'apps.hr.middleware.HRNoStoreMiddleware',  # SYSPCC-022: no-store on /api/v1/hr/*
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -246,6 +248,9 @@ REST_FRAMEWORK = {
         'anon': '30/min',
         'user': '200/min',
         'login': '5/min',
+        # SYSPCC-022 (RR. HH.)
+        'hr_assistant': '20/min',
+        'hr_download': '60/min',
     },
 }
 
@@ -397,6 +402,56 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+
+# ============================================================
+# RR. HH. — contract generator (SYSPCC-022)
+# ============================================================
+
+# Private storage OUTSIDE MEDIA_ROOT: templates and generated contracts hold
+# PII (DNI, salary, address). Never served by URL — only through permissioned
+# views (FileResponse). On ephemeral-disk platforms (Render free) files are
+# lost on each deploy; production should swap HR_FILE_STORAGE for a private
+# bucket with short-lived signed URLs.
+HR_PRIVATE_ROOT = config('HR_PRIVATE_ROOT', default=str(BASE_DIR / 'private_media'))
+HR_FILE_STORAGE = config('HR_FILE_STORAGE', default='apps.hr.storage.PrivateDocumentStorage')
+HR_TEMPLATE_MAX_BYTES = config('HR_TEMPLATE_MAX_BYTES', default=5 * 1024 * 1024, cast=int)
+
+# PDF conversion via LibreOffice headless. Default: enabled only if the
+# `soffice` binary exists. Cast '' -> auto.
+HR_PDF_ENABLED = config(
+    'HR_PDF_ENABLED', default='',
+    cast=lambda v: None if str(v).strip() == '' else str(v).strip().lower() in ('1', 'true', 'yes'),
+)
+HR_PDF_TIMEOUT = config('HR_PDF_TIMEOUT', default=60, cast=int)
+
+# Legal entity data printed in contracts. Env-driven (no secrets): empty by
+# default; the demo template shows blanks until RR. HH. fills them in.
+HR_COMPANY_NAME = config('HR_COMPANY_NAME', default='')
+HR_COMPANY_RUC = config('HR_COMPANY_RUC', default='')
+HR_COMPANY_ADDRESS = config('HR_COMPANY_ADDRESS', default='')
+HR_COMPANY_LEGAL_REP_NAME = config('HR_COMPANY_LEGAL_REP_NAME', default='')
+HR_COMPANY_LEGAL_REP_DNI = config('HR_COMPANY_LEGAL_REP_DNI', default='')
+HR_COMPANY_LEGAL_REP_TITLE = config('HR_COMPANY_LEGAL_REP_TITLE', default='')
+HR_COMPANY_LEGAL_REP_POWERS = config('HR_COMPANY_LEGAL_REP_POWERS', default='')
+
+# Remuneracion minima vital (PEN). Only a warning threshold, never a block;
+# RR. HH./legal must confirm the current value.
+HR_MIN_WAGE = config('HR_MIN_WAGE', default='1130.00')
+
+# Claude assistant: extracts structured data from a free-text request. It
+# never drafts contract text. Without ANTHROPIC_API_KEY the module works in
+# plain form mode.
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+HR_ASSISTANT_MODEL = config('HR_ASSISTANT_MODEL', default='claude-opus-5-5')
+HR_ASSISTANT_EFFORT = config('HR_ASSISTANT_EFFORT', default='low')
+HR_ASSISTANT_MAX_TOKENS = config('HR_ASSISTANT_MAX_TOKENS', default=1024, cast=int)
+HR_ASSISTANT_TIMEOUT = config('HR_ASSISTANT_TIMEOUT', default=30, cast=int)
+HR_ASSISTANT_MAX_INPUT_CHARS = config('HR_ASSISTANT_MAX_INPUT_CHARS', default=2000, cast=int)
+HR_ASSISTANT_DAILY_LIMIT_PER_USER = config('HR_ASSISTANT_DAILY_LIMIT_PER_USER', default=100, cast=int)
+# OPT-IN (default False) to Anthropic's server-side fallback beta; enable only
+# after validating it with the real account (verified present in the SDK: client.beta.messages.parse(betas=[...], fallbacks="default")).
+HR_ASSISTANT_SERVER_FALLBACK = config('HR_ASSISTANT_SERVER_FALLBACK', default=False, cast=bool)
 
 
 # ============================================================

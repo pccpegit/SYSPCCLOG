@@ -19,6 +19,7 @@ import {
 const BG_IMAGES = ['/images/sli1.png', '/images/sli2.png', '/images/sli3.png', '/images/sli4.png'];
 
 const WAREHOUSE_ROLES = ['CENTRAL_WAREHOUSE', 'SITE_WAREHOUSE', 'LOGISTICS_COORDINATOR', 'LOGISTICS_SUPERVISOR', 'LOGISTICS_CHIEF'];
+const HR_ROLES = ['HR_MANAGER', 'GENERAL_MANAGER'];
 const ADMIN_ROLES = ['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER'];
 
 const SYSTEMS = [
@@ -56,12 +57,13 @@ const SYSTEMS = [
   {
     id: 'rrhh',
     name: 'Recursos Humanos',
-    subtitle: 'RRHH',
-    description: 'Asistencia, vacaciones, capacitaciones y gestion de personal.',
+    subtitle: 'RR. HH.',
+    description: 'Generación de contratos y documentos de personal a partir de plantillas aprobadas.',
     icon: Users,
     color: 'violet',
     path: '/rrhh',
-    available: false,
+    available: true,
+    requiredRoles: HR_ROLES,
   },
   {
     id: 'reports',

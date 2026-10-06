@@ -43,6 +43,8 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'anon': '300/min',
     'user': '1000/min',
     'login': '30/min',
+    'hr_assistant': '20/min',
+    'hr_download': '60/min',
 }
 REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = REST_FRAMEWORK_THROTTLE_RATES  # noqa: F405
 

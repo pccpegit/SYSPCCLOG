@@ -34,6 +34,8 @@ export const ROLES = {
   LOGISTICS_SUPERVISOR:   'LOGISTICS_SUPERVISOR',
   LOGISTICS_CHIEF:        'LOGISTICS_CHIEF',
   PASAJES_MANAGER:        'PASAJES_MANAGER',
+  // RR. HH.
+  HR_MANAGER:             'HR_MANAGER',
 };
 
 // ------------------------------------------------------------
@@ -53,6 +55,7 @@ export const ROLE_LABELS = {
   [ROLES.LOGISTICS_SUPERVISOR]:   'Supervisor Logístico',
   [ROLES.LOGISTICS_CHIEF]:        'Jefe Logístico',
   [ROLES.PASAJES_MANAGER]:        'Gestor de Pasajes',
+  [ROLES.HR_MANAGER]:             'Gestor de RR. HH.',
 };
 
 // ------------------------------------------------------------

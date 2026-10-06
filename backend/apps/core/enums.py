@@ -45,6 +45,10 @@ class RoleChoices(models.TextChoices):
     # Administración — Pasajes module (dedicated access, separate from ADMIN_MANAGER)
     PASAJES_MANAGER = 'PASAJES_MANAGER', _('Gestor de Pasajes')
 
+    # RR. HH. — contract generator (SYSPCC-022). Dedicated role: contracts hold
+    # DNI + salary + address, so access is NOT shared with ADMIN_MANAGER.
+    HR_MANAGER = 'HR_MANAGER', _('Gestor de RR. HH.')
+
 
 class RQStatusChoices(models.TextChoices):
     # Phase 1: Request

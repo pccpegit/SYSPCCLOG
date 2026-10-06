@@ -16,6 +16,7 @@ const ROLE_BADGE_COLORS = {
   ADMIN_MANAGER:        'bg-purple-500/10 text-purple-600 ring-1 ring-purple-500/20',
   LOGISTICS_SUPERVISOR: 'bg-orange-500/10 text-orange-600 ring-1 ring-orange-500/20',
   LOGISTICS_CHIEF:      'bg-rose-500/10 text-rose-600 ring-1 ring-rose-500/20',
+  HR_MANAGER:           'bg-violet-500/10 text-violet-600 ring-1 ring-violet-500/20',
 };
 
 const AVATAR_COLORS = [

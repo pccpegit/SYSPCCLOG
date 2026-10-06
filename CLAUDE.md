@@ -81,10 +81,10 @@ docker compose exec backend python manage.py seed_demo
 - **Icons:** Lucide React. **Excel:** ExcelJS (client-side)
 
 ### API Structure
-All endpoints under `/api/v1/`. Namespaces: `auth`, `users`, `projects`, `departments`, `personal`, `rq` (requests/approvals/suppliers/quotations/purchase-orders/claims), `warehouse`, `administracion`.
+All endpoints under `/api/v1/`. Namespaces: `auth`, `users`, `projects`, `departments`, `personal`, `rq` (requests/approvals/suppliers/quotations/purchase-orders/claims), `warehouse`, `administracion`, `hr` (RR. HH.: plantillas y documentos de personal).
 
-### Roles (11)
-REQUESTER, PROJECT_RESIDENT, PROJECT_CONTROL, GENERAL_MANAGER, LOGISTICS_COORDINATOR, CENTRAL_WAREHOUSE, SITE_WAREHOUSE, DIRECT_SUPERVISOR, ADMIN_MANAGER, LOGISTICS_SUPERVISOR, LOGISTICS_CHIEF
+### Roles (13)
+REQUESTER, PROJECT_RESIDENT, PROJECT_CONTROL, GENERAL_MANAGER, LOGISTICS_COORDINATOR, CENTRAL_WAREHOUSE, SITE_WAREHOUSE, DIRECT_SUPERVISOR, ADMIN_MANAGER, LOGISTICS_SUPERVISOR, LOGISTICS_CHIEF, PASAJES_MANAGER, HR_MANAGER
 
 ### Workflows — DO NOT MODIFY
 

@@ -40,6 +40,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # SYSPCC-022: LibreOffice for .docx -> PDF (local only; Render demo = false)
+        INSTALL_LIBREOFFICE: "true"
     container_name: syspcclog_backend
     ports:
       - "8000:8000"
@@ -87,6 +90,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # SYSPCC-022: LibreOffice for .docx -> PDF (local only; Render demo = false)
+        INSTALL_LIBREOFFICE: "true"
     container_name: syspcclog_celery_worker
     command: celery -A config worker -l info
     volumes:

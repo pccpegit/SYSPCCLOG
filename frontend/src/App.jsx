@@ -15,6 +15,11 @@ import PasajesPage        from './pages/admin/PasajesPage';
 import PagosPage          from './pages/admin/PagosPage';
 import PoliticasPage      from './pages/admin/PoliticasPage';
 import ProveedoresPage    from './pages/admin/ProveedoresPage';
+import HRShell from './components/layout/HRShell';
+import HRDocumentsListPage from './pages/rrhh/HRDocumentsListPage';
+import HRDocumentCreatePage from './pages/rrhh/HRDocumentCreatePage';
+import HRDocumentDetailPage from './pages/rrhh/HRDocumentDetailPage';
+import HRTemplatesPage from './pages/rrhh/HRTemplatesPage';
 import SystemAdminShell   from './components/layout/SystemAdminShell';
 import UsersPage          from './pages/sistema/UsersPage';
 import UserFormPage       from './pages/sistema/UserFormPage';
@@ -235,8 +240,45 @@ export default function App() {
           {/* Settings — standalone, not tied to any module */}
           <Route path="/settings" element={<SettingsPage />} />
 
-          {/* Future systems placeholder */}
-          {/* <Route path="/rrhh" element={<RRHHShell />} /> */}
+          {/* HR — /rrhh (SYSPCC-022). HR_MANAGER writes; GENERAL_MANAGER is
+              read-only (write actions are hidden per page, but the backend
+              is what enforces it). */}
+          <Route
+            path="/rrhh"
+            element={
+              <RoleRoute requiredRoles={['HR_MANAGER', 'GENERAL_MANAGER']} redirectTo="/">
+                <HRShell />
+              </RoleRoute>
+            }
+          >
+            <Route index element={<Navigate to="documentos" replace />} />
+            <Route path="documentos" element={<HRDocumentsListPage />} />
+            <Route
+              path="documentos/nuevo"
+              element={
+                <RoleRoute requiredRoles={['HR_MANAGER']} redirectTo="/rrhh/documentos">
+                  <HRDocumentCreatePage />
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="documentos/:id/editar"
+              element={
+                <RoleRoute requiredRoles={['HR_MANAGER']} redirectTo="/rrhh/documentos">
+                  <HRDocumentCreatePage />
+                </RoleRoute>
+              }
+            />
+            <Route path="documentos/:id" element={<HRDocumentDetailPage />} />
+            <Route
+              path="plantillas"
+              element={
+                <RoleRoute requiredRoles={['HR_MANAGER']} redirectTo="/rrhh/documentos">
+                  <HRTemplatesPage />
+                </RoleRoute>
+              }
+            />
+          </Route>
 
           </Route>
           {/* ^ closes RequirePasswordChangeLayout — every authenticated

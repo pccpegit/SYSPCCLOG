@@ -7,6 +7,10 @@ import RoleRoute from '../auth/RoleRoute';
 import { useAuth } from '../../context/AuthContext';
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+// Header renders ThemeToggleButton (SYSPCC-020); the theme is not under test.
+vi.mock('../../context/ThemeContext', () => ({
+  useTheme: () => ({ resolvedTheme: 'light', toggleTheme: vi.fn() }),
+}));
 
 function auth(roles, extra = {}) {
   return {

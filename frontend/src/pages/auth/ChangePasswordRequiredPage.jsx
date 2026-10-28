@@ -60,7 +60,7 @@ export default function ChangePasswordRequiredPage() {
   // While the session is being restored, avoid a flash of the form.
   if (authLoading) {
     return (
-      <div className="min-h-dvh flex items-center justify-center bg-[#f0f2f5]" role="status" aria-live="polite">
+      <div className="min-h-dvh flex items-center justify-center bg-app" role="status" aria-live="polite">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-indigo-600" aria-hidden="true" />
         <span className="sr-only">Cargando…</span>
       </div>
@@ -126,7 +126,7 @@ export default function ChangePasswordRequiredPage() {
   }
 
   return (
-    <div className="min-h-dvh flex items-center justify-center bg-[#f0f2f5] p-5">
+    <div className="min-h-dvh flex items-center justify-center bg-app p-5">
       <div className="w-full max-w-[440px]">
 
         {/* Header */}
@@ -143,8 +143,8 @@ export default function ChangePasswordRequiredPage() {
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-xl p-7 sm:p-8">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 ring-1 ring-amber-100 flex items-center justify-center shrink-0">
-              <ShieldAlert size={19} className="text-amber-600" aria-hidden="true" />
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 ring-1 ring-amber-100 dark:ring-amber-500/30 flex items-center justify-center shrink-0">
+              <ShieldAlert size={19} className="text-amber-600 dark:text-amber-400" aria-hidden="true" />
             </div>
             <h1 className="text-xl font-extrabold text-gray-900 tracking-tight font-display">
               Actualiza tu contraseña
@@ -264,9 +264,9 @@ export default function ChangePasswordRequiredPage() {
             </button>
           </form>
 
-          <div className="flex items-start gap-2 mt-6 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+          <div className="flex items-start gap-2 mt-6 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/30 rounded-xl px-4 py-3">
             <AlertCircle size={15} className="shrink-0 mt-0.5 text-blue-500" aria-hidden="true" />
-            <p className="text-[11.5px] text-blue-700 leading-relaxed">
+            <p className="text-[11.5px] text-blue-700 dark:text-blue-300 leading-relaxed">
               No podrás acceder al sistema hasta completar este paso.
             </p>
           </div>

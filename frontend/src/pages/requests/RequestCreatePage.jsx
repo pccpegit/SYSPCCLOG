@@ -367,16 +367,16 @@ export default function RequestCreatePage() {
 
   // ── Cell input/select styles — slightly bigger for readability
   const cellInput =
-    'w-full bg-transparent border-0 outline-none text-xs px-1.5 py-1 focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 rounded transition-colors';
+    'w-full bg-transparent border-0 outline-none text-xs px-1.5 py-1 focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 dark:focus:bg-blue-500/10 rounded transition-colors';
 
   const cellSelect =
-    'w-full bg-transparent border-0 outline-none text-xs px-1.5 py-1 focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 rounded transition-colors cursor-pointer';
+    'w-full bg-transparent border-0 outline-none text-xs px-1.5 py-1 focus:bg-blue-50 focus:ring-1 focus:ring-blue-400 dark:focus:bg-blue-500/10 rounded transition-colors cursor-pointer';
 
   // ── Error input class helpers
   function fieldCls(hasError) {
     return `text-xs border rounded px-2 py-1.5 w-full focus:outline-none focus:ring-2 transition-colors ${
       hasError
-        ? 'border-red-400 bg-red-50 focus:ring-red-400'
+        ? 'border-red-400 bg-red-50 focus:ring-red-400 dark:bg-red-500/10'
         : 'border-gray-200 focus:ring-blue-400'
     }`;
   }
@@ -400,13 +400,13 @@ export default function RequestCreatePage() {
 
       {/* ── Global error banner ──────────────────────────────────── */}
       {hasErrors && (
-        <div className="mb-5 flex items-start gap-3 p-4 bg-red-50 border-2 border-red-300 rounded-xl">
-          <AlertCircle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+        <div className="mb-5 flex items-start gap-3 p-4 bg-red-50 border-2 border-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-xl">
+          <AlertCircle size={20} className="text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700">Por favor corrija los siguientes campos antes de enviar:</p>
+            <p className="text-sm font-bold text-red-700 dark:text-red-300">Por favor corrija los siguientes campos antes de enviar:</p>
             <ul className="mt-1.5 space-y-0.5">
               {Object.values(errors).filter(Boolean).map((msg, i) => (
-                <li key={i} className="text-sm text-red-600 flex items-center gap-1.5">
+                <li key={i} className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
                   {msg}
                 </li>
@@ -508,7 +508,7 @@ export default function RequestCreatePage() {
                       className={fieldCls(errors.rqNumber) + ' font-mono font-bold rounded-l-none'}
                     />
                   </div>
-                  {errors.rqNumber && <p className="text-red-500 text-[10px] mt-0.5">{errors.rqNumber}</p>}
+                  {errors.rqNumber && <p className="text-red-500 dark:text-red-400 text-[10px] mt-0.5">{errors.rqNumber}</p>}
                 </td>
               </tr>
 
@@ -565,7 +565,7 @@ export default function RequestCreatePage() {
                     </select>
                   )}
                   {errors.area && (
-                    <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
                       <AlertCircle size={11} />
                       {errors.area}
                     </p>
@@ -593,7 +593,7 @@ export default function RequestCreatePage() {
                     </select>
                   )}
                   {errors.frente && (
-                    <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
                       <AlertCircle size={11} />
                       {errors.frente}
                     </p>
@@ -615,7 +615,7 @@ export default function RequestCreatePage() {
                     className={fieldCls(errors.fechaEntrega)}
                   />
                   {errors.fechaEntrega && (
-                    <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
                       <AlertCircle size={11} />
                       {errors.fechaEntrega}
                     </p>
@@ -652,7 +652,7 @@ export default function RequestCreatePage() {
                         ))}
                       </select>
                       {errors.servicio && (
-                        <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
                           <AlertCircle size={11} />
                           {errors.servicio}
                         </p>
@@ -678,7 +678,7 @@ export default function RequestCreatePage() {
                       : form.destinationKey ? form.servicio : '— Seleccione frente y servicio —'}
                   </span>
                   {errors.destinationKey && (
-                    <p className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1">
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
                       <AlertCircle size={11} />
                       {errors.destinationKey}
                     </p>
@@ -699,9 +699,9 @@ export default function RequestCreatePage() {
             subtitle="Complete al menos un ítem con descripción. La columna X Atender se calcula automaticamente."
           />
           {errors.items && (
-            <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-300 rounded-lg">
-              <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700 font-semibold">{errors.items}</p>
+            <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-lg">
+              <AlertCircle size={14} className="text-red-500 dark:text-red-400 flex-shrink-0" />
+              <p className="text-sm text-red-700 dark:text-red-300 font-semibold">{errors.items}</p>
             </div>
           )}
         </div>
@@ -711,7 +711,7 @@ export default function RequestCreatePage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs" style={{ minWidth: '1100px' }}>
               <thead>
-                <tr className="bg-blue-50 border-b border-gray-300">
+                <tr className="bg-blue-50 dark:bg-blue-500/10 border-b border-gray-300">
                   <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-8">
                     #
                   </th>
@@ -730,7 +730,7 @@ export default function RequestCreatePage() {
                   <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
                     Stock Principal
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-blue-700 uppercase text-[10px] w-16 bg-yellow-50">
+                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-blue-700 uppercase text-[10px] w-16 bg-yellow-50 dark:text-blue-300 dark:bg-yellow-500/10">
                     X Atender
                   </th>
                   <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
@@ -756,7 +756,7 @@ export default function RequestCreatePage() {
                     <tr
                       key={item.id}
                       className={[
-                        'border-b border-gray-200 hover:bg-blue-50/40 transition-colors',
+                        'border-b border-gray-200 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors',
                         isEven ? 'bg-white' : 'bg-gray-50/50',
                       ].join(' ')}
                     >
@@ -827,14 +827,14 @@ export default function RequestCreatePage() {
                       </td>
 
                       {/* X Atender (auto-calculated, editable) */}
-                      <td className="border-r border-gray-200 px-1.5 py-1.5 bg-yellow-50/60">
+                      <td className="border-r border-gray-200 px-1.5 py-1.5 bg-yellow-50/60 dark:bg-yellow-500/10">
                         <input
                           type="number"
                           min="0"
                           step="any"
                           value={item.xAtenderManual ? item.xAtender : xAtenderVal}
                           onChange={(e) => handleItemChange(item.id, 'xAtender', e.target.value)}
-                          className={`${cellInput} text-right font-bold text-blue-700`}
+                          className={`${cellInput} text-right font-bold text-blue-700 dark:text-blue-300`}
                           title="Auto-calculado: Cantidad - Stock Obra - Stock Principal. Editable."
                         />
                       </td>
@@ -891,7 +891,7 @@ export default function RequestCreatePage() {
                           type="button"
                           onClick={() => removeItem(item.id)}
                           disabled={items.length === 1}
-                          className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 disabled:opacity-20 disabled:cursor-not-allowed transition-all rounded-md"
+                          className="p-1.5 text-gray-300 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all rounded-md"
                           title="Eliminar fila"
                         >
                           <Trash2 size={14} />
@@ -909,7 +909,7 @@ export default function RequestCreatePage() {
             <button
               type="button"
               onClick={addItem}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-white border-2 border-blue-300 rounded-lg hover:bg-blue-50 hover:border-blue-400 active:scale-95 transition-all duration-200 shadow-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-white border-2 border-blue-300 rounded-lg hover:bg-blue-50 hover:border-blue-400 active:scale-95 transition-all duration-200 shadow-sm dark:text-blue-300 dark:border-blue-500/30 dark:hover:bg-blue-500/10"
             >
               <Plus size={16} />
               Agregar Item
@@ -991,7 +991,7 @@ export default function RequestCreatePage() {
           <button
             type="button"
             onClick={handleDownloadExcel}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 border-2 border-green-400 text-green-700 rounded-xl text-sm font-semibold hover:bg-green-50 hover:border-green-500 transition-all duration-200"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 border-2 border-green-400 text-green-700 rounded-xl text-sm font-semibold hover:bg-green-50 hover:border-green-500 transition-all duration-200 dark:text-green-300 dark:hover:bg-green-500/10"
           >
             <Download size={18} />
             Descargar Excel

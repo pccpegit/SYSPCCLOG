@@ -40,7 +40,7 @@ function ItemSearchSelect({ allItems, value, onChange, loading, accentColor = 'e
     ? 'focus:ring-emerald-500 focus:border-emerald-500'
     : 'focus:ring-rose-500 focus:border-rose-500';
   const hoverCls = accentColor === 'emerald' ? 'hover:border-emerald-400' : 'hover:border-rose-400';
-  const rowHoverCls = accentColor === 'emerald' ? 'hover:bg-emerald-50' : 'hover:bg-rose-50';
+  const rowHoverCls = accentColor === 'emerald' ? 'hover:bg-emerald-50 dark:hover:bg-emerald-500/10' : 'hover:bg-rose-50 dark:hover:bg-rose-500/10';
 
   return (
     <div className="relative">
@@ -106,7 +106,7 @@ function ItemSearchSelect({ allItems, value, onChange, loading, accentColor = 'e
 
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
-    hasError ? 'border-red-300 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-500 focus:border-emerald-500'
+    hasError ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-500 focus:border-emerald-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
 function Field({ label, required, id, error, hint, children }) {
@@ -228,7 +228,7 @@ export default function EntradaPage() {
     return (
       <div className="max-w-lg mx-auto mt-8 sm:mt-16">
         <div className="bg-white rounded-2xl border border-gray-100 p-8 sm:p-10 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-5">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center mx-auto mb-5">
             <CheckCircle size={32} className="text-emerald-500" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-2 font-display">Entrada registrada</h2>
@@ -261,8 +261,8 @@ export default function EntradaPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       {/* ── Header ── */}
       <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-xl bg-emerald-50 ring-1 ring-emerald-100 flex items-center justify-center">
-          <ArrowDownToLine size={20} className="text-emerald-600" />
+        <div className="w-11 h-11 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-100 dark:ring-emerald-500/30 flex items-center justify-center">
+          <ArrowDownToLine size={20} className="text-emerald-600 dark:text-emerald-400" />
         </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 font-display tracking-tight">Registrar Entrada</h1>
@@ -290,7 +290,7 @@ export default function EntradaPage() {
                     onClick={() => setH('source_type', s.value)}
                     className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-[0.95] font-display ${
                       header.source_type === s.value
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-300 dark:ring-emerald-500/30'
                         : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                     }`}
                   >
@@ -319,7 +319,7 @@ export default function EntradaPage() {
         <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-7 space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide font-display">
-              Items a ingresar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold font-display">{lineItems.length}</span>
+              Items a ingresar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 font-bold font-display">{lineItems.length}</span>
             </p>
           </div>
 
@@ -372,7 +372,7 @@ export default function EntradaPage() {
                             {qty > 0 && (
                               <div className="flex items-center justify-between text-[11px]">
                                 <span className="text-emerald-500">Despues:</span>
-                                <span className="font-bold text-emerald-600 tabular-nums">{fmtNum(newStock)}</span>
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{fmtNum(newStock)}</span>
                               </div>
                             )}
                             <span className="text-[10px] text-gray-300">{ucFirst(inv.unit)}</span>
@@ -386,7 +386,7 @@ export default function EntradaPage() {
                     <button
                       type="button"
                       onClick={() => removeItem(row.id)}
-                      className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 active:scale-90 transition-all duration-150 shrink-0 mt-1"
+                      className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90 transition-all duration-150 shrink-0 mt-1"
                       title="Quitar item"
                     >
                       <Trash2 size={16} />
@@ -400,7 +400,7 @@ export default function EntradaPage() {
           <button
             type="button"
             onClick={addItem}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-emerald-300 text-sm font-medium text-emerald-600 hover:bg-emerald-50 hover:border-emerald-400 active:scale-[0.98] transition-all duration-150 font-display"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-emerald-300 dark:border-emerald-500/30 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 hover:border-emerald-400 active:scale-[0.98] transition-all duration-150 font-display"
           >
             <Plus size={16} /> Agregar item
           </button>

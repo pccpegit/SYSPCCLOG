@@ -50,7 +50,7 @@ function InfoRow({ icon: Icon, label, value }) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400" />
     </div>
   );
 }
@@ -185,7 +185,7 @@ export default function BudgetReviewPage() {
       <div className="flex flex-col items-center justify-center min-h-96 text-center">
         <AlertCircle size={48} className="text-red-300 mb-4" />
         <h2 className="text-xl font-bold text-gray-800">Requerimiento no encontrado</h2>
-        <button onClick={() => navigate('/rq')} className="mt-4 text-sm text-blue-600 hover:underline">
+        <button onClick={() => navigate('/rq')} className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">
           Ir al Dashboard
         </button>
       </div>
@@ -215,9 +215,9 @@ export default function BudgetReviewPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl">
-          <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 rounded-xl">
+          <AlertCircle size={18} className="text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
 
@@ -229,7 +229,7 @@ export default function BudgetReviewPage() {
             {isAdm ? 'Revisión vs Plan Anual' : 'Revisión Presupuestal'}
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            <span className="font-mono font-semibold text-blue-700">{rqNumber}</span>
+            <span className="font-mono font-semibold text-blue-700 dark:text-blue-300">{rqNumber}</span>
             {' '}— {req.description}
           </p>
         </div>
@@ -323,7 +323,7 @@ export default function BudgetReviewPage() {
             </h2>
             <div className="space-y-3">
               <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                classification === 'within' ? 'bg-green-50 border-green-300' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                classification === 'within' ? 'bg-green-50 border-green-300 dark:bg-green-500/10 dark:border-green-500/30' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
               }`}>
                 <input
                   type="radio" name="classification" value="within"
@@ -333,8 +333,8 @@ export default function BudgetReviewPage() {
                 />
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <CheckCircle size={15} className="text-green-600" />
-                    <span className="text-sm font-semibold text-green-800">
+                    <CheckCircle size={15} className="text-green-600 dark:text-green-400" />
+                    <span className="text-sm font-semibold text-green-800 dark:text-green-300">
                       {isAdm ? 'Sí, está en el Plan Anual' : 'Sí, está en la propuesta'}
                     </span>
                   </div>
@@ -347,7 +347,7 @@ export default function BudgetReviewPage() {
               </label>
 
               <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                classification === 'additional' ? 'bg-orange-50 border-orange-300' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                classification === 'additional' ? 'bg-orange-50 border-orange-300 dark:bg-orange-500/10 dark:border-orange-500/30' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
               }`}>
                 <input
                   type="radio" name="classification" value="additional"
@@ -357,8 +357,8 @@ export default function BudgetReviewPage() {
                 />
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <PlusCircle size={15} className="text-orange-600" />
-                    <span className="text-sm font-semibold text-orange-800">
+                    <PlusCircle size={15} className="text-orange-600 dark:text-orange-400" />
+                    <span className="text-sm font-semibold text-orange-800 dark:text-orange-300">
                       {isAdm ? 'No, está fuera del Plan Anual' : 'No, es un requerimiento adicional'}
                     </span>
                   </div>
@@ -430,8 +430,8 @@ export default function BudgetReviewPage() {
                   )}
                 </button>
             {classification === 'additional' && (
-              <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                <p className="text-xs text-orange-700 font-medium">
+              <div className="p-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30 rounded-lg">
+                <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">
                   {isAdm
                     ? 'Al clasificar como fuera del Plan Anual, el requerimiento se enviará directamente al Gerente General para su autorización.'
                     : 'Al clasificar como adicional, el requerimiento volverá al Residente de Proyecto para reevaluar si es necesario o no. Si el Residente lo aprueba, pasará al Gerente General para una revisión minuciosa.'}

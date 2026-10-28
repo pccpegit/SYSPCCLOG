@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { getRequests } from '../../api/requests';
 import { getProjects } from '../../api/core';
+import { useTheme } from '../../context/ThemeContext';
 import SummaryCard from '../../components/ui/SummaryCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
@@ -55,7 +56,7 @@ function daysAgo(dateStr) {
 function LoadingSpinner() {
   return (
     <div className="flex flex-col items-center justify-center h-96 gap-4">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400" />
       <p className="text-gray-500 font-medium">Cargando datos de análisis...</p>
     </div>
   );
@@ -228,7 +229,7 @@ function BudgetProjectBar({ project, totalBudget, committedBudget, spentBudget }
         <span className="text-sm font-semibold text-gray-800 truncate max-w-xs">
           {project.code} — {project.name}
         </span>
-        <span className={`text-xs font-bold shrink-0 ml-2 ${overBudget ? 'text-red-600' : 'text-gray-500'}`}>
+        <span className={`text-xs font-bold shrink-0 ml-2 ${overBudget ? 'text-red-600 dark:text-red-400' : 'text-gray-500'}`}>
           {committedPct}% comprometido
         </span>
       </div>
@@ -236,7 +237,7 @@ function BudgetProjectBar({ project, totalBudget, committedBudget, spentBudget }
       <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden relative">
         {/* Spent (executed) */}
         <div
-          className="h-full absolute left-0 top-0 bg-blue-600 rounded-l-full transition-all duration-700"
+          className="h-full absolute left-0 top-0 bg-blue-600 dark:bg-blue-400 rounded-l-full transition-all duration-700"
           style={{ width: `${spentPct}%` }}
         />
         {/* Committed (additional) */}
@@ -248,7 +249,7 @@ function BudgetProjectBar({ project, totalBudget, committedBudget, spentBudget }
         )}
       </div>
       <div className="flex flex-wrap gap-x-4 text-xs text-gray-400 mt-1.5">
-        <span><span className="inline-block w-2 h-2 rounded-full bg-blue-600 mr-1" />Ejecutado: {formatCurrency(spent)}</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400 mr-1" />Ejecutado: {formatCurrency(spent)}</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1" />Comprometido: {formatCurrency(committed)}</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-gray-200 mr-1" />Presupuesto: {formatCurrency(total)}</span>
       </div>
@@ -396,6 +397,10 @@ function computeAnalytics(requests, projects) {
 }
 
 // ── STATUS bar colors (hex for conic-gradient) ────────────────
+// Solid chart-bar fills. Shades 400-500 are left as-is — they already read
+// clearly on both the light and dark (compat-layer) track background.
+// Shades >=600 get a `dark:` variant shifted 2 Tailwind steps lighter
+// (600->400, 700->500) so the bar doesn't sink into the dark track/card.
 const STATUS_BAR_COLORS = {
   [STATUS.DRAFT]:               'bg-gray-300',
   [STATUS.SUBMITTED]:           'bg-blue-400',
@@ -406,32 +411,48 @@ const STATUS_BAR_COLORS = {
   [STATUS.WITHIN_PROPOSAL]:     'bg-teal-500',
   [STATUS.ADDITIONAL_REQ]:      'bg-orange-400',
   [STATUS.GM_REVIEW]:           'bg-purple-500',
-  [STATUS.GM_APPROVED]:         'bg-teal-600',
+  [STATUS.GM_APPROVED]:         'bg-teal-600 dark:bg-teal-400',
   [STATUS.GM_REJECTED]:         'bg-red-500',
   [STATUS.VALIDATED]:           'bg-green-500',
-  [STATUS.STOCK_CHECK]:         'bg-yellow-600',
+  [STATUS.STOCK_CHECK]:         'bg-yellow-600 dark:bg-yellow-400',
   [STATUS.IN_STOCK]:            'bg-teal-400',
   [STATUS.REQUIRES_PURCHASE]:   'bg-orange-500',
   [STATUS.QUOTING]:             'bg-blue-500',
-  [STATUS.QUOTE_SELECTED]:      'bg-teal-700',
-  [STATUS.COST_OVERRUN_REVIEW]: 'bg-red-600',
+  [STATUS.QUOTE_SELECTED]:      'bg-teal-700 dark:bg-teal-500',
+  [STATUS.COST_OVERRUN_REVIEW]: 'bg-red-600 dark:bg-red-400',
   [STATUS.PO_GENERATED]:        'bg-indigo-500',
-  [STATUS.RECEIVING]:           'bg-yellow-600',
-  [STATUS.QUALITY_CHECK]:       'bg-blue-600',
-  [STATUS.QUALITY_REJECTED]:    'bg-red-700',
-  [STATUS.DISPATCHED_TO_SITE]:  'bg-indigo-600',
-  [STATUS.DELIVERED]:           'bg-teal-600',
-  [STATUS.USER_CONFORMITY]:     'bg-yellow-700',
-  [STATUS.USER_CLAIM]:          'bg-red-700',
+  [STATUS.RECEIVING]:           'bg-yellow-600 dark:bg-yellow-400',
+  [STATUS.QUALITY_CHECK]:       'bg-blue-600 dark:bg-blue-400',
+  [STATUS.QUALITY_REJECTED]:    'bg-red-700 dark:bg-red-500',
+  [STATUS.DISPATCHED_TO_SITE]:  'bg-indigo-600 dark:bg-indigo-400',
+  [STATUS.DELIVERED]:           'bg-teal-600 dark:bg-teal-400',
+  [STATUS.USER_CONFORMITY]:     'bg-yellow-700 dark:bg-yellow-500',
+  [STATUS.USER_CLAIM]:          'bg-red-700 dark:bg-red-500',
   [STATUS.CLOSED]:              'bg-gray-400',
   [STATUS.CANCELLED]:           'bg-gray-300',
 };
 
+// Light-mode hex values for the priority donut's conic-gradient (SVG/CSS
+// `background` can't consume Tailwind classes or `dark:`, so this stays raw
+// hex — see PRIORITY_HEX_DARK below and its use with useTheme() at the
+// call site for the dark-mode equivalent, SYSPCC-020).
 const PRIORITY_HEX = {
-  URGENT: '#ef4444',
-  HIGH:   '#f97316',
-  NORMAL: '#3b82f6',
-  LOW:    '#9ca3af',
+  URGENT: '#ef4444', // red-500
+  HIGH:   '#f97316', // orange-500
+  NORMAL: '#3b82f6', // blue-500
+  LOW:    '#9ca3af', // gray-400
+};
+
+// Dark-mode variant: shifted one Tailwind step lighter (500→400) so each
+// segment keeps enough contrast against the dark card surface, matching the
+// -400 convention already used for saturated colors elsewhere in dark mode
+// (see ROLE_BADGE_COLORS in Header.jsx). LOW stays unchanged — gray-400 already
+// reads clearly on both light and dark surfaces.
+const PRIORITY_HEX_DARK = {
+  URGENT: '#f87171', // red-400
+  HIGH:   '#fb923c', // orange-400
+  NORMAL: '#60a5fa', // blue-400
+  LOW:    '#9ca3af', // gray-400 (unchanged)
 };
 
 const PHASE_COLORS = [
@@ -450,6 +471,7 @@ const PROJECT_BAR_COLORS = [
 // ── Main ReportsPage ──────────────────────────────────────────
 export default function ReportsPage() {
   const navigate = useNavigate();
+  const { resolvedTheme } = useTheme();
 
   const [requests,     setRequests]     = useState([]);
   const [projects,     setProjects]     = useState([]);
@@ -507,12 +529,13 @@ export default function ReportsPage() {
 
   const maxMonthCount = Math.max(...monthlyTrend.map((m) => m.count), 1);
 
+  const priorityHex = resolvedTheme === 'dark' ? PRIORITY_HEX_DARK : PRIORITY_HEX;
   const prioritySegments = ['URGENT', 'HIGH', 'NORMAL', 'LOW'].map((p) => ({
     label:    PRIORITY_CONFIG[p].label,
     count:    byPriority[p] ?? 0,
     dotColor: PRIORITY_CONFIG[p].dot,
     textColor: PRIORITY_CONFIG[p].text,
-    hexColor:  PRIORITY_HEX[p],
+    hexColor:  priorityHex[p],
   }));
   const priorityTotal = prioritySegments.reduce((s, seg) => s + seg.count, 0);
 
@@ -530,7 +553,7 @@ export default function ReportsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
-            <BarChart3 size={32} className="text-blue-600 shrink-0" />
+            <BarChart3 size={32} className="text-blue-600 dark:text-blue-400 shrink-0" />
             Informes y Análisis
           </h1>
           <p className="text-gray-500 text-base mt-1">
@@ -785,7 +808,7 @@ export default function ReportsPage() {
           </SectionHeading>
           <div className="flex flex-wrap gap-4 mb-5 text-xs">
             <span className="flex items-center gap-1.5 text-gray-500">
-              <span className="w-4 h-3 rounded bg-blue-600 inline-block" />
+              <span className="w-4 h-3 rounded bg-blue-600 dark:bg-blue-400 inline-block" />
               Ejecutado
             </span>
             <span className="flex items-center gap-1.5 text-gray-500">
@@ -823,7 +846,7 @@ export default function ReportsPage() {
           </div>
           <button
             onClick={() => navigate('/rq/requests')}
-            className="text-sm font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50 shrink-0"
+            className="text-sm font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-500/10 shrink-0"
           >
             Ver todos &rarr;
           </button>
@@ -851,10 +874,10 @@ export default function ReportsPage() {
               <tbody>
                 {pendingAttention.map((req, idx) => {
                   const rowBg = req.isOverdue
-                    ? 'bg-red-50 hover:bg-red-100'
+                    ? 'bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/15'
                     : idx % 2 !== 0
-                    ? 'bg-gray-50/70 hover:bg-blue-50'
-                    : 'bg-white hover:bg-blue-50';
+                    ? 'bg-gray-50/70 hover:bg-blue-50 dark:hover:bg-blue-500/10'
+                    : 'bg-white hover:bg-blue-50 dark:hover:bg-blue-500/10';
 
                   return (
                     <tr
@@ -862,7 +885,7 @@ export default function ReportsPage() {
                       onClick={() => navigate(`/rq/requests/${req.rq_number ?? req.rqNumber}`)}
                       className={`border-b border-gray-100 cursor-pointer transition-all duration-100 hover:shadow-[inset_3px_0_0_0_#3b82f6] ${rowBg}`}
                     >
-                      <td className="py-3.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap text-xs">
+                      <td className="py-3.5 px-4 font-mono font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap text-xs">
                         {req.rq_number ?? req.rqNumber}
                       </td>
                       <td className="py-3.5 px-4 text-xs text-gray-500 hidden md:table-cell whitespace-nowrap">
@@ -882,9 +905,9 @@ export default function ReportsPage() {
                       <td className="py-3.5 px-4 text-center">
                         <span className={`inline-flex items-center justify-center w-12 h-7 rounded-full text-xs font-bold ${
                           req.daysInStatus >= 7
-                            ? 'bg-red-100 text-red-700'
+                            ? 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-300'
                             : req.daysInStatus >= 3
-                            ? 'bg-amber-100 text-amber-700'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
                             : 'bg-gray-100 text-gray-600'
                         }`}>
                           {req.daysInStatus}d
@@ -892,7 +915,7 @@ export default function ReportsPage() {
                       </td>
                       <td className="py-3.5 px-4 text-xs hidden xl:table-cell whitespace-nowrap">
                         {req.isOverdue ? (
-                          <span className="text-red-600 font-semibold flex items-center gap-1">
+                          <span className="text-red-600 dark:text-red-400 font-semibold flex items-center gap-1">
                             <AlertTriangle size={12} />
                             {formatDate(req.fecha_estimada_entrega ?? req.estimatedDelivery)}
                           </span>

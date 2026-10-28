@@ -10,16 +10,16 @@ import { getRequest, getAvailableActions, performAction } from '../../api/reques
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const PRIORITY_CFG = {
-  URGENT: { label:'Urgente',  bg:'bg-red-50',    text:'text-red-600',    dot:'bg-red-500 animate-pulse' },
-  HIGH:   { label:'Alta',     bg:'bg-orange-50',  text:'text-orange-600', dot:'bg-orange-400' },
-  NORMAL: { label:'Normal',   bg:'bg-blue-50',    text:'text-blue-600',   dot:'bg-blue-400' },
+  URGENT: { label:'Urgente',  bg:'bg-red-50 dark:bg-red-500/10',    text:'text-red-600 dark:text-red-400',    dot:'bg-red-500 animate-pulse' },
+  HIGH:   { label:'Alta',     bg:'bg-orange-50 dark:bg-orange-500/10',  text:'text-orange-600 dark:text-orange-400', dot:'bg-orange-400' },
+  NORMAL: { label:'Normal',   bg:'bg-blue-50 dark:bg-blue-500/10',    text:'text-blue-600 dark:text-blue-400',   dot:'bg-blue-400' },
   LOW:    { label:'Baja',     bg:'bg-gray-50',    text:'text-gray-500',   dot:'bg-gray-300' },
 };
 
 const STATUS_CFG = {
-  IN_STOCK:           { label:'Pendiente despacho',     bg:'bg-amber-50',  text:'text-amber-700',  border:'border-amber-200' },
-  DISPATCHED_TO_SITE: { label:'Actualizar registros',   bg:'bg-violet-50', text:'text-violet-700', border:'border-violet-200' },
-  DELIVERED:          { label:'Confirmar en almacén',   bg:'bg-teal-50',   text:'text-teal-700',   border:'border-teal-200' },
+  IN_STOCK:           { label:'Pendiente despacho',     bg:'bg-amber-50 dark:bg-amber-500/10',  text:'text-amber-700 dark:text-amber-300',  border:'border-amber-200 dark:border-amber-500/30' },
+  DISPATCHED_TO_SITE: { label:'Actualizar registros',   bg:'bg-violet-50 dark:bg-violet-500/10', text:'text-violet-700 dark:text-violet-300', border:'border-violet-200 dark:border-violet-500/30' },
+  DELIVERED:          { label:'Confirmar en almacén',   bg:'bg-teal-50 dark:bg-teal-500/10',   text:'text-teal-700 dark:text-teal-300',   border:'border-teal-200 dark:border-teal-500/30' },
 };
 
 const ACTION_CFG = {
@@ -122,7 +122,7 @@ function ActionPanel({ rqId, onClose, onSuccess }) {
           ) : (
             <>
               {error && (
-                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-3 py-2.5">
+                <div className="flex items-start gap-2 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-3 py-2.5">
                   <AlertCircle size={14} className="mt-0.5 shrink-0" />{error}
                 </div>
               )}
@@ -168,7 +168,7 @@ function ActionPanel({ rqId, onClose, onSuccess }) {
 
               {/* Action selector */}
               {actions.length === 0 ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
+                <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
                   No tienes acciones disponibles para este requerimiento con tu rol actual.
                 </div>
               ) : (
@@ -181,7 +181,7 @@ function ActionPanel({ rqId, onClose, onSuccess }) {
                       return (
                         <label key={key}
                           className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all ${
-                            selected === key ? 'border-amber-400 bg-amber-50' : 'border-gray-100 bg-white hover:border-gray-200'
+                            selected === key ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10' : 'border-gray-100 bg-white hover:border-gray-200'
                           }`}>
                           <input type="radio" name="action" value={key}
                             checked={selected === key}
@@ -323,12 +323,12 @@ export default function PendientesPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-              <ClipboardList size={16} className="text-amber-600" />
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 dark:bg-amber-500/15 flex items-center justify-center">
+              <ClipboardList size={16} className="text-amber-600 dark:text-amber-400" />
             </div>
             <h1 className="text-lg font-bold text-gray-800 font-display tracking-tight">Requerimientos Pendientes</h1>
             {summary.total > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold">{summary.total}</span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 text-[11px] font-bold">{summary.total}</span>
             )}
           </div>
           <p className="text-xs text-gray-400 pl-[42px]">Selecciona un RQ para gestionar las acciones de almacén</p>
@@ -350,10 +350,10 @@ export default function PendientesPage() {
               <button key={s.status}
                 onClick={() => setFilterStatus(isAll ? '' : (filterStatus === s.status ? '' : s.status))}
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
-                  active ? `${cfg.bg ?? 'bg-amber-50'} ${cfg.border ?? 'border-amber-200'} shadow-sm` : 'bg-white border-gray-100 hover:bg-gray-50'
+                  active ? `${cfg.bg ?? 'bg-amber-50 dark:bg-amber-500/10'} ${cfg.border ?? 'border-amber-200 dark:border-amber-500/30'} shadow-sm` : 'bg-white border-gray-100 hover:bg-gray-50'
                 }`}>
-                <span className={`text-base font-extrabold tabular-nums ${active ? (cfg.text ?? 'text-amber-700') : 'text-gray-700'}`}>{s.count}</span>
-                <span className={`text-[11px] font-medium leading-tight ${active ? (cfg.text ?? 'text-amber-600') : 'text-gray-500'}`}>{s.label}</span>
+                <span className={`text-base font-extrabold tabular-nums ${active ? (cfg.text ?? 'text-amber-700 dark:text-amber-300') : 'text-gray-700'}`}>{s.count}</span>
+                <span className={`text-[11px] font-medium leading-tight ${active ? (cfg.text ?? 'text-amber-600 dark:text-amber-400') : 'text-gray-500'}`}>{s.label}</span>
               </button>
             );
           })}
@@ -376,7 +376,7 @@ export default function PendientesPage() {
         </select>
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>}
+      {error && <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>}
 
       {/* List */}
       {loading ? (

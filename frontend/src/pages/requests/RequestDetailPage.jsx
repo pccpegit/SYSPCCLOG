@@ -210,7 +210,7 @@ function DocumentFields({ req }) {
           <FormCell
             label="N° Requerimiento:"
             value={
-              <span className="font-mono font-bold text-blue-700">{req.rqNumber}</span>
+              <span className="font-mono font-bold text-blue-700 dark:text-blue-300">{req.rqNumber}</span>
             }
           />
         </div>
@@ -347,8 +347,8 @@ function DocumentItemsTable({ items = [] }) {
                 <span
                   className={`inline-block px-1.5 py-0.5 rounded font-bold text-xs ${
                     (item.presupuestadoAdicional ?? 'P') === 'A'
-                      ? 'bg-orange-100 text-orange-700'
-                      : 'bg-blue-50 text-blue-700'
+                      ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300'
+                      : 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
                   }`}
                 >
                   {item.presupuestadoAdicional ?? 'P'}
@@ -400,7 +400,7 @@ function SignatureBox({ title, approval }) {
 
       <div className="h-14 border border-gray-300 rounded bg-gray-50 flex items-end justify-center pb-1 mb-2">
         {hasSignature && (
-          <p className="text-xs text-blue-700 font-semibold italic tracking-wide">
+          <p className="text-xs text-blue-700 dark:text-blue-300 font-semibold italic tracking-wide">
             {name}
           </p>
         )}
@@ -544,7 +544,7 @@ export default function RequestDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 dark:border-t-blue-400" />
       </div>
     );
   }
@@ -643,7 +643,7 @@ export default function RequestDetailPage() {
           {/* Left: RQ number + badges + title */}
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100">
+              <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100 dark:text-blue-300 dark:bg-blue-500/10 dark:border-blue-500/30">
                 {req.rqNumber}
               </span>
               <PriorityBadge priority={req.priority} />
@@ -689,12 +689,12 @@ export default function RequestDetailPage() {
 
       {/* ── Conformity Panel (Step 17-18) — shown to REQUESTER when DELIVERED ── */}
       {role === ROLES.REQUESTER && req.status === STATUS.DELIVERED && !showClaimForm && (
-        <div className="bg-white rounded-xl border-2 border-teal-300 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 bg-teal-50 border-b border-teal-200 flex items-center gap-3">
-            <Package size={20} className="text-teal-600" />
+        <div className="bg-white rounded-xl border-2 border-teal-300 dark:border-teal-500/30 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 bg-teal-50 border-b border-teal-200 dark:bg-teal-500/10 dark:border-teal-500/30 flex items-center gap-3">
+            <Package size={20} className="text-teal-600 dark:text-teal-400" />
             <div>
-              <h2 className="text-base font-bold text-teal-800">Recepción y Conformidad del RQ</h2>
-              <p className="text-xs text-teal-600 mt-0.5">Los materiales han sido entregados. ¿Está todo conforme?</p>
+              <h2 className="text-base font-bold text-teal-800 dark:text-teal-300">Recepción y Conformidad del RQ</h2>
+              <p className="text-xs text-teal-600 dark:text-teal-400 mt-0.5">Los materiales han sido entregados. ¿Está todo conforme?</p>
             </div>
           </div>
           <div className="p-6 space-y-4">
@@ -756,12 +756,12 @@ export default function RequestDetailPage() {
 
       {/* ── Claim Form (Step 18.1) — shown when requester clicks "No Conforme" ── */}
       {role === ROLES.REQUESTER && req.status === STATUS.DELIVERED && showClaimForm && (
-        <div className="bg-white rounded-xl border-2 border-red-300 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 bg-red-50 border-b border-red-200 flex items-center gap-3">
-            <AlertCircle size={20} className="text-red-600" />
+        <div className="bg-white rounded-xl border-2 border-red-300 dark:border-red-500/30 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 bg-red-50 border-b border-red-200 dark:bg-red-500/10 dark:border-red-500/30 flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-600 dark:text-red-400" />
             <div>
-              <h2 className="text-base font-bold text-red-800">Registrar Reclamo — Solicitar Cambio</h2>
-              <p className="text-xs text-red-600 mt-0.5">
+              <h2 className="text-base font-bold text-red-800 dark:text-red-300">Registrar Reclamo — Solicitar Cambio</h2>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
                 Describa las inconformidades. Se enviará a Logística para gestionar el cambio con el proveedor.
               </p>
             </div>
@@ -838,7 +838,7 @@ export default function RequestDetailPage() {
               </button>
             </div>
             {!claimText.trim() && (
-              <p className="text-xs text-red-500 text-center">Debe describir el motivo del reclamo.</p>
+              <p className="text-xs text-red-500 dark:text-red-400 text-center">Debe describir el motivo del reclamo.</p>
             )}
           </div>
         </div>
@@ -846,11 +846,11 @@ export default function RequestDetailPage() {
 
       {/* ── Claim in review notice ── */}
       {role === ROLES.REQUESTER && req.status === STATUS.USER_CLAIM && (
-        <div className="bg-amber-50 rounded-xl border-2 border-amber-300 p-6 flex items-start gap-3">
-          <AlertCircle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+        <div className="bg-amber-50 rounded-xl border-2 border-amber-300 dark:bg-amber-500/10 dark:border-amber-500/30 p-6 flex items-start gap-3">
+          <AlertCircle size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <div>
-            <h2 className="text-base font-bold text-amber-800">Reclamo en Proceso</h2>
-            <p className="text-sm text-amber-700 mt-1 leading-relaxed">
+            <h2 className="text-base font-bold text-amber-800 dark:text-amber-300">Reclamo en Proceso</h2>
+            <p className="text-sm text-amber-700 dark:text-amber-300 mt-1 leading-relaxed">
               Su reclamo fue registrado y enviado a Logística. El equipo gestionará la revisión y
               el cambio con el proveedor. Será notificado cuando se resuelva.
             </p>
@@ -860,11 +860,11 @@ export default function RequestDetailPage() {
 
       {/* ── Conformity confirmed notice ── */}
       {role === ROLES.REQUESTER && req.status === STATUS.USER_CONFORMITY && (
-        <div className="bg-green-50 rounded-xl border-2 border-green-300 p-6 flex items-start gap-3">
-          <CheckCircle2 size={20} className="text-green-600 shrink-0 mt-0.5" />
+        <div className="bg-green-50 rounded-xl border-2 border-green-300 dark:bg-green-500/10 dark:border-green-500/30 p-6 flex items-start gap-3">
+          <CheckCircle2 size={20} className="text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
           <div>
-            <h2 className="text-base font-bold text-green-800">Conformidad Confirmada</h2>
-            <p className="text-sm text-green-700 mt-1 leading-relaxed">
+            <h2 className="text-base font-bold text-green-800 dark:text-green-300">Conformidad Confirmada</h2>
+            <p className="text-sm text-green-700 dark:text-green-300 mt-1 leading-relaxed">
               Ha confirmado la recepción conforme del requerimiento. Logística procederá al cierre.
             </p>
           </div>

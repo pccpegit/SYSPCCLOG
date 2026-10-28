@@ -11,7 +11,7 @@ export default function AppShell() {
   // Wait for session restore before deciding
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5]">
+      <div className="min-h-screen flex items-center justify-center bg-app">
         <div className="animate-spin rounded-full h-10 w-10 border-2 border-gray-200 border-t-blue-600" />
       </div>
     );
@@ -20,7 +20,7 @@ export default function AppShell() {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   return (
-    <div className="flex min-h-screen bg-[#f0f2f5]">
+    <div className="flex min-h-screen bg-app">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Main content */}

@@ -17,30 +17,33 @@ const ICON_MAP = {
   info:    Info,
 };
 
+// Saturated colors — deliberately outside the index.css compat layer
+// (SYSPCC-020, Decisión 1), so each toast variant carries its own `dark:`
+// override here instead.
 const COLOR_MAP = {
   success: {
-    bg:     'bg-green-50',
-    border: 'border-green-300',
-    icon:   'text-green-600',
-    title:  'text-green-900',
-    msg:    'text-green-700',
-    close:  'text-green-500 hover:text-green-700 hover:bg-green-100',
+    bg:     'bg-green-50 dark:bg-green-500/10',
+    border: 'border-green-300 dark:border-green-500/30',
+    icon:   'text-green-600 dark:text-green-400',
+    title:  'text-green-900 dark:text-green-300',
+    msg:    'text-green-700 dark:text-green-400',
+    close:  'text-green-500 hover:text-green-700 hover:bg-green-100 dark:text-green-400 dark:hover:text-green-300 dark:hover:bg-green-500/15',
   },
   error: {
-    bg:     'bg-red-50',
-    border: 'border-red-300',
-    icon:   'text-red-600',
-    title:  'text-red-900',
-    msg:    'text-red-700',
-    close:  'text-red-400 hover:text-red-700 hover:bg-red-100',
+    bg:     'bg-red-50 dark:bg-red-500/10',
+    border: 'border-red-300 dark:border-red-500/30',
+    icon:   'text-red-600 dark:text-red-400',
+    title:  'text-red-900 dark:text-red-300',
+    msg:    'text-red-700 dark:text-red-400',
+    close:  'text-red-400 hover:text-red-700 hover:bg-red-100 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-500/15',
   },
   info: {
-    bg:     'bg-blue-50',
-    border: 'border-blue-300',
-    icon:   'text-blue-600',
-    title:  'text-blue-900',
-    msg:    'text-blue-700',
-    close:  'text-blue-400 hover:text-blue-700 hover:bg-blue-100',
+    bg:     'bg-blue-50 dark:bg-blue-500/10',
+    border: 'border-blue-300 dark:border-blue-500/30',
+    icon:   'text-blue-600 dark:text-blue-400',
+    title:  'text-blue-900 dark:text-blue-300',
+    msg:    'text-blue-700 dark:text-blue-400',
+    close:  'text-blue-400 hover:text-blue-700 hover:bg-blue-100 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-500/15',
   },
 };
 

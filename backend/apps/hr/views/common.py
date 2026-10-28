@@ -1,5 +1,5 @@
 from django.http import FileResponse
-from rest_framework.negotiation import BaseContentNegotiation
+from rest_framework.negotiation import BaseContentNegotiation, DefaultContentNegotiation
 from rest_framework.throttling import UserRateThrottle
 
 
@@ -29,5 +29,21 @@ class JSONOnlyNegotiation(BaseContentNegotiation):
     def select_renderer(self, request, renderers, format_suffix=None):
         return renderers[0], renderers[0].media_type
 
+    def select_parser(self, request, parsers):
+        # SYSPCC-023: used as a whole-viewset negotiator (bodies are parsed normally).
+        return DefaultContentNegotiation().select_parser(request, parsers)
+
     def filter_renderers(self, renderers, format):  # pragma: no cover - unused
         return renderers
+
+
+class HRCVUploadThrottle(UserRateThrottle):
+    scope = 'hr_cv_upload'
+
+
+class HRCVProgressThrottle(UserRateThrottle):
+    scope = 'hr_cv_progress'
+
+
+class HRCVPostingThrottle(UserRateThrottle):
+    scope = 'hr_cv_posting'

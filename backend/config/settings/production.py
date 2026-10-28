@@ -5,6 +5,8 @@ Production settings for SYSPCCLOG project.
 from .base import *  # noqa: F401, F403
 from decouple import config
 
+from .guards import validate_cv_provider
+
 DEBUG = False
 
 # ============================================================
@@ -64,3 +66,7 @@ CSRF_COOKIE_HTTPONLY = False
 
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
+
+# SYSPCC-023: the simulated CV provider is never allowed here (also covers demo.py,
+# which imports this module). DEBUG is False above, so `fake` aborts the boot.
+validate_cv_provider(HR_CV_PROVIDER, DEBUG)  # noqa: F405

@@ -14,7 +14,8 @@ pytestmark = pytest.mark.django_db(transaction=True)
 USER_TABLE = get_user_model()._meta.db_table
 ROLE_TABLE = UserRole._meta.db_table
 PERSONAL_TABLE = Personal._meta.db_table
-HR_TABLES = {'hr_document_template', 'hr_generated_document', 'hr_document_event'}
+HR_TABLES = {'hr_document_template', 'hr_generated_document', 'hr_document_event',
+             'hr_cv_analysis', 'hr_cv_analysis_item'}
 
 
 def migrate(targets):
@@ -65,6 +66,42 @@ def test_hr_0002_reverts_and_reapplies_keeping_rows(seeded, restore_schema):
     migrate(latest())
     assert 'pdf_docx_sha256' in columns('hr_generated_document')
     assert count('hr_generated_document') == 1
+
+
+def test_hr_0003_cv_tables_revert_and_reapply(seeded, restore_schema):
+    assert {'hr_cv_analysis', 'hr_cv_analysis_item'} <= tables()
+    migrate([('hr', '0002_pdf_docx_sha256')])
+    assert not {'hr_cv_analysis', 'hr_cv_analysis_item'} & tables()
+    assert count('hr_generated_document') == 1  # SYSPCC-022 data untouched
+    migrate(latest())
+    assert {'hr_cv_analysis', 'hr_cv_analysis_item'} <= tables()
+    assert {'uploaded_by_id', 'sha256', 'result', 'report_pdf'} <= columns('hr_cv_analysis_item')
+
+
+POSTING_COLUMNS = {'posting_file', 'posting_original_name', 'posting_kind', 'posting_size_bytes', 'posting_sha256',
+                   'posting_uploaded_at', 'posting_tokens_in', 'posting_tokens_out', 'posting_cost_usd'}
+
+
+def test_hr_0004_posting_columns_are_additive_and_reversible(seeded, restore_schema):
+    from django.utils import timezone
+
+    assert POSTING_COLUMNS <= columns('hr_cv_analysis')
+    migrate([('hr', '0003_cv_analysis')])
+    assert not POSTING_COLUMNS & columns('hr_cv_analysis')
+    assert 'requirements' in columns('hr_cv_analysis') and count('hr_generated_document') == 1
+    with connection.cursor() as cursor:  # a row created before 0004 must survive the forward migration
+        cursor.execute(
+            "INSERT INTO hr_cv_analysis (name, requirements_text, requirements, model_name, prompt_version, "
+            "created_at, updated_at) VALUES ('Previo', '', '[]', '', '', %s, %s)", [timezone.now(), timezone.now()])
+    migrate(latest())
+    assert POSTING_COLUMNS <= columns('hr_cv_analysis')
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT posting_file, posting_size_bytes, posting_cost_usd, posting_uploaded_at "
+                       "FROM hr_cv_analysis WHERE name = 'Previo'")
+        row = cursor.fetchone()
+    assert row[0] == '' and row[1] == 0 and float(row[2]) == 0 and row[3] is None  # defaults, no data loss
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM hr_cv_analysis WHERE name = 'Previo'")
 
 
 def test_hr_zero_drops_only_hr_tables_and_forward_recreates_them(seeded, restore_schema):

@@ -29,6 +29,25 @@ export const HR_ERROR_MESSAGES = {
   assistant_unreadable: 'No se pudo interpretar la descripción. Reescríbela con más detalle o completa el formulario.',
   assistant_rate_limited: 'Se alcanzó el límite de consultas al asistente. Espera un momento o usa el formulario.',
   assistant_failed: 'El asistente no respondió. Inténtalo de nuevo o completa el formulario.',
+  // SYSPCC-023 — análisis de CVs (respaldo: en 4xx gana el `detail` del backend).
+  unsupported_type: 'Formato no admitido. Usa PDF, Word o imagen.',
+  file_empty: 'El archivo está vacío.',
+  pdf_encrypted: 'El PDF tiene contraseña. Quítala y vuelve a subirlo.',
+  pdf_corrupt: 'El PDF está dañado. Prueba con otra copia.',
+  pdf_too_many_pages: 'El PDF tiene demasiadas páginas.',
+  image_invalid: 'La imagen no es válida o es muy grande.',
+  no_file: 'Selecciona el archivo de la convocatoria.',
+  no_files: 'Elige al menos un archivo.',
+  too_many_files: 'Eran demasiados archivos. Los subimos por partes.',
+  analysis_limit_reached: 'Este análisis llegó a su límite de CVs. Crea otro.',
+  daily_limit_reached: 'Hoy llegaste al límite de CVs. Sigue mañana.',
+  analysis_unavailable: 'Falta la clave de Anthropic. Avisa al administrador.',
+  requirements_locked: 'Por ahora no se pueden cambiar los requisitos.',
+  nothing_to_download: 'Aún no hay CVs listos para descargar.',
+  file_missing: 'El archivo original ya no está disponible.',
+  no_posting: 'Sube la convocatoria o pega su texto primero.',
+  posting_unreadable: 'No pudimos leer texto en la convocatoria. Pega los requisitos a mano.',
+  posting_ai_failed: 'No pudimos leer la convocatoria ahora. Inténtalo de nuevo.',
 };
 
 const STATUS_MESSAGES = {

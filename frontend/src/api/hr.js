@@ -50,6 +50,52 @@ export const voidDocument = (id, reason) => client.post(`${BASE}/documents/${id}
 export const renderDocumentPdf = (id) => client.post(`${BASE}/documents/${id}/render-pdf/`);
 export const getDocumentEvents = (id) => client.get(`${BASE}/documents/${id}/events/`);
 
+// ── Análisis de CVs (SYSPCC-023) ─────────────────────────────────────────────
+const CV = `${BASE}/cv-analyses`;
+
+export const getCVConfig = () => client.get(`${CV}/config/`);
+export const getCVAnalyses = (params) => client.get(`${CV}/`, { params });
+/** `payload` = { name, requirements_text? } */
+export const createCVAnalysis = (payload) => client.post(`${CV}/`, payload);
+export const getCVAnalysis = (id, options = {}) => client.get(`${CV}/${id}/`, options);
+/** `payload` = { name?, requirements_text? } — 409 requirements_locked when there are finished CVs. */
+export const updateCVAnalysis = (id, payload) => client.patch(`${CV}/${id}/`, payload);
+export const deleteCVAnalysis = (id) => client.delete(`${CV}/${id}/`);
+
+// Convocatoria (job posting). Extraction only PROPOSES requirements: they are
+// applied with `updateCVAnalysis(id, { requirements_text })`.
+export const uploadCVPosting = (id, file, { signal } = {}) => {
+  const body = new FormData();
+  body.append('file', file);
+  return client.post(`${CV}/${id}/posting/`, body, { headers: { 'Content-Type': undefined }, signal });
+};
+export const deleteCVPosting = (id) => client.delete(`${CV}/${id}/posting/`);
+/** Synchronous (up to ~40 s with AI). `text` = pasted posting (not stored); without it the stored file is read. */
+export const extractCVPosting = (id, { text, signal } = {}) =>
+  client.post(`${CV}/${id}/posting/extract/`, text ? { text } : {}, { signal, timeout: 90000 });
+
+/** Multipart `files` repeated; 200 { accepted, duplicates, rejected, counts }. */
+export const uploadCVFiles = (id, files, { signal, onUploadProgress } = {}) => {
+  const body = new FormData();
+  files.forEach((file) => body.append('files', file));
+  return client.post(`${CV}/${id}/items/`, body, {
+    headers: { 'Content-Type': undefined },
+    signal,
+    onUploadProgress,
+    timeout: 120000,
+  });
+};
+export const getCVItems = (id, params) => client.get(`${CV}/${id}/items/`, { params });
+export const getCVItem = (id, itemId, options = {}) => client.get(`${CV}/${id}/items/${itemId}/`, options);
+export const deleteCVItem = (id, itemId) => client.delete(`${CV}/${id}/items/${itemId}/`);
+export const retryCVItem = (id, itemId) => client.post(`${CV}/${id}/items/${itemId}/retry/`, {});
+export const retryFailedCVItems = (id) => client.post(`${CV}/${id}/retry-failed/`, {});
+export const resumeCVAnalysis = (id) => client.post(`${CV}/${id}/resume/`, {});
+export const cancelCVAnalysis = (id) => client.post(`${CV}/${id}/cancel/`, {});
+/** Lightweight polling: `since` = server_time of the previous response (omit on the first call). */
+export const getCVProgress = (id, since, { signal } = {}) =>
+  client.get(`${CV}/${id}/progress/`, { params: since ? { since } : undefined, signal });
+
 // ── Descargas (blob) ─────────────────────────────────────────────────────────
 
 /**
@@ -126,3 +172,21 @@ export function saveBlob(blob, filename) {
   // 1 s grace period: revoking immediately can cancel the download in some browsers.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// ── Descargas del análisis de CVs (blob) ─────────────────────────────────────
+async function blobDownload(url, fallbackName, extra = {}) {
+  try {
+    const res = await client.get(url, { responseType: 'blob', ...extra });
+    return { blob: res.data, filename: filenameFromHeaders(res.headers, fallbackName) };
+  } catch (err) {
+    return unwrapBlobError(err);
+  }
+}
+
+export const downloadCVReport = (id, itemId) =>
+  blobDownload(`${CV}/${id}/items/${itemId}/report/`, `Reporte_${itemId}.pdf`);
+export const downloadCVOriginal = (id, itemId) =>
+  blobDownload(`${CV}/${id}/items/${itemId}/file/`, `CV_${itemId}`);
+export const downloadCVPosting = (id) => blobDownload(`${CV}/${id}/posting/file/`, `Convocatoria_${id}`);
+export const downloadCVZip = (id) => blobDownload(`${CV}/${id}/download-zip/`, `CVs_${id}.zip`, { timeout: 120000 });
+export const downloadCVXlsx = (id) => blobDownload(`${CV}/${id}/download-xlsx/`, `Candidatos_${id}.xlsx`, { timeout: 120000 });

@@ -12,6 +12,12 @@ class RQFlowChoices(models.TextChoices):
     ADMINISTRATIVE = 'ADMINISTRATIVE', _('Administración (Oficina)')
 
 
+# SYSPCC-019: discriminador usado por RequestCreateSerializer para forzar
+# flow=ADMINISTRATIVE cuando front_area es Oficina Central. Comparar
+# .strip().upper() — mirror del default de Department.frente.
+OFICINA_CENTRAL_FRENTE = 'OFICINA CENTRAL'
+
+
 class WarehouseOriginChoices(models.TextChoices):
     CENTRAL = 'CENTRAL', _('Almacén Central')
     SITE = 'SITE', _('Almacén de Obra')
@@ -38,6 +44,10 @@ class RoleChoices(models.TextChoices):
 
     # Administración — Pasajes module (dedicated access, separate from ADMIN_MANAGER)
     PASAJES_MANAGER = 'PASAJES_MANAGER', _('Gestor de Pasajes')
+
+    # RR. HH. — contract generator (SYSPCC-022). Dedicated role: contracts hold
+    # DNI + salary + address, so access is NOT shared with ADMIN_MANAGER.
+    HR_MANAGER = 'HR_MANAGER', _('Gestor de RR. HH.')
 
 
 class RQStatusChoices(models.TextChoices):

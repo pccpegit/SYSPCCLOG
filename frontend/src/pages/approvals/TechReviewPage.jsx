@@ -52,7 +52,7 @@ const CHECKLIST_ITEMS = [
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400" />
     </div>
   );
 }
@@ -162,7 +162,7 @@ export default function TechReviewPage() {
       <div className="flex flex-col items-center justify-center min-h-96 text-center">
         <AlertCircle size={48} className="text-red-300 mb-4" />
         <h2 className="text-xl font-bold text-gray-800">Requerimiento no encontrado</h2>
-        <button onClick={() => navigate('/rq')} className="mt-4 text-sm text-blue-600 hover:underline">
+        <button onClick={() => navigate('/rq')} className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline">
           Ir al Dashboard
         </button>
       </div>
@@ -188,19 +188,19 @@ export default function TechReviewPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl">
-          <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-500/10 border border-red-300 dark:border-red-500/30 rounded-xl">
+          <AlertCircle size={18} className="text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
 
       {/* Additional review banner */}
       {isAdditionalReview && (
-        <div className="flex items-start gap-3 p-4 bg-amber-50 border-2 border-amber-300 rounded-xl">
-          <AlertCircle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/30 rounded-xl">
+          <AlertCircle size={20} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-amber-800">Requerimiento Adicional — No contemplado en la propuesta</p>
-            <p className="text-xs text-amber-700 mt-1">
+            <p className="text-sm font-bold text-amber-800 dark:text-amber-300">Requerimiento Adicional — No contemplado en la propuesta</p>
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
               Control de Proyecto ha clasificado este requerimiento como <strong>adicional</strong> (no estaba en la propuesta original del proyecto).
               Como Residente, debe evaluar si este requerimiento es <strong>necesario para la operación</strong> a pesar de no estar presupuestado.
             </p>
@@ -216,7 +216,7 @@ export default function TechReviewPage() {
             {isAdditionalReview ? 'Evaluación de Necesidad — Adicional' : 'Revisión Técnica'}
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            <span className="font-mono font-semibold text-blue-700">{rqNumber}</span>
+            <span className="font-mono font-semibold text-blue-700 dark:text-blue-300">{rqNumber}</span>
             {' '}— {req.description}
           </p>
         </div>
@@ -331,21 +331,21 @@ export default function TechReviewPage() {
                     className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all duration-200 ${
                       checked
                         ? isWarning
-                          ? 'bg-red-50 border-red-200'
-                          : 'bg-green-50 border-green-200'
+                          ? 'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/30'
+                          : 'bg-green-50 border-green-200 dark:bg-green-500/10 dark:border-green-500/30'
                         : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     {checked ? (
                       isWarning
-                        ? <XCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
-                        : <CheckSquare size={18} className="text-green-600 shrink-0 mt-0.5" />
+                        ? <XCircle size={18} className="text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                        : <CheckSquare size={18} className="text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
                     ) : (
                       <Square size={18} className="text-gray-300 shrink-0 mt-0.5" />
                     )}
                     <span className={`text-sm leading-snug ${
                       checked
-                        ? isWarning ? 'text-red-700 font-medium' : 'text-green-700 font-medium'
+                        ? isWarning ? 'text-red-700 dark:text-red-300 font-medium' : 'text-green-700 dark:text-green-300 font-medium'
                         : 'text-gray-700'
                     }`}>
                       {item.label}
@@ -418,7 +418,7 @@ export default function TechReviewPage() {
             </button>
 
             {!isAdditionalReview && checklist.needsModification && (
-              <p className="text-xs text-red-600 text-center">
+              <p className="text-xs text-red-600 dark:text-red-400 text-center">
                 Ha marcado que requiere modificación. Corrija o use "Rechazar".
               </p>
             )}

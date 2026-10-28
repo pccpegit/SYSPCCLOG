@@ -199,6 +199,19 @@ DEMO_USERS = [
             {'role': 'LOGISTICS_CHIEF', 'is_primary': True},
         ],
     },
+    # SYSPCC-022: RR. HH. contract generator. Password comes from the shared
+    # DEMO_PASSWORD (SEED_DEMO_PASSWORD env or random) like every demo user.
+    {
+        'username': 'demo_hr_manager',
+        'first_name': 'Gestor',
+        'last_name': 'RR. HH.',
+        'email': 'demo_hr_manager@pcc.pe',
+        'position': 'Gestor de RR. HH.',
+        'department': 'Recursos Humanos',
+        'roles': [
+            {'role': 'HR_MANAGER', 'is_primary': True},
+        ],
+    },
 ]
 
 # ---------------------------------------------------------------------------

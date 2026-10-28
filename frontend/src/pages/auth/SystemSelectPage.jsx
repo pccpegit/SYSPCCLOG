@@ -13,11 +13,13 @@ import {
   LogOut,
   CircleDot,
   Headphones,
+  ShieldCheck,
 } from 'lucide-react';
 
 const BG_IMAGES = ['/images/sli1.png', '/images/sli2.png', '/images/sli3.png', '/images/sli4.png'];
 
 const WAREHOUSE_ROLES = ['CENTRAL_WAREHOUSE', 'SITE_WAREHOUSE', 'LOGISTICS_COORDINATOR', 'LOGISTICS_SUPERVISOR', 'LOGISTICS_CHIEF'];
+const HR_ROLES = ['HR_MANAGER', 'GENERAL_MANAGER'];
 const ADMIN_ROLES = ['ADMIN_MANAGER', 'GENERAL_MANAGER', 'PASAJES_MANAGER'];
 
 const SYSTEMS = [
@@ -55,12 +57,13 @@ const SYSTEMS = [
   {
     id: 'rrhh',
     name: 'Recursos Humanos',
-    subtitle: 'RRHH',
-    description: 'Asistencia, vacaciones, capacitaciones y gestion de personal.',
+    subtitle: 'RR. HH.',
+    description: 'Generación de contratos y documentos de personal a partir de plantillas aprobadas.',
     icon: Users,
     color: 'violet',
     path: '/rrhh',
-    available: false,
+    available: true,
+    requiredRoles: HR_ROLES,
   },
   {
     id: 'reports',
@@ -82,6 +85,17 @@ const SYSTEMS = [
     path: '/admin',
     available: true,
     requiredRoles: ADMIN_ROLES,
+  },
+  {
+    id: 'sistema',
+    name: 'Administración del Sistema',
+    subtitle: 'Sistema',
+    description: 'Gestión de usuarios, roles y proyectos registrados en el sistema. Acceso exclusivo de superadministrador.',
+    icon: ShieldCheck,
+    color: 'rose',
+    path: '/sistema',
+    available: true,
+    requiresSuperuser: true,
   },
 ];
 
@@ -128,10 +142,17 @@ const COLOR_MAP = {
     hoverGlow: 'group-hover:shadow-slate-500/25',
     badge: 'bg-white/10 text-white/80',
   },
+  rose: {
+    card: 'from-rose-600 to-red-700',
+    iconBg: 'bg-white/15',
+    iconRing: 'ring-white/10',
+    hoverGlow: 'group-hover:shadow-rose-500/25',
+    badge: 'bg-white/10 text-white/80',
+  },
 };
 
 export default function SystemSelectPage() {
-  const { currentUser, isAuthenticated, isLoading, logout, userRoles, primaryRole } = useAuth();
+  const { currentUser, isAuthenticated, isLoading, logout, userRoles, primaryRole, isSuperUser } = useAuth();
   const navigate = useNavigate();
   const [bgIndex, setBgIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
@@ -154,10 +175,13 @@ export default function SystemSelectPage() {
 
   const visibleSystems = useMemo(() => {
     return SYSTEMS.filter((s) => {
+      // is_superuser is a Django flag, not an entry in userRoles — it needs
+      // its own branch (requiredRoles.some(...) can never match it).
+      if (s.requiresSuperuser) return isSuperUser;
       if (!s.requiredRoles) return true;
       return s.requiredRoles.some((r) => userRoles.includes(r));
     });
-  }, [userRoles]);
+  }, [userRoles, isSuperUser]);
 
   if (isLoading || !currentUser) return (
     <div className="min-h-dvh flex items-center justify-center bg-[#080b12]">

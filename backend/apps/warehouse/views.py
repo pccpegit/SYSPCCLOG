@@ -14,6 +14,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 
 import openpyxl
+from kombu.exceptions import OperationalError as BrokerOperationalError
 from openpyxl.styles import Font
 
 from rest_framework import viewsets, status
@@ -39,6 +40,27 @@ from apps.warehouse.services.pdf_generator import generate_movement_pdf, generat
 from apps.core.utils.excel import sanitize_excel_value, truncate_for_export
 
 logger = logging.getLogger(__name__)
+
+
+def _enqueue_group_pdf_upload(group):
+    """Queue the PDF generation + OneDrive upload for a movement group.
+
+    The movement is already committed when this runs, and the task is only a
+    best-effort side effect (it is idempotent and skipped once
+    ``document_url`` is set). If the broker is down (e.g. the ephemeral Redis
+    of a trial deployment restarting, SYSPCC-024) the request must NOT fail:
+    answering 5xx would make the client retry and register the movement twice.
+    The failure is logged and the group keeps an empty ``document_url``.
+    """
+    from apps.warehouse.tasks import upload_group_pdf_task
+
+    try:
+        upload_group_pdf_task.delay(group.pk)
+    except (BrokerOperationalError, ConnectionError):
+        logger.exception(
+            'warehouse.group_pdf.enqueue_failed',
+            extra={'group_id': group.pk},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -541,8 +563,7 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             # and could return None), but if the UI needs the link
             # immediately, it must poll GET on this group or receive a
             # websocket/notification once the task completes.
-            from apps.warehouse.tasks import upload_group_pdf_task
-            upload_group_pdf_task.delay(group.pk)
+            _enqueue_group_pdf_upload(group)
 
             return Response(
                 MovementGroupSerializer(group).data,
@@ -599,8 +620,7 @@ class MovementViewSet(viewsets.ReadOnlyModelViewSet):
             # and could return None), but if the UI needs the link
             # immediately, it must poll GET on this group or receive a
             # websocket/notification once the task completes.
-            from apps.warehouse.tasks import upload_group_pdf_task
-            upload_group_pdf_task.delay(group.pk)
+            _enqueue_group_pdf_upload(group)
 
             return Response(
                 MovementGroupSerializer(group).data,

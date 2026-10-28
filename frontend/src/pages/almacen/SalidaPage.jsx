@@ -46,7 +46,7 @@ function ItemSearchSelect({ allItems, value, onChange, loading }) {
             <span className="font-mono text-xs text-gray-400 shrink-0">{selected.product_code}</span>
             <span className="text-gray-800 font-medium truncate">{selected.description}</span>
           </div>
-          <span className={`text-xs ml-2 shrink-0 font-medium ${(selected.total_stock ?? 0) > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+          <span className={`text-xs ml-2 shrink-0 font-medium ${(selected.total_stock ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
             Stock: {fmtNum(selected.total_stock ?? 0)} {ucFirst(selected.unit)}
           </span>
         </div>
@@ -82,14 +82,14 @@ function ItemSearchSelect({ allItems, value, onChange, loading }) {
                     disabled={!hasStock}
                     onClick={() => { onChange(String(item.id)); setQuery(''); setOpen(false); }}
                     className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left transition-colors first:rounded-t-xl last:rounded-b-xl ${
-                      hasStock ? 'hover:bg-rose-50' : 'opacity-35 cursor-not-allowed'
+                      hasStock ? 'hover:bg-rose-50 dark:hover:bg-rose-500/10' : 'opacity-35 cursor-not-allowed'
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="font-mono text-xs text-gray-400 shrink-0">{item.product_code}</span>
                       <span className="text-gray-800 truncate">{item.description}</span>
                     </div>
-                    <span className={`text-xs ml-2 shrink-0 font-medium ${hasStock ? 'text-emerald-600' : 'text-red-500'}`}>
+                    <span className={`text-xs ml-2 shrink-0 font-medium ${hasStock ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                       {fmtNum(item.total_stock ?? 0)} {ucFirst(item.unit)}
                     </span>
                   </button>
@@ -107,7 +107,7 @@ function ItemSearchSelect({ allItems, value, onChange, loading }) {
 
 const inputCls = (hasError) =>
   `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
-    hasError ? 'border-red-300 focus:ring-red-400' : 'border-gray-200 focus:ring-rose-500 focus:border-rose-500'
+    hasError ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400' : 'border-gray-200 focus:ring-rose-500 focus:border-rose-500'
   } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
 
 function Field({ label, required, id, error, hint, children }) {
@@ -243,7 +243,7 @@ export default function SalidaPage() {
     return (
       <div className="max-w-lg mx-auto mt-8 sm:mt-16">
         <div className="bg-white rounded-2xl border border-gray-100 p-8 sm:p-10 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto mb-5">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center mx-auto mb-5">
             <CheckCircle size={32} className="text-rose-500" />
           </div>
           <h2 className="text-xl font-bold text-gray-900 mb-2 font-display">Salida registrada</h2>
@@ -276,8 +276,8 @@ export default function SalidaPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       {/* ── Header ── */}
       <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-xl bg-rose-50 ring-1 ring-rose-100 flex items-center justify-center">
-          <ArrowUpFromLine size={20} className="text-rose-600" />
+        <div className="w-11 h-11 rounded-xl bg-rose-50 dark:bg-rose-500/10 ring-1 ring-rose-100 dark:ring-rose-500/30 flex items-center justify-center">
+          <ArrowUpFromLine size={20} className="text-rose-600 dark:text-rose-400" />
         </div>
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 font-display tracking-tight">Registrar Salida</h1>
@@ -305,7 +305,7 @@ export default function SalidaPage() {
                     onClick={() => setH('destination_type', d.value)}
                     className={`px-2 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-[0.95] font-display ${
                       header.destination_type === d.value
-                        ? 'bg-rose-50 border-rose-300 text-rose-700 ring-1 ring-rose-200'
+                        ? 'bg-rose-50 border-rose-300 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300 dark:ring-rose-500/30'
                         : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                     }`}
                   >
@@ -357,7 +357,7 @@ export default function SalidaPage() {
         <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-7 space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide font-display">
-              Items a despachar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold font-display">{lineItems.length}</span>
+              Items a despachar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300 font-bold font-display">{lineItems.length}</span>
             </p>
           </div>
 
@@ -413,7 +413,7 @@ export default function SalidaPage() {
                               {qty > 0 && (
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className={isOver ? 'text-red-500' : isLow ? 'text-amber-500' : 'text-rose-400'}>Restante:</span>
-                                  <span className={`font-bold tabular-nums ${isOver ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-rose-600'}`}>{fmtNum(remaining)}</span>
+                                  <span className={`font-bold tabular-nums ${isOver ? 'text-red-600 dark:text-red-400' : isLow ? 'text-amber-600 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>{fmtNum(remaining)}</span>
                                 </div>
                               )}
                               {qty > 0 && isLow && !isOver && (
@@ -430,7 +430,7 @@ export default function SalidaPage() {
                       <button
                         type="button"
                         onClick={() => removeItem(row.id)}
-                        className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 active:scale-90 transition-all duration-150 shrink-0 mt-1"
+                        className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90 transition-all duration-150 shrink-0 mt-1"
                         title="Quitar item"
                       >
                         <Trash2 size={16} />
@@ -445,7 +445,7 @@ export default function SalidaPage() {
           <button
             type="button"
             onClick={addItem}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-rose-300 text-sm font-medium text-rose-600 hover:bg-rose-50 hover:border-rose-400 active:scale-[0.98] transition-all duration-150 font-display"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-rose-300 dark:border-rose-500/30 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:border-rose-400 active:scale-[0.98] transition-all duration-150 font-display"
           >
             <Plus size={16} /> Agregar item
           </button>

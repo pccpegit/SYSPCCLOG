@@ -85,6 +85,32 @@ class IsHRManager(BasePermission):
         return request.user.user_roles.filter(role__in=self.HR_ROLES).exists()
 
 
+# SYSPCC-022: RR. HH. document generator. Deliberately separate from
+# IsHRManager (which means "read full Personal records"). NO is_staff /
+# is_superuser bypass here: contracts hold DNI, salary and address, so the
+# HR_MANAGER role must be explicitly assigned (least privilege).
+HR_DOCUMENT_MANAGER_ROLES = [RoleChoices.HR_MANAGER]
+HR_DOCUMENT_READER_ROLES = [RoleChoices.HR_MANAGER, RoleChoices.GENERAL_MANAGER]
+
+
+class IsHRDocumentsManager(BasePermission):
+    """Full access to the RR. HH. documents module (templates, drafts, issue, void)."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return request.user.user_roles.filter(role__in=HR_DOCUMENT_MANAGER_ROLES).exists()
+
+
+class IsHRDocumentsReader(BasePermission):
+    """Read-only access to RR. HH. documents (HR_MANAGER and GENERAL_MANAGER)."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return request.user.user_roles.filter(role__in=HR_DOCUMENT_READER_ROLES).exists()
+
+
 class IsPasajesStaff(BasePermission):
     """
     SYSPCC-006 FIX 1: roles allowed to look up personnel by DNI for the
@@ -112,6 +138,17 @@ class IsAdminOrReadOnly(BasePermission):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
             return request.user and request.user.is_authenticated
         return request.user and request.user.is_staff
+
+
+class IsSuperUser(BasePermission):
+    """
+    SYSPCC-018: only Django superusers may pass. Used to gate the admin
+    module (user/project management) — there is no business-level
+    SUPERADMIN role in `RoleChoices`, superuser status is the gate.
+    """
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
 
 
 class IsOwnerOrAdmin(BasePermission):

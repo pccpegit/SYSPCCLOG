@@ -11,6 +11,19 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 # mirroring Django's own CsrfViewMiddleware.
 SAFE_METHODS = ('GET', 'HEAD', 'OPTIONS')
 
+# SYSPCC-018: while `User.must_change_password` is True, every request is
+# blocked EXCEPT the handful of paths the forced-password-change flow itself
+# needs (view/patch own profile, change own password, log out, refresh the
+# CSRF cookie, refresh the access token). Exact paths, trailing slash
+# included — must match the routers in `apps/core/urls/*.py`.
+MUST_CHANGE_PASSWORD_ALLOWLIST = frozenset({
+    '/api/v1/users/me/',
+    '/api/v1/users/me/change-password/',
+    '/api/v1/auth/logout/',
+    '/api/v1/auth/csrf/',
+    '/api/v1/auth/token/refresh/',
+})
+
 
 class CSRFCheck(CsrfViewMiddleware):
     """Runs the real CsrfViewMiddleware logic but returns the failure reason
@@ -35,6 +48,14 @@ class CookieJWTAuthentication(JWTAuthentication):
     The frontend must call `GET /api/v1/auth/csrf/` once on startup (before
     login) to receive the `csrftoken` cookie, then echo it back via the
     `X-CSRFToken` header on every mutating request, including login itself.
+
+    SYSPCC-018 (forced password change): this is the only authentication
+    class registered in `DEFAULT_AUTHENTICATION_CLASSES` and no ViewSet
+    overrides it, making it the single global hook available to enforce
+    `User.must_change_password` — a DRF global permission would go unused
+    by any ViewSet that sets its own `permission_classes` (nearly all of
+    them do), and Django middleware cannot see `request.user` since auth
+    here is JWT-by-cookie, not session-based.
     """
 
     def authenticate(self, request):
@@ -46,6 +67,12 @@ class CookieJWTAuthentication(JWTAuthentication):
 
         if request.method not in SAFE_METHODS:
             self.enforce_csrf(request)
+
+        if user.must_change_password and request.path not in MUST_CHANGE_PASSWORD_ALLOWLIST:
+            raise exceptions.PermissionDenied(
+                detail='Debe actualizar su contraseña antes de continuar.',
+                code='must_change_password',
+            )
 
         return user, validated_token
 

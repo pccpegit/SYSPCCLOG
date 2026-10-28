@@ -40,6 +40,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # SYSPCC-022: LibreOffice for .docx -> PDF (local only; Render demo = false)
+        INSTALL_LIBREOFFICE: "true"
     container_name: syspcclog_backend
     ports:
       - "8000:8000"
@@ -87,8 +90,33 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # SYSPCC-022: LibreOffice for .docx -> PDF (local only; Render demo = false)
+        INSTALL_LIBREOFFICE: "true"
     container_name: syspcclog_celery_worker
     command: celery -A config worker -l info
+    volumes:
+      - ./backend:/app
+      - sqlite_data:/app/data
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Celery worker RR. HH. — analisis masivo de CVs (SYSPCC-023)
+  # Cola dedicada hr_cv, concurrencia baja (limites de la API de Anthropic)
+  # ----------------------------------------------------------
+  celery_worker_hr:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: syspcclog_celery_worker_hr
+    command: celery -A config worker -Q hr_cv -c 3 -n hr@%h -l info
     volumes:
       - ./backend:/app
       - sqlite_data:/app/data

@@ -4,6 +4,53 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/images/LogoSinFondo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Anti-FOUC: applies the persisted theme to <html> before first paint,
+         so the page never flashes light before switching to dark. This is a
+         plain-JS re-implementation of resolveTheme() in
+         frontend/src/utils/theme.js — a <script> here can't `import` that
+         module, so the algorithm (including the midnight-wraparound rule
+         for "auto") is duplicated on purpose. Keep both in sync: SYSPCC-020
+         handoff, Decisión 5. -->
+    <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('syspcc.theme.v1');
+        var data = raw ? JSON.parse(raw) : null;
+        var mode = data && data.mode;
+        if (mode !== 'light' && mode !== 'dark' && mode !== 'auto') mode = 'auto';
+        // Validate autoRange the same way utils/theme.js's isValidAutoRange
+        // does (security-auditor fix, SYSPCC-020): a malformed/manipulated
+        // value here (wrong type, out-of-range hour/minute) must not reach
+        // the arithmetic below un-clamped, so this script and the React-side
+        // reader always agree on what "corrupt" means and resolve to the
+        // same safe default — otherwise a bad value could make this script
+        // (pre-paint) and ThemeContext (post-mount, which does validate)
+        // disagree and produce exactly the light/dark flash this script
+        // exists to prevent.
+        var range = data && data.autoRange;
+        function inRange(n, max) { return typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= max; }
+        var rangeValid = range
+          && inRange(range.startHour, 23) && inRange(range.startMinute, 59)
+          && inRange(range.endHour, 23) && inRange(range.endMinute, 59);
+        if (!rangeValid) range = { startHour: 19, startMinute: 0, endHour: 7, endMinute: 0 };
+        var isDark;
+        if (mode === 'dark') {
+          isDark = true;
+        } else if (mode === 'light') {
+          isDark = false;
+        } else {
+          var now = new Date();
+          var mins = now.getHours() * 60 + now.getMinutes();
+          var start = range.startHour * 60 + range.startMinute;
+          var end = range.endHour * 60 + range.endMinute;
+          isDark = start > end ? (mins >= start || mins < end) : (mins >= start && mins < end);
+        }
+        if (isDark) document.documentElement.classList.add('dark');
+      } catch (e) { /* localStorage unavailable or corrupt JSON: falls back to light (safe default) */ }
+    })();
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,300..900;1,300..900&family=Figtree:ital,wght@0,300..900;1,300..900&display=swap" rel="stylesheet" />

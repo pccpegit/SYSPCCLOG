@@ -153,7 +153,7 @@ export default function MovimientosPage() {
                   onClick={() => setMovType(movType === t.value ? '' : t.value)}
                   className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-[0.93] whitespace-nowrap font-display ${
                     movType === t.value
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-300 dark:ring-emerald-500/30'
                       : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -172,7 +172,7 @@ export default function MovimientosPage() {
                   onClick={() => setWarehouse(warehouse === w.value ? '' : w.value)}
                   className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-[0.93] whitespace-nowrap font-display ${
                     warehouse === w.value
-                      ? 'bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-200'
+                      ? 'bg-blue-50 border-blue-300 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-500/10 dark:border-blue-500/30 dark:text-blue-300 dark:ring-blue-500/30'
                       : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
                   }`}
                 >
@@ -245,14 +245,14 @@ export default function MovimientosPage() {
 
       {/* ── Error ─────────────────────────────────────────── */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
       )}
 
       {/* ── Table ─────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center h-48">
-            <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600" />
+            <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
           </div>
         ) : movements.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
@@ -297,7 +297,7 @@ export default function MovimientosPage() {
                         <button
                           onClick={() => navigate(`/almacen/salida/${mov.id}/voucher`)}
                           title="Ver vale"
-                          className="p-1.5 rounded-lg text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 transition-colors opacity-0 group-hover:opacity-100"
+                          className="p-1.5 rounded-lg text-gray-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-500/10 transition-colors opacity-0 group-hover:opacity-100"
                         >
                           <Printer size={15} />
                         </button>

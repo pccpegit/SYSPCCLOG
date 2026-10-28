@@ -10,19 +10,21 @@ import {
 } from 'lucide-react';
 
 // ── Módulos administrativos ───────────────────────────────────────────────────
-// Por ahora solo "Pasajes" está disponible. El resto queda como módulos futuros.
+// "Pasajes" está siempre disponible. Los dos módulos restantes son
+// "Próximamente" — no hay más módulos de negocio implementados aún.
 
-const MODULES = [
-  {
-    id: 'pasajes',
-    name: 'Pasajes',
-    subtitle: 'Personal',
-    description: 'Gestión de pasajes de personal: registro, pagos, políticas de devolución, proveedores y dashboard.',
-    icon: Plane,
-    color: 'indigo',
-    path: '/admin/pasajes',
-    available: true,
-  },
+const PASAJES_MODULE = {
+  id: 'pasajes',
+  name: 'Pasajes',
+  subtitle: 'Personal',
+  description: 'Gestión de pasajes de personal: registro, pagos, políticas de devolución, proveedores y dashboard.',
+  icon: Plane,
+  color: 'indigo',
+  path: '/admin/pasajes',
+  available: true,
+};
+
+const PLACEHOLDER_MODULES = [
   {
     id: 'futuro-1',
     name: 'Próximamente',
@@ -61,6 +63,11 @@ const COLOR_MAP = {
 export default function AdminMenuPage() {
   const { currentUser, isAuthenticated, isLoading, logout } = useAuth();
   const navigate = useNavigate();
+
+  const MODULES = [
+    PASAJES_MODULE,
+    ...PLACEHOLDER_MODULES,
+  ];
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) navigate('/login', { replace: true });

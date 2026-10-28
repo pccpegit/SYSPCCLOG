@@ -73,6 +73,24 @@ const shouldSkipRefresh = (url) =>
 client.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // SYSPCC-018: defense-in-depth safety net. The primary gate is the
+    // frontend route layout (RequirePasswordChangeLayout) redirecting to
+    // /cambiar-password right after login, but the backend blocks EVERY
+    // request outside a small allowlist while must_change_password is true
+    // (CookieJWTAuthentication.authenticate()) — if a stale tab or a direct
+    // API call slips past the route guard, this catches it too. Checking
+    // `data.code` (not just the 403 status) matters because CSRF failures
+    // and ordinary permission denials also return 403.
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.code === 'must_change_password' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/cambiar-password'
+    ) {
+      window.location.assign('/cambiar-password');
+      return Promise.reject(error);
+    }
+
     const originalRequest = error.config;
 
     // Never retry auth-related endpoints — just reject so the caller handles it

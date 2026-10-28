@@ -37,7 +37,7 @@ function PriorityBadge({ priority }) {
 function CategoryBadge({ category }) {
   const cfg = TICKET_CATEGORY_CONFIG[category] ?? { label: category };
   return (
-    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-500/10 dark:text-teal-300 dark:border-teal-500/30">
       {cfg.label}
     </span>
   );
@@ -210,7 +210,7 @@ export default function TicketListPage() {
           <LoadingSpinner />
         ) : tickets.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center px-6">
-            <div className="w-14 h-14 rounded-2xl bg-teal-50 flex items-center justify-center mb-4">
+            <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-500/10 flex items-center justify-center mb-4">
               <Ticket size={26} className="text-teal-400" strokeWidth={1.5} />
             </div>
             <p className="text-sm font-semibold text-gray-600 font-display">
@@ -224,7 +224,7 @@ export default function TicketListPage() {
             {!hasFilters && (
               <button
                 onClick={() => navigate('/soporte/tickets/new')}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-50 text-teal-700 text-xs font-bold hover:bg-teal-100 transition-colors"
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-50 text-teal-700 text-xs font-bold hover:bg-teal-100 dark:bg-teal-500/10 dark:text-teal-300 dark:hover:bg-teal-500/15 transition-colors"
               >
                 <Plus size={14} />
                 Crear Ticket
@@ -249,7 +249,7 @@ export default function TicketListPage() {
                   <tr
                     key={ticket.id}
                     onClick={() => navigate(`/soporte/tickets/${ticket.id}`)}
-                    className="hover:bg-teal-50/30 cursor-pointer transition-colors duration-100 group"
+                    className="hover:bg-teal-50/30 dark:hover:bg-teal-500/10 cursor-pointer transition-colors duration-100 group"
                   >
                     <td className="px-5 py-3.5">
                       <span className="text-xs font-bold text-teal-600 font-display group-hover:text-teal-700">

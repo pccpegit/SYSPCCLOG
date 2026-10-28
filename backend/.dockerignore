@@ -6,3 +6,4 @@ db.sqlite3
 .env
 *.log
 .git/
+private_media/

@@ -1,0 +1,366 @@
+{
+ "key": "CONTRACT",
+ "label": "Contrato de trabajo",
+ "default_slug": "contrato-trabajo",
+ "fields": [
+  {
+   "key": "worker_full_name",
+   "label": "Nombre completo del trabajador",
+   "type": "string",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "¿Cuál es el nombre completo del trabajador?",
+   "default": null
+  },
+  {
+   "key": "worker_dni",
+   "label": "DNI / documento de identidad",
+   "type": "string",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "8 dígitos (DNI) o 9 a 12 caracteres (CE/pasaporte).",
+   "question": "¿Cuál es el DNI del trabajador?",
+   "default": null
+  },
+  {
+   "key": "worker_nationality",
+   "label": "Nacionalidad",
+   "type": "string",
+   "required": false,
+   "required_when": "",
+   "choices": [],
+   "source": "manual",
+   "help": "",
+   "question": "",
+   "default": "Peruana"
+  },
+  {
+   "key": "worker_marital_status",
+   "label": "Estado civil",
+   "type": "choice",
+   "required": false,
+   "required_when": "",
+   "choices": [
+    {
+     "value": "SOLTERO",
+     "label": "Soltero/a"
+    },
+    {
+     "value": "CASADO",
+     "label": "Casado/a"
+    },
+    {
+     "value": "DIVORCIADO",
+     "label": "Divorciado/a"
+    },
+    {
+     "value": "VIUDO",
+     "label": "Viudo/a"
+    },
+    {
+     "value": "CONVIVIENTE",
+     "label": "Conviviente"
+    }
+   ],
+   "source": "personal",
+   "help": "",
+   "question": "",
+   "default": null
+  },
+  {
+   "key": "worker_birth_date",
+   "label": "Fecha de nacimiento",
+   "type": "date",
+   "required": false,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "",
+   "default": null
+  },
+  {
+   "key": "worker_address",
+   "label": "Domicilio",
+   "type": "string",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "¿Cuál es el domicilio del trabajador?",
+   "default": null
+  },
+  {
+   "key": "position",
+   "label": "Cargo",
+   "type": "string",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "¿Cuál es el cargo?",
+   "default": null
+  },
+  {
+   "key": "job_description",
+   "label": "Funciones del cargo",
+   "type": "text",
+   "required": false,
+   "required_when": "",
+   "choices": [],
+   "source": "manual",
+   "help": "Lo redacta RR. HH.; el asistente no lo inventa.",
+   "question": "",
+   "default": null
+  },
+  {
+   "key": "work_location",
+   "label": "Lugar de trabajo",
+   "type": "string",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "¿Cuál es el lugar de trabajo (obra o sede)?",
+   "default": null
+  },
+  {
+   "key": "contract_type",
+   "label": "Tipo de contrato",
+   "type": "choice",
+   "required": true,
+   "required_when": "",
+   "choices": [
+    {
+     "value": "INDEFINITE",
+     "label": "A plazo indeterminado"
+    },
+    {
+     "value": "FIXED_TERM",
+     "label": "A plazo fijo"
+    }
+   ],
+   "source": "manual",
+   "help": "",
+   "question": "¿El contrato es a plazo indeterminado o a plazo fijo?",
+   "default": null
+  },
+  {
+   "key": "fixed_term_modality",
+   "label": "Modalidad de plazo fijo",
+   "type": "choice",
+   "required": false,
+   "required_when": "contract_type=FIXED_TERM",
+   "choices": [
+    {
+     "value": "OBRA_SERVICIO",
+     "label": "Por obra o servicio específico"
+    },
+    {
+     "value": "NECESIDAD_MERCADO",
+     "label": "Por necesidad de mercado"
+    },
+    {
+     "value": "OCASIONAL",
+     "label": "Ocasional"
+    },
+    {
+     "value": "SUPLENCIA",
+     "label": "De suplencia"
+    },
+    {
+     "value": "EMERGENCIA",
+     "label": "De emergencia"
+    },
+    {
+     "value": "INICIO_ACTIVIDAD",
+     "label": "Por inicio o incremento de actividad"
+    },
+    {
+     "value": "RECONVERSION",
+     "label": "Por reconversión empresarial"
+    },
+    {
+     "value": "INTERMITENTE",
+     "label": "Intermitente"
+    },
+    {
+     "value": "EXPORTACION",
+     "label": "De exportación no tradicional"
+    },
+    {
+     "value": "TEMPORADA",
+     "label": "De temporada"
+    }
+   ],
+   "source": "manual",
+   "help": "",
+   "question": "¿Qué modalidad de contrato a plazo fijo corresponde?",
+   "default": null
+  },
+  {
+   "key": "fixed_term_cause",
+   "label": "Causa objetiva",
+   "type": "text",
+   "required": false,
+   "required_when": "contract_type=FIXED_TERM",
+   "choices": [],
+   "source": "manual",
+   "help": "Obligatoria por ley en contratos a plazo fijo; la escribe RR. HH.",
+   "question": "¿Cuál es la causa objetiva del contrato a plazo fijo?",
+   "default": null
+  },
+  {
+   "key": "start_date",
+   "label": "Fecha de inicio",
+   "type": "date",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "¿Cuál es la fecha de inicio?",
+   "default": null
+  },
+  {
+   "key": "end_date",
+   "label": "Fecha de fin",
+   "type": "date",
+   "required": false,
+   "required_when": "contract_type=FIXED_TERM",
+   "choices": [],
+   "source": "manual",
+   "help": "",
+   "question": "¿Cuál es la fecha de fin del contrato?",
+   "default": null
+  },
+  {
+   "key": "gross_salary",
+   "label": "Sueldo bruto",
+   "type": "decimal",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "personal",
+   "help": "",
+   "question": "¿Cuál es el sueldo bruto?",
+   "default": null
+  },
+  {
+   "key": "currency",
+   "label": "Moneda",
+   "type": "choice",
+   "required": true,
+   "required_when": "",
+   "choices": [
+    {
+     "value": "PEN",
+     "label": "Soles (PEN)"
+    },
+    {
+     "value": "USD",
+     "label": "Dólares (USD)"
+    }
+   ],
+   "source": "manual",
+   "help": "",
+   "question": "",
+   "default": "PEN"
+  },
+  {
+   "key": "payment_frequency",
+   "label": "Frecuencia de pago",
+   "type": "choice",
+   "required": true,
+   "required_when": "",
+   "choices": [
+    {
+     "value": "MONTHLY",
+     "label": "Mensual"
+    },
+    {
+     "value": "BIWEEKLY",
+     "label": "Quincenal"
+    }
+   ],
+   "source": "manual",
+   "help": "",
+   "question": "",
+   "default": "MONTHLY"
+  },
+  {
+   "key": "work_schedule",
+   "label": "Jornada de trabajo",
+   "type": "string",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "manual",
+   "help": "Ej.: 48 horas semanales.",
+   "question": "¿Cuál es la jornada de trabajo?",
+   "default": null
+  },
+  {
+   "key": "probation_months",
+   "label": "Período de prueba (meses)",
+   "type": "integer",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "manual",
+   "help": "Entre 0 y 12.",
+   "question": "",
+   "default": 3
+  },
+  {
+   "key": "issue_date",
+   "label": "Fecha de suscripción",
+   "type": "date",
+   "required": true,
+   "required_when": "",
+   "choices": [],
+   "source": "manual",
+   "help": "Por defecto, hoy.",
+   "question": "",
+   "default": "today"
+  }
+ ],
+ "variables": [
+  {
+   "name": "nombre_trabajador",
+   "label": "Nombre del trabajador",
+   "group": "trabajador",
+   "field": "worker_full_name",
+   "required": true
+  },
+  {
+   "name": "dni_trabajador",
+   "label": "DNI del trabajador",
+   "group": "trabajador",
+   "field": "worker_dni",
+   "required": true
+  },
+  {
+   "name": "nacionalidad_trabajador",
+   "label": "Nacionalidad",
+   "group": "trabajador",
+   "field": "worker_nationality",
+   "required": false
+  },
+  {
+   "name": "estado_civil_trabajador",
+   "label": "Estado civil",
+   "group": "trabajador",
+   "field": "worker_marital_status",
+   "required": false
+  }
+ ]
+}

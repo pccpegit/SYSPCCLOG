@@ -3,7 +3,9 @@ User and UserRole serializers.
 """
 
 from rest_framework import serializers
-from apps.core.models import User, UserRole
+from apps.core.models import User, UserRole, Project, Department
+from apps.core.enums import RoleChoices
+from apps.core.services.user_admin import UserAdminService
 
 
 class UserRoleSerializer(serializers.ModelSerializer):
@@ -66,44 +68,18 @@ class UserSerializer(serializers.ModelSerializer):
             'signature',
             'is_active',
             'is_staff',
+            'is_superuser',
+            'must_change_password',
             'user_roles',
             'date_joined',
             'last_login',
         ]
-        read_only_fields = ['date_joined', 'last_login']
-
-
-class UserCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating users (includes password)."""
-
-    password = serializers.CharField(write_only=True, min_length=8)
-    password_confirm = serializers.CharField(write_only=True)
-
-    class Meta:
-        model = User
-        fields = [
-            'username',
-            'email',
-            'password',
-            'password_confirm',
-            'first_name',
-            'last_name',
-            'position',
-            'department',
-            'phone',
+        read_only_fields = [
+            'date_joined',
+            'last_login',
+            'is_superuser',
+            'must_change_password',
         ]
-
-    def validate(self, attrs):
-        if attrs['password'] != attrs.pop('password_confirm'):
-            raise serializers.ValidationError({'password_confirm': 'Las contraseñas no coinciden.'})
-        return attrs
-
-    def create(self, validated_data):
-        password = validated_data.pop('password')
-        user = User(**validated_data)
-        user.set_password(password)
-        user.save()
-        return user
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -114,6 +90,133 @@ class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'full_name', 'position', 'is_active']
+
+
+class UserRoleAssignmentSerializer(serializers.Serializer):
+    """
+    SYSPCC-018: input-only shape for one entry of the nested `roles` array
+    accepted by `UserAdminCreateSerializer`/`UserAdminUpdateSerializer`.
+    Not a ModelSerializer — it never saves itself, the parent serializer's
+    `create()`/`update()` hands the validated list to
+    `UserAdminService.sync_roles()`.
+
+    Deliberately does not validate role/project/department_obj coherence
+    (e.g. that PROJECT_RESIDENT shouldn't carry a `department_obj`) — that
+    is a business rule gerencia hasn't specified; only the `unique_together`
+    on `UserRole` is enforced, by the service.
+    """
+
+    role = serializers.ChoiceField(choices=RoleChoices.choices)
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(), required=False, allow_null=True)
+    department_obj = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(), required=False, allow_null=True
+    )
+    is_primary = serializers.BooleanField(required=False, default=False)
+
+
+class UserAdminCreateSerializer(serializers.ModelSerializer):
+    """
+    SYSPCC-018: creates a user for the superadmin-only admin module. No
+    `password` field — the system always generates a temporary one
+    (`UserAdminService.create_user`) and returns it once in the response;
+    the admin never chooses it.
+    """
+
+    roles = UserRoleAssignmentSerializer(many=True, required=False)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'position',
+            'department',
+            'phone',
+            'roles',
+        ]
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        roles_data = validated_data.pop('roles', [])
+        request = self.context['request']
+        user, temporary_password = UserAdminService.create_user(
+            actor=request.user,
+            roles_data=roles_data,
+            **validated_data,
+        )
+        # Transient, never persisted — the view reads this once off
+        # `serializer.instance` to build the 201 response, then it's gone.
+        user.temporary_password = temporary_password
+        return user
+
+
+class UserAdminUpdateSerializer(serializers.ModelSerializer):
+    """
+    SYSPCC-018: edits a user's profile/role assignments. No `password`
+    field — password changes only happen via `reset-password` (admin) or
+    `me/change-password` (self).
+    """
+
+    roles = UserRoleAssignmentSerializer(many=True, required=False)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'position',
+            'department',
+            'phone',
+            'is_active',
+            'roles',
+        ]
+        read_only_fields = ['id']
+
+    def update(self, instance, validated_data):
+        # `roles` absent from the payload => `None` => leave role
+        # assignments untouched. `roles: []` => validated_data holds `[]`
+        # => clear every assignment. See UserAdminService.update_user.
+        roles_data = validated_data.pop('roles', None)
+        request = self.context['request']
+        return UserAdminService.update_user(
+            actor=request.user,
+            user=instance,
+            roles_data=roles_data,
+            **validated_data,
+        )
+
+
+class UserAdminListSerializer(serializers.ModelSerializer):
+    """
+    SYSPCC-018: list serializer used only when the requester is a
+    superuser (see `UserViewSet.get_serializer_class`) — includes nested
+    role assignments and superuser/staff flags, not shown to regular users.
+    """
+
+    full_name = serializers.CharField(read_only=True)
+    roles = UserRoleSerializer(source='user_roles', many=True, read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'email',
+            'full_name',
+            'position',
+            'department',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'date_joined',
+            'roles',
+        ]
 
 
 class ChangePasswordSerializer(serializers.Serializer):

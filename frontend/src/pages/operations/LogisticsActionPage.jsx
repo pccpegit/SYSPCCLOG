@@ -57,7 +57,7 @@ function formatQty(val) {
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600 dark:border-teal-400" />
     </div>
   );
 }
@@ -139,7 +139,7 @@ function LogisticsProgressBar({ currentStatus }) {
                     isDone
                       ? 'bg-teal-500 border-teal-500'
                       : isActive
-                        ? 'bg-teal-600 border-teal-600 ring-4 ring-teal-100'
+                        ? 'bg-teal-600 dark:bg-teal-400 border-teal-600 dark:border-teal-400 ring-4 ring-teal-100 dark:ring-teal-500/30'
                         : 'bg-white border-gray-200'
                   }`}
                 >
@@ -153,7 +153,7 @@ function LogisticsProgressBar({ currentStatus }) {
                 <span
                   className={`mt-1.5 text-xs font-medium text-center leading-tight max-w-[70px] ${
                     isActive
-                      ? 'text-teal-700'
+                      ? 'text-teal-700 dark:text-teal-300'
                       : isDone
                         ? 'text-teal-500'
                         : 'text-gray-400'
@@ -265,26 +265,26 @@ function ItemsTable({ items, showStock, stockData = [] }) {
                     <>
                       <td className="py-3 px-4 text-right">
                         <span className={`text-sm font-semibold ${
-                          stkObra > 0 ? 'text-teal-600' : 'text-gray-400'
+                          stkObra > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'
                         }`}>
                           {formatQty(stkObra)}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span className={`text-sm font-semibold ${
-                          stkCentral > 0 ? 'text-blue-600' : 'text-gray-400'
+                          stkCentral > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
                         }`}>
                           {formatQty(stkCentral)}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center">
                         {hasStock ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full dark:bg-green-500/10 dark:text-green-300">
                             <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                             Sí
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold bg-red-100 text-red-700 px-2 py-1 rounded-full dark:bg-red-500/10 dark:text-red-300">
                             <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                             No
                           </span>
@@ -292,7 +292,7 @@ function ItemsTable({ items, showStock, stockData = [] }) {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span className={`text-sm font-semibold ${
-                          xAtender > 0 ? 'text-orange-600' : 'text-green-600'
+                          xAtender > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'
                         }`}>
                           {xAtender > 0 ? formatQty(xAtender) : '—'}
                         </span>
@@ -381,11 +381,11 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
 
   return (
     <div className="space-y-4">
-      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-teal-600 shrink-0 mt-0.5" />
+      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3 dark:bg-teal-500/10 dark:border-teal-500/30">
+        <Info size={16} className="text-teal-600 shrink-0 mt-0.5 dark:text-teal-400" />
         <div>
-          <p className="text-sm font-semibold text-teal-800">Verificación de Stock por Ítem</p>
-          <p className="text-xs text-teal-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">Verificación de Stock por Ítem</p>
+          <p className="text-xs text-teal-700 mt-0.5 leading-relaxed dark:text-teal-300">
             Marque cada ítem como "Atender de Stock" o "Requiere Compra" según la disponibilidad.
           </p>
         </div>
@@ -411,7 +411,7 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
               <div
                 key={idx}
                 className={`px-6 py-4 transition-all ${
-                  source === 'stock' ? 'bg-teal-50/50' : source === 'purchase' ? 'bg-orange-50/50' : ''
+                  source === 'stock' ? 'bg-teal-50/50 dark:bg-teal-500/10' : source === 'purchase' ? 'bg-orange-50/50 dark:bg-orange-500/10' : ''
                 }`}
               >
                 {/* Item header */}
@@ -428,13 +428,13 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
                   {/* Status indicator */}
                   {totalStock > 0 ? (
                     <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                      sufficient ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                      sufficient ? 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300'
                     }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${sufficient ? 'bg-green-500' : 'bg-yellow-500'}`} />
                       {sufficient ? 'Stock suficiente' : 'Stock parcial'}
                     </span>
                   ) : (
-                    <span className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-red-100 text-red-700">
+                    <span className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-300">
                       <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                       Sin stock
                     </span>
@@ -450,19 +450,19 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
                   </div>
                   <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
                     <p className="text-xs text-gray-400">Almacén Central</p>
-                    <p className={`text-sm font-bold ${stkCentral > 0 ? 'text-blue-600' : 'text-gray-300'}`}>{formatQty(stkCentral)}</p>
+                    <p className={`text-sm font-bold ${stkCentral > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300'}`}>{formatQty(stkCentral)}</p>
                     <p className="text-xs text-gray-400">{item.unit}</p>
                   </div>
                   <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
                     <p className="text-xs text-gray-400">Almacén Obra</p>
-                    <p className={`text-sm font-bold ${stkObra > 0 ? 'text-teal-600' : 'text-gray-300'}`}>{formatQty(stkObra)}</p>
+                    <p className={`text-sm font-bold ${stkObra > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-gray-300'}`}>{formatQty(stkObra)}</p>
                     <p className="text-xs text-gray-400">{item.unit}</p>
                   </div>
                   <div className={`rounded-lg border px-3 py-2 text-center ${
-                    qty - totalStock > 0 ? 'bg-orange-50 border-orange-200' : 'bg-green-50 border-green-200'
+                    qty - totalStock > 0 ? 'bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/30' : 'bg-green-50 border-green-200 dark:bg-green-500/10 dark:border-green-500/30'
                   }`}>
                     <p className="text-xs text-gray-400">Faltante</p>
-                    <p className={`text-sm font-bold ${qty - totalStock > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    <p className={`text-sm font-bold ${qty - totalStock > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
                       {formatQty(Math.max(0, qty - totalStock))}
                     </p>
                     <p className="text-xs text-gray-400">{item.unit}</p>
@@ -477,7 +477,7 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
                     className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all border-2 ${
                       source === 'stock'
                         ? 'bg-teal-600 text-white border-teal-600 shadow-md'
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-teal-300 hover:text-teal-700'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-teal-300 hover:text-teal-700 dark:hover:border-teal-500/30 dark:hover:text-teal-300'
                     }`}
                   >
                     <CheckCircle2 size={16} />
@@ -489,7 +489,7 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
                     className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all border-2 ${
                       source === 'purchase'
                         ? 'bg-orange-500 text-white border-orange-500 shadow-md'
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-orange-300 hover:text-orange-700'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-orange-300 hover:text-orange-700 dark:hover:border-orange-500/30 dark:hover:text-orange-300'
                     }`}
                   >
                     <ShoppingCart size={16} />
@@ -504,8 +504,8 @@ function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onActio
 
       {/* Summary */}
       {allAssigned && (
-        <div className={`rounded-xl border p-4 ${hasAnyPurchase ? 'bg-orange-50 border-orange-200' : 'bg-teal-50 border-teal-200'}`}>
-          <p className={`text-sm font-semibold ${hasAnyPurchase ? 'text-orange-800' : 'text-teal-800'}`}>
+        <div className={`rounded-xl border p-4 ${hasAnyPurchase ? 'bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/30' : 'bg-teal-50 border-teal-200 dark:bg-teal-500/10 dark:border-teal-500/30'}`}>
+          <p className={`text-sm font-semibold ${hasAnyPurchase ? 'text-orange-800 dark:text-orange-300' : 'text-teal-800 dark:text-teal-300'}`}>
             {allStock
               ? 'Todos los ítems se pueden atender de stock.'
               : `${Object.values(itemSources).filter((v) => v === 'purchase').length} ítem(s) requieren compra, ${Object.values(itemSources).filter((v) => v === 'stock').length} se atienden de stock.`
@@ -548,11 +548,11 @@ function RequestQuotesPanel({ items, submitting, notes, onNotes, onAction }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-orange-600 shrink-0 mt-0.5" />
+      <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3 dark:bg-orange-500/10 dark:border-orange-500/30">
+        <Info size={16} className="text-orange-600 shrink-0 mt-0.5 dark:text-orange-400" />
         <div>
-          <p className="text-sm font-semibold text-orange-800">Requiere Compra</p>
-          <p className="text-xs text-orange-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">Requiere Compra</p>
+          <p className="text-xs text-orange-700 mt-0.5 leading-relaxed dark:text-orange-300">
             Solicite cotizaciones a proveedores para los ítems marcados como compra.
           </p>
         </div>
@@ -562,8 +562,8 @@ function RequestQuotesPanel({ items, submitting, notes, onNotes, onAction }) {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {purchaseItems.length > 0 && (
           <>
-            <div className="px-6 py-3 bg-orange-50 border-b border-orange-200">
-              <h3 className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+            <div className="px-6 py-3 bg-orange-50 border-b border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/30">
+              <h3 className="text-sm font-semibold text-orange-800 flex items-center gap-2 dark:text-orange-300">
                 <ShoppingCart size={16} />
                 Ítems para Compra ({purchaseItems.length})
               </h3>
@@ -576,8 +576,8 @@ function RequestQuotesPanel({ items, submitting, notes, onNotes, onAction }) {
                     <p className="text-xs text-gray-400">Línea {item.line_number}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-orange-600">{formatQty(item.quantity)} {item.unit}</p>
-                    <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Compra</span>
+                    <p className="text-sm font-bold text-orange-600 dark:text-orange-400">{formatQty(item.quantity)} {item.unit}</p>
+                    <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full dark:bg-orange-500/10 dark:text-orange-300">Compra</span>
                   </div>
                 </div>
               ))}
@@ -586,8 +586,8 @@ function RequestQuotesPanel({ items, submitting, notes, onNotes, onAction }) {
         )}
         {stockItems.length > 0 && (
           <>
-            <div className="px-6 py-3 bg-teal-50 border-b border-teal-200 border-t border-t-gray-200">
-              <h3 className="text-sm font-semibold text-teal-800 flex items-center gap-2">
+            <div className="px-6 py-3 bg-teal-50 border-b border-teal-200 border-t border-t-gray-200 dark:bg-teal-500/10 dark:border-teal-500/30">
+              <h3 className="text-sm font-semibold text-teal-800 flex items-center gap-2 dark:text-teal-300">
                 <CheckCircle2 size={16} />
                 Ítems de Stock ({stockItems.length})
               </h3>
@@ -600,8 +600,8 @@ function RequestQuotesPanel({ items, submitting, notes, onNotes, onAction }) {
                     <p className="text-xs text-gray-400">Línea {item.line_number}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-teal-600">{formatQty(item.quantity)} {item.unit}</p>
-                    <span className="text-xs font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">Stock</span>
+                    <p className="text-sm font-bold text-teal-600 dark:text-teal-400">{formatQty(item.quantity)} {item.unit}</p>
+                    <span className="text-xs font-semibold bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full dark:bg-teal-500/10 dark:text-teal-300">Stock</span>
                   </div>
                 </div>
               ))}
@@ -719,11 +719,11 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
-        <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 dark:bg-blue-500/10 dark:border-blue-500/30">
+        <Info size={16} className="text-blue-600 shrink-0 mt-0.5 dark:text-blue-400" />
         <div>
-          <p className="text-sm font-semibold text-blue-800">Gestión de Cotizaciones</p>
-          <p className="text-xs text-blue-700 mt-0.5 leading-relaxed">
+          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">Gestión de Cotizaciones</p>
+          <p className="text-xs text-blue-700 mt-0.5 leading-relaxed dark:text-blue-300">
             Registre las cotizaciones de los proveedores, compare precios y seleccione la mejor opción.
           </p>
         </div>
@@ -734,7 +734,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
         <button
           type="button"
           onClick={() => setShowForm(true)}
-          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold rounded-xl hover:bg-blue-50 hover:border-blue-400 transition-all"
+          className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold rounded-xl hover:bg-blue-50 hover:border-blue-400 transition-all dark:border-blue-500/30 dark:text-blue-400 dark:hover:bg-blue-500/10 dark:hover:border-blue-500/30"
         >
           <ClipboardCheck size={18} />
           Agregar Cotización de Proveedor
@@ -743,9 +743,9 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
 
       {/* Quotation form */}
       {showForm && (
-        <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 bg-blue-50 border-b border-blue-200">
-            <h3 className="text-sm font-semibold text-blue-800">Nueva Cotización</h3>
+        <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden dark:border-blue-500/30">
+          <div className="px-6 py-4 bg-blue-50 border-b border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/30">
+            <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300">Nueva Cotización</h3>
           </div>
           <div className="p-6 space-y-4">
             {/* Supplier select or new */}
@@ -773,9 +773,9 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
                 </div>
               </div>
             ) : (
-              <div className="bg-teal-50 border border-teal-200 rounded-lg p-4 space-y-3">
+              <div className="bg-teal-50 border border-teal-200 rounded-lg p-4 space-y-3 dark:bg-teal-500/10 dark:border-teal-500/30">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-teal-800">Nuevo Proveedor</h4>
+                  <h4 className="text-sm font-semibold text-teal-800 dark:text-teal-300">Nuevo Proveedor</h4>
                   <button onClick={() => setShowNewSupplier(false)} className="text-gray-400 hover:text-gray-600">
                     <XCircle size={16} />
                   </button>
@@ -903,7 +903,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
                           {/* Total - 4 cols */}
                           <div className="col-span-4">
                             <label className="block text-xs text-gray-400 mb-1">Total</label>
-                            <p className={`text-sm font-bold py-2 px-3 rounded-lg text-right ${lineTotal > 0 ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
+                            <p className={`text-sm font-bold py-2 px-3 rounded-lg text-right ${lineTotal > 0 ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/10 dark:text-blue-300 dark:border-blue-500/30' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
                               {lineTotal > 0 ? `S/ ${lineTotal.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'S/ 0.00'}
                             </p>
                           </div>
@@ -983,7 +983,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-700">Cotizaciones Registradas ({quotations.length})</h3>
           {quotations.map((q) => (
-            <div key={q.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden ${q.total === cheapestTotal && quotations.length > 1 ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200'}`}>
+            <div key={q.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden ${q.total === cheapestTotal && quotations.length > 1 ? 'border-green-300 ring-2 ring-green-100 dark:border-green-500/30 dark:ring-green-500/30' : 'border-gray-200'}`}>
               <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-gray-800">{q.supplier_name}</p>
@@ -995,7 +995,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
                     <p className="text-xs text-gray-400">{q.delivery_days} días · {q.payment_conditions || '—'}</p>
                   </div>
                   {q.total === cheapestTotal && quotations.length > 1 && (
-                    <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full">Mejor precio</span>
+                    <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full dark:bg-green-500/10 dark:text-green-300">Mejor precio</span>
                   )}
                   <button onClick={() => removeQuotation(q.id)} className="text-gray-400 hover:text-red-500 transition-colors">
                     <XCircle size={18} />
@@ -1018,8 +1018,8 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
       {/* Comparison table */}
       {quotations.length >= 2 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-200">
-            <h3 className="text-sm font-semibold text-indigo-800">Cuadro Comparativo</h3>
+          <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/30">
+            <h3 className="text-sm font-semibold text-indigo-800 dark:text-indigo-300">Cuadro Comparativo</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1046,7 +1046,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
                         const price = qi?.unit_price ?? 0;
                         const isCheapest = price > 0 && price === minPrice;
                         return (
-                          <td key={q.id} className={`py-2.5 px-4 text-right font-medium ${isCheapest ? 'text-green-700 bg-green-50' : 'text-gray-700'}`}>
+                          <td key={q.id} className={`py-2.5 px-4 text-right font-medium ${isCheapest ? 'text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-500/10' : 'text-gray-700'}`}>
                             {formatCurrency(price)}
                           </td>
                         );
@@ -1060,7 +1060,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
                   {quotations.map((q) => {
                     const minDays = Math.min(...quotations.map((qq) => qq.delivery_days).filter((d) => d > 0));
                     return (
-                      <td key={q.id} className={`py-2.5 px-4 text-right text-sm font-semibold ${q.delivery_days === minDays ? 'text-green-700' : 'text-gray-700'}`}>
+                      <td key={q.id} className={`py-2.5 px-4 text-right text-sm font-semibold ${q.delivery_days === minDays ? 'text-green-700 dark:text-green-300' : 'text-gray-700'}`}>
                         {q.delivery_days} días
                       </td>
                     );
@@ -1070,7 +1070,7 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
                 <tr className="bg-gray-50 border-t-2 border-gray-200">
                   <td className="py-3 px-4 text-sm font-bold text-gray-800">TOTAL</td>
                   {quotations.map((q) => (
-                    <td key={q.id} className={`py-3 px-4 text-right text-base font-bold ${q.total === cheapestTotal ? 'text-green-700' : 'text-gray-800'}`}>
+                    <td key={q.id} className={`py-3 px-4 text-right text-base font-bold ${q.total === cheapestTotal ? 'text-green-700 dark:text-green-300' : 'text-gray-800'}`}>
                       {formatCurrency(q.total)}
                     </td>
                   ))}
@@ -1093,14 +1093,14 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
               disabled={submitting}
               className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl text-sm font-semibold transition-all border-2 ${
                 q.total === cheapestTotal
-                  ? 'border-green-300 bg-green-50 text-green-800 hover:bg-green-100 hover:shadow-md'
+                  ? 'border-green-300 bg-green-50 text-green-800 hover:bg-green-100 hover:shadow-md dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300 dark:hover:bg-green-500/15'
                   : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-300'
               } disabled:opacity-50`}
             >
               <div className="flex items-center gap-3">
                 <CheckCircle2 size={18} />
                 <span>{q.supplier_name}</span>
-                {q.total === cheapestTotal && <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">Mejor precio</span>}
+                {q.total === cheapestTotal && <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full dark:bg-green-500/10 dark:text-green-300">Mejor precio</span>}
               </div>
               <span className="font-bold">{formatCurrency(q.total)} · {q.delivery_days}d</span>
             </button>
@@ -1109,8 +1109,8 @@ function SelectQuotePanel({ requestId, items, submitting, notes, onNotes, onActi
       )}
 
       {quotations.length < 2 && quotations.length > 0 && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-xs text-amber-700 font-medium">
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg dark:bg-amber-500/10 dark:border-amber-500/30">
+          <p className="text-xs text-amber-700 font-medium dark:text-amber-300">
             Agregue al menos 2 cotizaciones para comparar y seleccionar proveedor.
           </p>
         </div>
@@ -1147,11 +1147,11 @@ function ConformityCheckPanel({ items, isReplacement, submitting, notes, onNotes
     return (
       <div className="space-y-4">
         {/* Header */}
-        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3">
-          <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3 dark:bg-red-500/10 dark:border-red-500/30">
+          <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5 dark:text-red-400" />
           <div>
-            <p className="text-sm font-semibold text-red-800">Registrar Inconformidades</p>
-            <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+            <p className="text-sm font-semibold text-red-800 dark:text-red-300">Registrar Inconformidades</p>
+            <p className="text-xs text-red-700 mt-0.5 leading-relaxed dark:text-red-300">
               Detalle las inconformidades encontradas. Esta información se guardará en el historial
               del requerimiento y será enviada al proveedor como reclamo formal.
             </p>
@@ -1179,9 +1179,9 @@ function ConformityCheckPanel({ items, isReplacement, submitting, notes, onNotes
 
         {/* Per-item issues */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 bg-red-50 border-b border-red-100">
-            <p className="text-sm font-semibold text-red-800">Detalle por Ítem</p>
-            <p className="text-xs text-red-600 mt-0.5">Indique qué problema tiene cada ítem (opcional).</p>
+          <div className="px-5 py-3 bg-red-50 border-b border-red-100 dark:bg-red-500/10 dark:border-red-500/30">
+            <p className="text-sm font-semibold text-red-800 dark:text-red-300">Detalle por Ítem</p>
+            <p className="text-xs text-red-600 mt-0.5 dark:text-red-400">Indique qué problema tiene cada ítem (opcional).</p>
           </div>
           <div className="divide-y divide-gray-50">
             {items.map((item) => (
@@ -1192,7 +1192,7 @@ function ConformityCheckPanel({ items, isReplacement, submitting, notes, onNotes
                     <p className="text-xs text-gray-400">{formatQty(item.quantity)} {item.unit}</p>
                   </div>
                   {itemIssues[item.id]?.trim() && (
-                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3">Con observación</span>
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3 dark:bg-red-500/10 dark:text-red-300">Con observación</span>
                   )}
                 </div>
                 <input
@@ -1249,13 +1249,13 @@ function ConformityCheckPanel({ items, isReplacement, submitting, notes, onNotes
   return (
     <div className="space-y-4">
       {/* Banner */}
-      <div className={`${isReplacement ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'} border rounded-xl p-4 flex gap-3`}>
-        <ClipboardCheck size={16} className={`${isReplacement ? 'text-amber-600' : 'text-blue-600'} shrink-0 mt-0.5`} />
+      <div className={`${isReplacement ? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30' : 'bg-blue-50 border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/30'} border rounded-xl p-4 flex gap-3`}>
+        <ClipboardCheck size={16} className={`${isReplacement ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'} shrink-0 mt-0.5`} />
         <div>
-          <p className={`text-sm font-semibold ${isReplacement ? 'text-amber-800' : 'text-blue-800'}`}>
+          <p className={`text-sm font-semibold ${isReplacement ? 'text-amber-800 dark:text-amber-300' : 'text-blue-800 dark:text-blue-300'}`}>
             {isReplacement ? 'Reposición Recibida — Verificar Nuevamente' : 'Paso 15 — ¿Está todo conforme?'}
           </p>
-          <p className={`text-xs ${isReplacement ? 'text-amber-700' : 'text-blue-700'} mt-0.5 leading-relaxed`}>
+          <p className={`text-xs ${isReplacement ? 'text-amber-700 dark:text-amber-300' : 'text-blue-700 dark:text-blue-300'} mt-0.5 leading-relaxed`}>
             {isReplacement
               ? 'El proveedor envió materiales de reemplazo. Verifique que esta vez cumplan con lo solicitado en la OC.'
               : 'Verifique que los materiales recibidos cumplan con las especificaciones de la Orden de Compra.'}
@@ -1275,7 +1275,7 @@ function ConformityCheckPanel({ items, isReplacement, submitting, notes, onNotes
                 <p className="text-sm font-medium text-gray-800">{item.description}</p>
                 <p className="text-xs text-gray-400">{formatQty(item.quantity)} {item.unit}</p>
               </div>
-              <span className={`text-xs ${isReplacement ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'} px-2 py-0.5 rounded-full font-medium shrink-0 ml-3`}>
+              <span className={`text-xs ${isReplacement ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'} px-2 py-0.5 rounded-full font-medium shrink-0 ml-3`}>
                 {isReplacement ? 'Reposición' : 'Verificar'}
               </span>
             </div>
@@ -1342,15 +1342,15 @@ function GeneratePOPanel({ status, submitting, notes, onNotes, onAction }) {
     : 'Verifique el monto de la cotización contra el presupuesto aprobado y genere la Orden de Compra.';
 
   const bannerColor = fromCostOverrun
-    ? 'bg-amber-50 border-amber-200'
-    : 'bg-green-50 border-green-200';
-  const bannerIcon = fromCostOverrun ? 'text-amber-600' : alreadyApproved ? 'text-green-600' : 'text-indigo-600';
-  const bannerTextColor = fromCostOverrun ? 'text-amber-800' : alreadyApproved ? 'text-green-800' : 'text-indigo-800';
-  const bannerDescColor = fromCostOverrun ? 'text-amber-700' : alreadyApproved ? 'text-green-700' : 'text-indigo-700';
+    ? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30'
+    : 'bg-green-50 border-green-200 dark:bg-green-500/10 dark:border-green-500/30';
+  const bannerIcon = fromCostOverrun ? 'text-amber-600 dark:text-amber-400' : alreadyApproved ? 'text-green-600 dark:text-green-400' : 'text-indigo-600 dark:text-indigo-400';
+  const bannerTextColor = fromCostOverrun ? 'text-amber-800 dark:text-amber-300' : alreadyApproved ? 'text-green-800 dark:text-green-300' : 'text-indigo-800 dark:text-indigo-300';
+  const bannerDescColor = fromCostOverrun ? 'text-amber-700 dark:text-amber-300' : alreadyApproved ? 'text-green-700 dark:text-green-300' : 'text-indigo-700 dark:text-indigo-300';
 
   return (
     <div className="space-y-4">
-      <div className={`${alreadyApproved ? bannerColor : 'bg-indigo-50 border-indigo-200'} border rounded-xl p-4 flex gap-3`}>
+      <div className={`${alreadyApproved ? bannerColor : 'bg-indigo-50 border-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/30'} border rounded-xl p-4 flex gap-3`}>
         {fromCostOverrun ? (
           <AlertCircle size={16} className={`${bannerIcon} shrink-0 mt-0.5`} />
         ) : (
@@ -1389,10 +1389,10 @@ function GeneratePOPanel({ status, submitting, notes, onNotes, onAction }) {
 function InStockPanel({ navigate }) {
   return (
     <div className="space-y-4">
-      <div className="bg-teal-50 border border-teal-300 rounded-xl p-6 flex flex-col items-center text-center gap-3">
+      <div className="bg-teal-50 border border-teal-300 rounded-xl p-6 flex flex-col items-center text-center gap-3 dark:bg-teal-500/10 dark:border-teal-500/30">
         <CheckCircle2 size={40} className="text-teal-500" />
-        <p className="text-base font-bold text-teal-800">Stock Disponible</p>
-        <p className="text-sm text-teal-700 max-w-xs leading-relaxed">
+        <p className="text-base font-bold text-teal-800 dark:text-teal-300">Stock Disponible</p>
+        <p className="text-sm text-teal-700 max-w-xs leading-relaxed dark:text-teal-300">
           El pedido ha sido derivado al Almacén para su atención y despacho a obra.
         </p>
         <button
@@ -1412,10 +1412,10 @@ function InStockPanel({ navigate }) {
 function POGeneratedPanel({ navigate }) {
   return (
     <div className="space-y-4">
-      <div className="bg-indigo-50 border border-indigo-300 rounded-xl p-6 flex flex-col items-center text-center gap-3">
+      <div className="bg-indigo-50 border border-indigo-300 rounded-xl p-6 flex flex-col items-center text-center gap-3 dark:bg-indigo-500/10 dark:border-indigo-500/30">
         <Package size={40} className="text-indigo-500" />
-        <p className="text-base font-bold text-indigo-800">Orden de Compra Generada</p>
-        <p className="text-sm text-indigo-700 max-w-xs leading-relaxed">
+        <p className="text-base font-bold text-indigo-800 dark:text-indigo-300">Orden de Compra Generada</p>
+        <p className="text-sm text-indigo-700 max-w-xs leading-relaxed dark:text-indigo-300">
           La orden de compra ha sido registrada. El flujo continua con la recepción en almacén.
         </p>
         <button
@@ -1680,7 +1680,7 @@ export default function LogisticsActionPage() {
         <h2 className="text-xl font-bold text-gray-800">Requerimiento no encontrado</h2>
         <button
           onClick={() => navigate('/rq/logistics')}
-          className="mt-4 text-sm text-blue-600 hover:underline"
+          className="mt-4 text-sm text-blue-600 hover:underline dark:text-blue-400"
         >
           Volver al Panel Logístico
         </button>
@@ -1736,9 +1736,9 @@ export default function LogisticsActionPage() {
         return (
           <div className="space-y-4">
             {/* Selected quotation details */}
-            <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-200">
-                <h3 className="text-sm font-semibold text-indigo-800">Cotización Seleccionada</h3>
+            <div className="bg-white rounded-xl border border-indigo-200 shadow-sm overflow-hidden dark:border-indigo-500/30">
+              <div className="px-6 py-4 bg-indigo-50 border-b border-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/30">
+                <h3 className="text-sm font-semibold text-indigo-800 dark:text-indigo-300">Cotización Seleccionada</h3>
               </div>
               {selectedQuotation ? (
                 <div className="p-6 space-y-4">
@@ -1749,7 +1749,7 @@ export default function LogisticsActionPage() {
                       <p className="text-xs text-gray-400 mt-0.5">RUC: {selectedQuotation.supplier_ruc ?? '—'}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-2xl font-bold text-indigo-700">{formatCurrency(selectedQuotation.total_amount)}</p>
+                      <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">{formatCurrency(selectedQuotation.total_amount)}</p>
                       <div className="flex items-center gap-3 justify-end mt-1">
                         {selectedQuotation.delivery_days && (
                           <span className="text-xs text-gray-500">Entrega: <strong>{selectedQuotation.delivery_days} días</strong></span>
@@ -1783,9 +1783,9 @@ export default function LogisticsActionPage() {
                           ))}
                           <tr>
                             <td colSpan={4} className="p-0">
-                              <div className="mx-4 my-3 bg-gradient-to-r from-indigo-50 to-indigo-100 border border-indigo-200 rounded-xl px-5 py-3 flex items-center justify-between">
-                                <span className="text-sm font-bold text-indigo-800 uppercase tracking-wide">Total Cotización</span>
-                                <span className="text-xl font-extrabold text-indigo-700">{formatCurrency(selectedQuotation.total_amount)}</span>
+                              <div className="mx-4 my-3 bg-gradient-to-r from-indigo-50 to-indigo-100 border border-indigo-200 rounded-xl px-5 py-3 flex items-center justify-between dark:from-indigo-500/10 dark:to-indigo-500/10 dark:border-indigo-500/30">
+                                <span className="text-sm font-bold text-indigo-800 uppercase tracking-wide dark:text-indigo-300">Total Cotización</span>
+                                <span className="text-xl font-extrabold text-indigo-700 dark:text-indigo-300">{formatCurrency(selectedQuotation.total_amount)}</span>
                               </div>
                             </td>
                           </tr>
@@ -1802,11 +1802,11 @@ export default function LogisticsActionPage() {
             </div>
 
             {/* Status info */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
-              <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 dark:bg-blue-500/10 dark:border-blue-500/30">
+              <Info size={16} className="text-blue-600 shrink-0 mt-0.5 dark:text-blue-400" />
               <div>
-                <p className="text-sm font-semibold text-blue-800">Pendiente de Verificación Presupuestal</p>
-                <p className="text-xs text-blue-700 mt-0.5">
+                <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">Pendiente de Verificación Presupuestal</p>
+                <p className="text-xs text-blue-700 mt-0.5 dark:text-blue-300">
                   La cotización fue enviada a <strong>Control de Proyecto</strong> para verificar si está dentro del presupuesto.
                   Cuando Control apruebe, podrás generar la Orden de Compra.
                 </p>
@@ -1837,11 +1837,11 @@ export default function LogisticsActionPage() {
         return (
           <div className="space-y-4">
             {/* Info banner */}
-            <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3">
-              <Package size={16} className="text-teal-600 shrink-0 mt-0.5" />
+            <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3 dark:bg-teal-500/10 dark:border-teal-500/30">
+              <Package size={16} className="text-teal-600 shrink-0 mt-0.5 dark:text-teal-400" />
               <div>
-                <p className="text-sm font-semibold text-teal-800">Orden de Compra Generada</p>
-                <p className="text-xs text-teal-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">Orden de Compra Generada</p>
+                <p className="text-xs text-teal-700 mt-0.5 leading-relaxed dark:text-teal-300">
                   La OC fue enviada al proveedor. Cuando los materiales lleguen, registre la recepción.
                 </p>
               </div>
@@ -1856,7 +1856,7 @@ export default function LogisticsActionPage() {
                     <p className="text-base font-bold text-gray-800">{selectedQuotation.supplier_name}</p>
                     <p className="text-xs text-gray-400">RUC: {selectedQuotation.supplier_ruc ?? '—'}</p>
                   </div>
-                  <p className="text-lg font-bold text-teal-700">{formatCurrency(selectedQuotation.total_amount)}</p>
+                  <p className="text-lg font-bold text-teal-700 dark:text-teal-300">{formatCurrency(selectedQuotation.total_amount)}</p>
                 </div>
                 {(selectedQuotation.delivery_days || selectedQuotation.payment_terms) && (
                   <div className="flex gap-3 mt-2">
@@ -1883,7 +1883,7 @@ export default function LogisticsActionPage() {
                       <p className="text-sm font-medium text-gray-800">{item.description}</p>
                       <p className="text-xs text-gray-400">{formatQty(item.quantity)} {item.unit}</p>
                     </div>
-                    <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3">Pendiente</span>
+                    <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-medium shrink-0 ml-3 dark:bg-teal-500/10 dark:text-teal-300">Pendiente</span>
                   </div>
                 ))}
               </div>
@@ -1961,11 +1961,11 @@ export default function LogisticsActionPage() {
       case STATUS.QUALITY_APPROVED:
         return (
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3">
-              <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3 dark:bg-green-500/10 dark:border-green-500/30">
+              <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5 dark:text-green-400" />
               <div>
-                <p className="text-sm font-semibold text-green-800">Paso 16 — Entrega a Obra</p>
-                <p className="text-xs text-green-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold text-green-800 dark:text-green-300">Paso 16 — Entrega a Obra</p>
+                <p className="text-xs text-green-700 mt-0.5 leading-relaxed dark:text-green-300">
                   Los materiales fueron verificados y están conformes. Despache al Almacén de Obra.
                 </p>
               </div>
@@ -2009,11 +2009,11 @@ export default function LogisticsActionPage() {
         return (
           <div className="space-y-4">
             {/* Alert banner */}
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3">
-              <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3 dark:bg-red-500/10 dark:border-red-500/30">
+              <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5 dark:text-red-400" />
               <div>
-                <p className="text-sm font-semibold text-red-800">Materiales No Conformes</p>
-                <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold text-red-800 dark:text-red-300">Materiales No Conformes</p>
+                <p className="text-xs text-red-700 mt-0.5 leading-relaxed dark:text-red-300">
                   Los materiales no cumplen con lo solicitado. Envíe un reclamo formal al proveedor solicitando el cambio.
                 </p>
               </div>
@@ -2061,11 +2061,11 @@ export default function LogisticsActionPage() {
         return (
           <div className="space-y-4">
             {/* Status banner */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-              <Clock size={16} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 dark:bg-amber-500/10 dark:border-amber-500/30">
+              <Clock size={16} className="text-amber-600 shrink-0 mt-0.5 dark:text-amber-400" />
               <div>
-                <p className="text-sm font-semibold text-amber-800">Reclamo Enviado — Esperando Reposición del Proveedor</p>
-                <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Reclamo Enviado — Esperando Reposición del Proveedor</p>
+                <p className="text-xs text-amber-700 mt-0.5 leading-relaxed dark:text-amber-300">
                   Se envió un reclamo formal al proveedor solicitando el cambio de materiales.
                   Cuando el proveedor entregue la reposición, regístrela para verificar conformidad nuevamente.
                 </p>
@@ -2126,7 +2126,7 @@ export default function LogisticsActionPage() {
                   ),
                 })}
                 disabled={submitting || !notes.trim()}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-amber-300 text-amber-700 text-sm font-bold rounded-xl hover:bg-amber-50 transition-all disabled:opacity-50"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-amber-300 text-amber-700 text-sm font-bold rounded-xl hover:bg-amber-50 transition-all disabled:opacity-50 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/10"
               >
                 {submitting ? 'Guardando...' : 'Actualizar Seguimiento del Reclamo'}
               </button>
@@ -2136,11 +2136,11 @@ export default function LogisticsActionPage() {
       case STATUS.USER_CONFORMITY:
         return (
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3">
-              <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex gap-3 dark:bg-green-500/10 dark:border-green-500/30">
+              <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5 dark:text-green-400" />
               <div>
-                <p className="text-sm font-semibold text-green-800">Paso 19 — Actualizar Status del RQ</p>
-                <p className="text-xs text-green-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold text-green-800 dark:text-green-300">Paso 19 — Actualizar Status del RQ</p>
+                <p className="text-xs text-green-700 mt-0.5 leading-relaxed dark:text-green-300">
                   El solicitante confirmó la recepción conforme de los materiales. Proceda a cerrar el requerimiento.
                 </p>
               </div>
@@ -2183,11 +2183,11 @@ export default function LogisticsActionPage() {
       case STATUS.CLAIM_IN_REVIEW:
         return (
           <div className="space-y-4">
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3">
-              <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex gap-3 dark:bg-red-500/10 dark:border-red-500/30">
+              <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5 dark:text-red-400" />
               <div>
-                <p className="text-sm font-semibold text-red-800">Reclamo del Solicitante — Paso 18.2</p>
-                <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+                <p className="text-sm font-semibold text-red-800 dark:text-red-300">Reclamo del Solicitante — Paso 18.2</p>
+                <p className="text-xs text-red-700 mt-0.5 leading-relaxed dark:text-red-300">
                   El solicitante reportó inconformidades con los materiales entregados.
                   Gestione el reclamo al proveedor y solicite el cambio.
                 </p>
@@ -2196,10 +2196,10 @@ export default function LogisticsActionPage() {
 
             {/* Show the user's claim from approvals */}
             {approvals.filter(a => a.action === 'USER_CLAIMED').length > 0 && (
-              <div className="bg-white rounded-xl border border-red-200 shadow-sm p-5">
-                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">Detalle del Reclamo del Solicitante</p>
+              <div className="bg-white rounded-xl border border-red-200 shadow-sm p-5 dark:border-red-500/30">
+                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2 dark:text-red-400">Detalle del Reclamo del Solicitante</p>
                 {approvals.filter(a => a.action === 'USER_CLAIMED').map((a, idx) => (
-                  <div key={idx} className="bg-red-50 rounded-lg p-4 mt-2 first:mt-0">
+                  <div key={idx} className="bg-red-50 rounded-lg p-4 mt-2 first:mt-0 dark:bg-red-500/10">
                     <p className="text-sm text-gray-800 whitespace-pre-line">{a.comments}</p>
                     <p className="text-xs text-gray-400 mt-2">
                       {a.performed_by_name} — {a.performed_at ? new Date(a.performed_at).toLocaleString('es-PE') : ''}
@@ -2253,7 +2253,7 @@ export default function LogisticsActionPage() {
             </p>
             <button
               onClick={() => navigate('/rq/logistics')}
-              className="mt-4 text-sm text-blue-600 hover:underline"
+              className="mt-4 text-sm text-blue-600 hover:underline dark:text-blue-400"
             >
               Volver al Panel Logístico
             </button>
@@ -2276,15 +2276,15 @@ export default function LogisticsActionPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl">
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl dark:bg-red-500/10 dark:border-red-500/30">
           <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-red-700">Error al procesar la acción</p>
-            <p className="text-sm text-red-600 mt-0.5">{error}</p>
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">Error al procesar la acción</p>
+            <p className="text-sm text-red-600 mt-0.5 dark:text-red-400">{error}</p>
           </div>
           <button
             onClick={() => setError(null)}
-            className="shrink-0 text-red-400 hover:text-red-600"
+            className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-400"
           >
             <XCircle size={18} />
           </button>
@@ -2295,11 +2295,11 @@ export default function LogisticsActionPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900 flex items-center gap-2">
-            <Truck size={26} className="text-teal-600" />
+            <Truck size={26} className="text-teal-600 dark:text-teal-400" />
             Gestión Logística
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            <span className="font-mono font-semibold text-teal-700">{rqNumber}</span>
+            <span className="font-mono font-semibold text-teal-700 dark:text-teal-300">{rqNumber}</span>
             {' '}— {req.description}
           </p>
         </div>

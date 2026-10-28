@@ -8,6 +8,8 @@ from datetime import timedelta
 from decouple import config
 from celery.schedules import crontab
 
+from .guards import check_cv_provider_value
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -51,6 +53,7 @@ LOCAL_APPS = [
     'apps.warehouse',
     'apps.administracion',
     'apps.support',
+    'apps.hr',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -61,7 +64,12 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # ============================================================
 
 MIDDLEWARE = [
+    # SYSPCC-024: FIRST on purpose — answers /healthz/ before host validation
+    # (ALLOWED_HOSTS) and the HTTPS redirect, which platform health checks
+    # would otherwise trip over (400 / 301).
+    'apps.core.middleware.HealthCheckMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'apps.hr.middleware.HRNoStoreMiddleware',  # SYSPCC-022: no-store on /api/v1/hr/*
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -120,6 +128,11 @@ DATABASES = {
 
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 
+# Cache alias that holds the DRF throttle counters (apps/core/throttling.py).
+# production.py points it at a process-local cache when Redis errors are
+# swallowed, so rate limits keep working during a Redis outage.
+THROTTLE_CACHE_ALIAS = 'default'
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
@@ -177,6 +190,17 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'warehouse.check_low_stock',
         'schedule': crontab(hour=7, minute=30),  # Every day at 7:30 AM Lima time
     },
+    # SYSPCC-023: re-enqueue CV items stuck in QUEUED/PROCESSING (worker crash, lost broker)
+    'hr-cv-requeue-stale': {
+        'task': 'hr.cv_requeue_stale',
+        'schedule': crontab(minute='*/5'),
+    },
+}
+
+# SYSPCC-023: CV analysis runs in its own queue so it never starves SLA/reminder tasks.
+CELERY_TASK_ROUTES = {
+    'hr.process_cv_item': {'queue': 'hr_cv'},
+    'hr.cv_requeue_stale': {'queue': 'hr_cv'},
 }
 
 # ============================================================
@@ -239,13 +263,24 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
     # FIX-09: Rate limiting to protect all endpoints and login specifically
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
+        # SYSPCC-024: same behaviour as DRF's Anon/UserRateThrottle, but the
+        # counters live in settings.THROTTLE_CACHE_ALIAS (see apps/core/throttling.py).
+        'apps.core.throttling.AnonThrottle',
+        'apps.core.throttling.UserThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/min',
         'user': '200/min',
         'login': '5/min',
+        # SYSPCC-024: per-username login limit (credential guessing from many IPs)
+        'login_user': '10/min',
+        # SYSPCC-022 (RR. HH.)
+        'hr_assistant': '20/min',
+        'hr_download': '60/min',
+        # SYSPCC-023 (CV analysis)
+        'hr_cv_upload': '60/min',
+        'hr_cv_progress': '90/min',
+        'hr_cv_posting': '20/min',
     },
 }
 
@@ -400,6 +435,111 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 
 # ============================================================
+# RR. HH. — contract generator (SYSPCC-022)
+# ============================================================
+
+# Private storage OUTSIDE MEDIA_ROOT: templates and generated contracts hold
+# PII (DNI, salary, address). Never served by URL — only through permissioned
+# views (FileResponse). On ephemeral-disk platforms (Render free) files are
+# lost on each deploy; production should swap HR_FILE_STORAGE for a private
+# bucket with short-lived signed URLs.
+HR_PRIVATE_ROOT = config('HR_PRIVATE_ROOT', default=str(BASE_DIR / 'private_media'))
+HR_FILE_STORAGE = config('HR_FILE_STORAGE', default='apps.hr.storage.PrivateDocumentStorage')
+HR_TEMPLATE_MAX_BYTES = config('HR_TEMPLATE_MAX_BYTES', default=5 * 1024 * 1024, cast=int)
+
+# PDF conversion via LibreOffice headless. Default: enabled only if the
+# `soffice` binary exists. Cast '' -> auto.
+HR_PDF_ENABLED = config(
+    'HR_PDF_ENABLED', default='',
+    cast=lambda v: None if str(v).strip() == '' else str(v).strip().lower() in ('1', 'true', 'yes'),
+)
+HR_PDF_TIMEOUT = config('HR_PDF_TIMEOUT', default=60, cast=int)
+
+# Legal entity data printed in contracts. Env-driven (no secrets): empty by
+# default; the demo template shows blanks until RR. HH. fills them in.
+HR_COMPANY_NAME = config('HR_COMPANY_NAME', default='')
+HR_COMPANY_RUC = config('HR_COMPANY_RUC', default='')
+HR_COMPANY_ADDRESS = config('HR_COMPANY_ADDRESS', default='')
+HR_COMPANY_LEGAL_REP_NAME = config('HR_COMPANY_LEGAL_REP_NAME', default='')
+HR_COMPANY_LEGAL_REP_DNI = config('HR_COMPANY_LEGAL_REP_DNI', default='')
+HR_COMPANY_LEGAL_REP_TITLE = config('HR_COMPANY_LEGAL_REP_TITLE', default='')
+HR_COMPANY_LEGAL_REP_POWERS = config('HR_COMPANY_LEGAL_REP_POWERS', default='')
+
+# Remuneracion minima vital (PEN). Only a warning threshold, never a block;
+# RR. HH./legal must confirm the current value.
+HR_MIN_WAGE = config('HR_MIN_WAGE', default='1130.00')
+
+# Claude assistant: extracts structured data from a free-text request. It
+# never drafts contract text. Without ANTHROPIC_API_KEY the module works in
+# plain form mode.
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+HR_ASSISTANT_MODEL = config('HR_ASSISTANT_MODEL', default='claude-opus-5-5')
+HR_ASSISTANT_EFFORT = config('HR_ASSISTANT_EFFORT', default='low')
+HR_ASSISTANT_MAX_TOKENS = config('HR_ASSISTANT_MAX_TOKENS', default=1024, cast=int)
+HR_ASSISTANT_TIMEOUT = config('HR_ASSISTANT_TIMEOUT', default=30, cast=int)
+HR_ASSISTANT_MAX_INPUT_CHARS = config('HR_ASSISTANT_MAX_INPUT_CHARS', default=2000, cast=int)
+HR_ASSISTANT_DAILY_LIMIT_PER_USER = config('HR_ASSISTANT_DAILY_LIMIT_PER_USER', default=100, cast=int)
+# OPT-IN (default False) to Anthropic's server-side fallback beta; enable only
+# after validating it with the real account (verified present in the SDK: client.beta.messages.parse(betas=[...], fallbacks="default")).
+HR_ASSISTANT_SERVER_FALLBACK = config('HR_ASSISTANT_SERVER_FALLBACK', default=False, cast=bool)
+
+# ------------------------------------------------------------
+# RR. HH. - bulk CV analysis (SYSPCC-023). No secrets here: the API key is
+# ANTHROPIC_API_KEY above. CVs hold PII; see apps/hr/services/cv_*.py.
+# ------------------------------------------------------------
+HR_CV_MODEL = config('HR_CV_MODEL', default='claude-opus-5-5')
+HR_CV_EFFORT = config('HR_CV_EFFORT', default='medium')
+HR_CV_MAX_TOKENS = config('HR_CV_MAX_TOKENS', default=6000, cast=int)
+HR_CV_TIMEOUT = config('HR_CV_TIMEOUT', default=120, cast=int)
+HR_CV_MAX_ATTEMPTS = config('HR_CV_MAX_ATTEMPTS', default=4, cast=int)
+HR_CV_SERVER_FALLBACK = config('HR_CV_SERVER_FALLBACK', default=False, cast=bool)
+# 'celery' (worker, queue hr_cv) | 'thread' (in-process pool, demo without worker)
+# | 'inline' (synchronous; tests only)
+HR_CV_DISPATCH = config('HR_CV_DISPATCH', default='celery')
+HR_CV_THREAD_WORKERS = config('HR_CV_THREAD_WORKERS', default=2, cast=int)
+# Upload limits
+HR_CV_MAX_FILE_BYTES = config('HR_CV_MAX_FILE_BYTES', default=10 * 1024 * 1024, cast=int)
+HR_CV_MAX_FILES_PER_REQUEST = config('HR_CV_MAX_FILES_PER_REQUEST', default=25, cast=int)
+HR_CV_BATCH_SIZE = config('HR_CV_BATCH_SIZE', default=10, cast=int)  # advice for the client
+HR_CV_MAX_ITEMS_PER_ANALYSIS = config('HR_CV_MAX_ITEMS_PER_ANALYSIS', default=500, cast=int)
+HR_CV_DAILY_LIMIT_PER_USER = config('HR_CV_DAILY_LIMIT_PER_USER', default=500, cast=int)
+HR_CV_MAX_PAGES = config('HR_CV_MAX_PAGES', default=20, cast=int)
+HR_CV_MAX_IMAGE_PIXELS = config('HR_CV_MAX_IMAGE_PIXELS', default=40_000_000, cast=int)
+HR_CV_MAX_REQUIREMENTS = config('HR_CV_MAX_REQUIREMENTS', default=15, cast=int)
+# Recovery of stuck items (seconds) and optional retention (0 = off)
+HR_CV_STALE_SECONDS = config('HR_CV_STALE_SECONDS', default=600, cast=int)
+HR_CV_RETENTION_DAYS = config('HR_CV_RETENTION_DAYS', default=0, cast=int)
+# Score thresholds (suggestion only; a human decides)
+HR_CV_SCORE_ADVANCE = config('HR_CV_SCORE_ADVANCE', default=75, cast=int)
+HR_CV_SCORE_REVIEW = config('HR_CV_SCORE_REVIEW', default=50, cast=int)
+# Indicative price per million tokens (USD) to compute the real cost shown in the UI
+HR_CV_PRICE_IN_PER_MTOK = config('HR_CV_PRICE_IN_PER_MTOK', default='4')
+HR_CV_PRICE_OUT_PER_MTOK = config('HR_CV_PRICE_OUT_PER_MTOK', default='20')
+
+# Job posting ("convocatoria", iteration 2). The extraction request is SYNCHRONOUS
+# (inside the HTTP request), so its timeout must stay under the server's.
+HR_CV_POSTING_MAX_FILE_BYTES = config('HR_CV_POSTING_MAX_FILE_BYTES', default=5 * 1024 * 1024, cast=int)
+HR_CV_POSTING_MAX_PAGES = config('HR_CV_POSTING_MAX_PAGES', default=10, cast=int)
+HR_CV_POSTING_MAX_TEXT_CHARS = config('HR_CV_POSTING_MAX_TEXT_CHARS', default=12_000, cast=int)
+HR_CV_POSTING_MODEL = config('HR_CV_POSTING_MODEL', default='')  # '' = HR_CV_MODEL
+HR_CV_POSTING_EFFORT = config('HR_CV_POSTING_EFFORT', default='low')
+HR_CV_POSTING_MAX_TOKENS = config('HR_CV_POSTING_MAX_TOKENS', default=2000, cast=int)
+HR_CV_POSTING_TIMEOUT = config('HR_CV_POSTING_TIMEOUT', default=40, cast=int)
+# The extraction holds a request thread for up to ~2x the timeout: images are decoded in it
+# (lower pixel cap than CVs) and cost is bounded per analysis and per user per day.
+HR_CV_POSTING_MAX_IMAGE_PIXELS = config('HR_CV_POSTING_MAX_IMAGE_PIXELS', default=12_000_000, cast=int)
+HR_CV_POSTING_MAX_COST_USD = config('HR_CV_POSTING_MAX_COST_USD', default='0.50')  # per analysis
+HR_CV_POSTING_DAILY_LIMIT_PER_USER = config('HR_CV_POSTING_DAILY_LIMIT_PER_USER', default=40, cast=int)  # AI reads/day
+
+# Provider: 'anthropic' (real) | 'fake' (simulated "modo de prueba gratis"; only with
+# DEBUG=True: production.py / demo.py refuse to boot with it, see guards.py).
+HR_CV_PROVIDER = check_cv_provider_value(config('HR_CV_PROVIDER', default='anthropic'))
+HR_CV_FAKE_DELAY_SECONDS = config('HR_CV_FAKE_DELAY_SECONDS', default=1.5, cast=float)
+# Percentage (0-100) of simulated CVs that fail on purpose, to try the error UI.
+HR_CV_FAKE_FAIL_PERCENT = max(0, min(100, config('HR_CV_FAKE_FAIL_PERCENT', default=0, cast=int)))
+
+
+# ============================================================
 # DEFAULT PRIMARY KEY
 # ============================================================
 
@@ -433,6 +573,16 @@ CSRF_COOKIE_NAME = 'csrftoken'  # Django default, pinned explicitly per the fron
 CSRF_HEADER_NAME = 'HTTP_X_CSRFTOKEN'  # Django default -> `X-CSRFToken` header, pinned explicitly
 # CSRF_COOKIE_SECURE stays at the Django default (False) here; production.py
 # turns it on since the site is only ever served over HTTPS there.
+#
+# When the SPA is served from a different origin than the API (e.g. Vite dev
+# server on :5173 vs Django on :8000), Django's origin check rejects every
+# state-changing request unless that origin is trusted. Empty by default;
+# development.py sets the local dev origins, production sets its own via env.
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
 
 
 # ============================================================

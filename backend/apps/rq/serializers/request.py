@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from apps.rq.models import Request, RequestItem
+from apps.core.enums import OFICINA_CENTRAL_FRENTE
 from apps.core.serializers.user import UserListSerializer
 
 logger = logging.getLogger(__name__)
@@ -208,6 +209,13 @@ class RequestCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'project': 'El flujo Operaciones requiere un proyecto.'})
         if flow == 'ADMINISTRATIVE' and not attrs.get('department'):
             raise serializers.ValidationError({'department': 'El flujo Administración requiere un departamento.'})
+        # SYSPCC-019: el frente "Oficina Central" siempre debe registrarse por
+        # el flujo Administración (regla unidireccional — ver handoff FASE 0).
+        front_area = (attrs.get('front_area') or '').strip().upper()
+        if front_area == OFICINA_CENTRAL_FRENTE and flow != 'ADMINISTRATIVE':
+            raise serializers.ValidationError({
+                'flow': 'El frente "Oficina Central" debe registrarse por el flujo de Administración.',
+            })
         return attrs
 
     def create(self, validated_data):

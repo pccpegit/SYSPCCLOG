@@ -18,6 +18,7 @@ from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 from drf_spectacular.utils import extend_schema
 
 from apps.core.serializers.auth import CustomTokenObtainPairSerializer
+from apps.core.throttling import LoginUsernameThrottle, ThrottleCacheMixin
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class CsrfCookieView(APIView):
         return Response({'detail': 'CSRF cookie set'}, status=status.HTTP_200_OK)
 
 
-class LoginRateThrottle(AnonRateThrottle):
+class LoginRateThrottle(ThrottleCacheMixin, AnonRateThrottle):
     """Strict per-IP throttle applied only to the login endpoint."""
     scope = 'login'
 
@@ -62,7 +63,9 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     """
 
     serializer_class = CustomTokenObtainPairSerializer
-    throttle_classes = [LoginRateThrottle]
+    # Per IP (5/min) AND per username (10/min): rotating IPs does not allow
+    # unlimited guessing against a single account.
+    throttle_classes = [LoginRateThrottle, LoginUsernameThrottle]
 
     @extend_schema(
         tags=['auth'],

@@ -64,6 +64,10 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # ============================================================
 
 MIDDLEWARE = [
+    # SYSPCC-024: FIRST on purpose — answers /healthz/ before host validation
+    # (ALLOWED_HOSTS) and the HTTPS redirect, which platform health checks
+    # would otherwise trip over (400 / 301).
+    'apps.core.middleware.HealthCheckMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'apps.hr.middleware.HRNoStoreMiddleware',  # SYSPCC-022: no-store on /api/v1/hr/*
     'corsheaders.middleware.CorsMiddleware',
@@ -123,6 +127,11 @@ DATABASES = {
 # ============================================================
 
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
+
+# Cache alias that holds the DRF throttle counters (apps/core/throttling.py).
+# production.py points it at a process-local cache when Redis errors are
+# swallowed, so rate limits keep working during a Redis outage.
+THROTTLE_CACHE_ALIAS = 'default'
 
 CACHES = {
     'default': {
@@ -254,13 +263,17 @@ REST_FRAMEWORK = {
     'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
     # FIX-09: Rate limiting to protect all endpoints and login specifically
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
+        # SYSPCC-024: same behaviour as DRF's Anon/UserRateThrottle, but the
+        # counters live in settings.THROTTLE_CACHE_ALIAS (see apps/core/throttling.py).
+        'apps.core.throttling.AnonThrottle',
+        'apps.core.throttling.UserThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/min',
         'user': '200/min',
         'login': '5/min',
+        # SYSPCC-024: per-username login limit (credential guessing from many IPs)
+        'login_user': '10/min',
         # SYSPCC-022 (RR. HH.)
         'hr_assistant': '20/min',
         'hr_download': '60/min',

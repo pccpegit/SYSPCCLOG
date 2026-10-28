@@ -52,6 +52,11 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
     }
 }
+# production.py points THROTTLE_CACHE_ALIAS at a dedicated 'throttle' cache when
+# DJANGO_REDIS_IGNORE_EXCEPTIONS is set; CACHES was just replaced, so that alias
+# no longer exists and every DRF throttle would raise InvalidCacheBackendError
+# (500 on the whole API). The demo has a single LocMem cache: always use it.
+THROTTLE_CACHE_ALIAS = 'default'
 
 # ============================================================
 # CELERY — no background worker/beat on Render free tier
@@ -98,17 +103,13 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # ============================================================
-# STATIC FILES — WhiteNoise (no separate static host on free tier)
+# STATIC FILES — WhiteNoise (inherited from production.py)
 # ============================================================
-# Inserted immediately after SecurityMiddleware, which is WhiteNoise's
-# documented required position: http://whitenoise.evans.io/en/stable/django.html
-# MIDDLEWARE is inherited (as a list) from base.py via production.py; copy
-# it before mutating so we never touch the base.py list object itself.
-MIDDLEWARE = list(MIDDLEWARE)
-MIDDLEWARE.insert(
-    MIDDLEWARE.index('django.middleware.security.SecurityMiddleware') + 1,
-    'whitenoise.middleware.WhiteNoiseMiddleware',
-)
+# SYSPCC-024: WhiteNoiseMiddleware (right after SecurityMiddleware) and
+# STORAGES['staticfiles'] (CompressedManifestStaticFilesStorage) now live in
+# production.py, so this module inherits them instead of redefining them.
+# Media stays on FileSystemStorage here because the Render demo sets no
+# AWS_STORAGE_BUCKET_NAME.
 
 # ============================================================
 # MEDIA — served by Django itself on the demo (no nginx/CDN in front)
@@ -130,24 +131,18 @@ ROOT_URLCONF = 'config.urls_demo'
 # (trusted) proxy, i.e. the real TCP peer Render saw: a direct attacker gets
 # throttled by their own IP again. Traffic proxied through Vercel still
 # collapses to Vercel's egress IP — that shared-throttle tradeoff is
-# documented in the deploy guide. The equivalent fix for production.py is a
-# follow-up ticket (it predates this one and affects the real deployment).
+# documented in the deploy guide. production.py reads NUM_PROXIES /
+# TRUST_DO_CONNECTING_IP from env (SYSPCC-024); the demo keeps this fixed 1.
 REST_FRAMEWORK = {**REST_FRAMEWORK, 'NUM_PROXIES': 1}  # noqa: F405
 
-# Django 5.1 removed the STATICFILES_STORAGE setting (the compatibility
-# shim for it is gone, not just deprecated) — production.py line 50 still
-# sets STATICFILES_STORAGE, but that assignment is now inert dead code
-# under this settings module (left untouched: out of scope for SYSPCC-021,
-# see handoff note to devops-release). STORAGES is the Django 5.1 replacement.
-# 'default' is copied from Django's own global_settings.py default
-# (FileSystemStorage, used for MEDIA_ROOT uploads) so behavior there is
-# unchanged from base/production — only 'staticfiles' switches to
-# WhiteNoise's compressed + hashed-manifest storage.
-STORAGES = {
-    'default': {
-        'BACKEND': 'django.core.files.storage.FileSystemStorage',
-    },
-    'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
-    },
-}
+# The demo is NOT behind DigitalOcean's ingress: nothing trusted writes the
+# `do-connecting-ip` header there, so a client could forge it and rotate its
+# REMOTE_ADDR to evade the per-IP login throttle. If TRUST_DO_CONNECTING_IP
+# leaks into the Render environment, production.py inserts
+# DOConnectingIPMiddleware; drop it and force the flag off. MIDDLEWARE is a
+# fresh list (production.py copies base.py's), so mutating it here is safe.
+TRUST_DO_CONNECTING_IP = False
+MIDDLEWARE = [  # noqa: F405
+    m for m in MIDDLEWARE  # noqa: F405
+    if m != 'apps.core.middleware.DOConnectingIPMiddleware'
+]

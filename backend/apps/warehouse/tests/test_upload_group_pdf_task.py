@@ -153,3 +153,69 @@ class TestBatchEndpointsEnqueueInsteadOfBlocking:
 
         assert response.status_code == 201, response.data
         mock_delay.assert_called_once()
+
+
+@pytest.mark.django_db
+class TestBrokerDownDoesNotFailTheMovement:
+    """SYSPCC-024: the PDF upload is best-effort; a dead broker (ephemeral
+    Redis restarting) must not turn a committed movement into a 5xx, or the
+    client would retry and register it twice."""
+
+    def test_batch_entry_survives_broker_operational_error(
+        self, warehouse_user, inventory_item
+    ):
+        from kombu.exceptions import OperationalError
+
+        client = _client_for(warehouse_user)
+
+        with mock.patch(
+            'apps.warehouse.tasks.upload_group_pdf_task.delay',
+            side_effect=OperationalError('Connection refused'),
+        ), mock.patch('apps.warehouse.views.logger') as mock_logger:
+            response = client.post(
+                '/api/v1/warehouse/movements/batch-entry/',
+                {
+                    'items': [{'inventory': inventory_item.pk, 'quantity': '3'}],
+                    'warehouse': WarehouseOriginChoices.CENTRAL,
+                    'source_type': 'PURCHASE',
+                    'supplier_name': 'Proveedor Test',
+                    'invoice_number': 'F001-998',
+                    'notes': '',
+                },
+                format='json',
+            )
+
+        assert response.status_code == 201, response.data
+        group = MovementGroup.objects.get(group_number=response.data['group_number'])
+        assert group.document_url in ('', None)
+        mock_logger.exception.assert_called_once()
+        assert mock_logger.exception.call_args[0][0] == 'warehouse.group_pdf.enqueue_failed'
+
+    def test_batch_exit_survives_connection_error(self, warehouse_user, inventory_item):
+        InventoryStock.objects.create(
+            inventory=inventory_item,
+            warehouse_type=WarehouseOriginChoices.CENTRAL,
+            project=None,
+            department=None,
+            quantity=Decimal('10.000'),
+        )
+        client = _client_for(warehouse_user)
+
+        with mock.patch(
+            'apps.warehouse.tasks.upload_group_pdf_task.delay',
+            side_effect=ConnectionError('redis down'),
+        ):
+            response = client.post(
+                '/api/v1/warehouse/movements/batch-exit/',
+                {
+                    'items': [{'inventory': inventory_item.pk, 'quantity': '2'}],
+                    'warehouse': WarehouseOriginChoices.CENTRAL,
+                    'destination_type': 'PROJECT',
+                    'destination_detail': 'Obra X',
+                    'notes': '',
+                },
+                format='json',
+            )
+
+        assert response.status_code == 201, response.data
+        assert MovementGroup.objects.filter(group_number=response.data['group_number']).exists()

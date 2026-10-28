@@ -7,7 +7,7 @@ FIX-11: Uses explicit field list; excludes raw file_path; exposes download_url i
 import logging
 import os
 import magic  # python-magic for content-type sniffing
-from django.conf import settings
+from django.core.files.storage import default_storage
 from rest_framework import serializers
 from apps.rq.models import Attachment
 
@@ -78,14 +78,23 @@ class AttachmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['uploaded_at', 'uploaded_by', 'file_name', 'file_type', 'file_size']
 
     def get_download_url(self, obj) -> str | None:
-        """Build a signed or relative URL for downloading the attachment."""
+        """URL to download the attachment, resolved by the storage backend.
+
+        With S3/Spaces (private bucket) ``storage.url()`` returns a presigned,
+        time-limited URL; with FileSystemStorage it is MEDIA_URL + path, made
+        absolute against the current request as before.
+        """
         if not obj.file_path:
             return None
+        if obj.file_path.lower().startswith(('http://', 'https://')):
+            return obj.file_path  # external URL stored as-is (see model help_text)
+        try:
+            url = default_storage.url(obj.file_path.lstrip('/'))
+        except Exception:  # noqa: BLE001 - last barrier: a storage outage must not break the listing
+            logger.exception('attachment.download_url_failed attachment_id=%s', obj.pk)
+            return None
         request = self.context.get('request')
-        media_url = settings.MEDIA_URL.rstrip('/')
-        relative = obj.file_path.lstrip('/')
-        url = f'{media_url}/{relative}'
-        if request is not None:
+        if request is not None and url.startswith('/'):
             return request.build_absolute_uri(url)
         return url
 
@@ -146,7 +155,6 @@ class AttachmentSerializer(serializers.ModelSerializer):
             validated_data['file_type'] = ext.lstrip('.')
 
             # Persist the file to MEDIA_ROOT/attachments/
-            from django.core.files.storage import default_storage
             from django.core.files.base import ContentFile
             save_path = f'attachments/{uploaded_file.name}'
             saved_path = default_storage.save(save_path, ContentFile(uploaded_file.read()))

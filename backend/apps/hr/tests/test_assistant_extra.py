@@ -337,6 +337,19 @@ class TestQuotaAndThrottle:
         resp = post(hr_client)
         assert resp.status_code == 429 and resp.data['code'] == 'assistant_rate_limited' and len(fake.calls) == 1
 
+    def test_quota_cache_down_fails_closed_with_503_not_a_500(self, hr_client, with_key, monkeypatch, settings):
+        # django-redis returns None from incr() when Redis is unreachable and
+        # DJANGO_REDIS_IGNORE_EXCEPTIONS is on (SYSPCC-024).
+        from django.core.cache import cache
+
+        settings.HR_ASSISTANT_DAILY_LIMIT_PER_USER = 5
+        fake = FakeClient(ok_response(position='X'))
+        patch_client(monkeypatch, fake)
+        monkeypatch.setattr(cache, 'incr', lambda *a, **k: None)
+        resp = post(hr_client)
+        assert resp.status_code == 503 and resp.data['code'] == 'assistant_unavailable'
+        assert fake.calls == []
+
     def test_per_minute_throttle_returns_429(self, hr_client, with_key, monkeypatch, settings):
         from django.core.cache import cache
 

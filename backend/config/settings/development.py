@@ -48,6 +48,7 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'anon': '300/min',
     'user': '1000/min',
     'login': '30/min',
+    'login_user': '30/min',
     'hr_assistant': '20/min',
     'hr_download': '60/min',
     'hr_cv_upload': '60/min',

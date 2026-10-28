@@ -275,9 +275,13 @@ def _get_signature_image(user):
     if not user or not user.signature:
         return ''
     try:
-        sig_path = user.signature.path
-        if os.path.exists(sig_path):
-            return Image(sig_path, width=40 * mm, height=15 * mm, kind='proportional')
+        # .open() works with any storage (filesystem or S3/Spaces); .path
+        # raises NotImplementedError on object storage.
+        with user.signature.open('rb') as signature_file:
+            data = signature_file.read()
+        return Image(io.BytesIO(data), width=40 * mm, height=15 * mm, kind='proportional')
+    except FileNotFoundError:
+        return ''
     except Exception:
         # Best-effort: a corrupt/unreadable signature file must not block PDF
         # generation for the movement voucher — fall back to no signature image.

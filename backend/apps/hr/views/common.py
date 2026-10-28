@@ -2,12 +2,14 @@ from django.http import FileResponse
 from rest_framework.negotiation import BaseContentNegotiation, DefaultContentNegotiation
 from rest_framework.throttling import UserRateThrottle
 
+from apps.core.throttling import ThrottleCacheMixin
 
-class HRDownloadThrottle(UserRateThrottle):
+
+class HRDownloadThrottle(ThrottleCacheMixin, UserRateThrottle):
     scope = 'hr_download'
 
 
-class HRAssistantThrottle(UserRateThrottle):
+class HRAssistantThrottle(ThrottleCacheMixin, UserRateThrottle):
     scope = 'hr_assistant'
 
 

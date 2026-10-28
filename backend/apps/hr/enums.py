@@ -57,3 +57,33 @@ class DocumentEventAction(models.TextChoices):
     VOIDED = 'VOIDED', _('Anulado')
     DOWNLOADED = 'DOWNLOADED', _('Descargado')
     PDF_RENDERED = 'PDF_RENDERED', _('PDF generado')
+
+
+# ---------------------------------------------------------------- SYSPCC-023 (CV analysis)
+
+class CVItemStatus(models.TextChoices):
+    QUEUED = 'QUEUED', _('En cola')
+    PROCESSING = 'PROCESSING', _('Leyendo')
+    DONE = 'DONE', _('Listo')
+    FAILED = 'FAILED', _('Con error')
+    CANCELLED = 'CANCELLED', _('Cancelado')
+
+
+class CVFileKind(models.TextChoices):
+    PDF = 'PDF', _('PDF')
+    DOCX = 'DOCX', _('Word')
+    IMAGE = 'IMAGE', _('Imagen')
+
+
+class CVRecommendation(models.TextChoices):
+    ADVANCE = 'ADVANCE', _('Avanzar')
+    REVIEW = 'REVIEW', _('Revisar')
+    NO_ADVANCE = 'NO_ADVANCE', _('No avanzar')
+
+
+class CVAnalysisStatus(models.TextChoices):
+    """Aggregate status, DERIVED from the items (never stored)."""
+    EMPTY = 'EMPTY', _('Sin CVs')
+    PROCESSING = 'PROCESSING', _('En proceso')
+    COMPLETED_WITH_ERRORS = 'COMPLETED_WITH_ERRORS', _('Completado con errores')
+    COMPLETED = 'COMPLETED', _('Completado')

@@ -38,3 +38,21 @@ class DocumentEventAdmin(ReadOnlyAdmin):
     list_display = ['document', 'action', 'actor', 'created_at']
     list_filter = ['action']
     fields = ['document', 'action', 'actor', 'metadata', 'created_at']
+
+
+# SYSPCC-023: CV metadata only. No candidate name, no `result`, no files.
+from apps.hr.models import CVAnalysis, CVAnalysisItem  # noqa: E402
+
+
+@admin.register(CVAnalysis)
+class CVAnalysisAdmin(ReadOnlyAdmin):
+    list_display = ['id', 'name', 'created_by', 'created_at']
+    fields = ['name', 'created_by', 'created_at', 'model_name', 'prompt_version']
+
+
+@admin.register(CVAnalysisItem)
+class CVAnalysisItemAdmin(ReadOnlyAdmin):
+    list_display = ['id', 'analysis', 'kind', 'status', 'size_bytes', 'error_code', 'created_at']
+    list_filter = ['status', 'kind']
+    fields = ['analysis', 'kind', 'status', 'size_bytes', 'attempts', 'error_code', 'tokens_in',
+              'tokens_out', 'cost_usd', 'created_at', 'finished_at']

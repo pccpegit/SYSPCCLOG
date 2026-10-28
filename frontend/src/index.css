@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* `dark:` variants only apply under an ancestor `.dark` class (same rule as
+   SYSPCC-020), never from the OS color scheme: the app has no dark theme
+   here, so OS dark mode must not recolor text over light backgrounds. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ── Design System Variables ── */
 @theme {
   --font-display: "Urbanist", system-ui, sans-serif;

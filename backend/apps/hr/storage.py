@@ -54,3 +54,25 @@ def document_docx_upload_to(instance, filename):
 
 def document_pdf_upload_to(instance, filename):
     return f'hr/documents/{uuid.uuid4().hex}.pdf'
+
+
+def cv_upload_to(instance, filename):
+    """CV originals: random name, extension chosen by the service from the
+    DETECTED mime (never from the uploaded name, which is also PII)."""
+    ext = os.path.splitext(filename or '')[1].lower()
+    if ext not in ('.pdf', '.docx', '.jpg', '.png'):
+        ext = '.bin'
+    return f'hr/cv/{uuid.uuid4().hex}{ext}'
+
+
+def cv_report_upload_to(instance, filename):
+    return f'hr/cv/reports/{uuid.uuid4().hex}.pdf'
+
+
+def cv_posting_upload_to(instance, filename):
+    """Job-posting originals (SYSPCC-023 iteration 2): random name, same extension
+    rule as `cv_upload_to` (the real type is detected from the bytes)."""
+    ext = os.path.splitext(filename or '')[1].lower()
+    if ext not in ('.pdf', '.docx', '.jpg', '.png'):
+        ext = '.bin'
+    return f'hr/cv/postings/{uuid.uuid4().hex}{ext}'

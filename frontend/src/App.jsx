@@ -20,6 +20,9 @@ import HRDocumentsListPage from './pages/rrhh/HRDocumentsListPage';
 import HRDocumentCreatePage from './pages/rrhh/HRDocumentCreatePage';
 import HRDocumentDetailPage from './pages/rrhh/HRDocumentDetailPage';
 import HRTemplatesPage from './pages/rrhh/HRTemplatesPage';
+import HRCVAnalysesListPage from './pages/rrhh/HRCVAnalysesListPage';
+import HRCVWizardPage from './pages/rrhh/HRCVWizardPage';
+import HRCVAnalysisPage from './pages/rrhh/HRCVAnalysisPage';
 import SystemAdminShell   from './components/layout/SystemAdminShell';
 import UsersPage          from './pages/sistema/UsersPage';
 import UserFormPage       from './pages/sistema/UserFormPage';
@@ -270,6 +273,25 @@ export default function App() {
               }
             />
             <Route path="documentos/:id" element={<HRDocumentDetailPage />} />
+            {/* SYSPCC-023 — CV analysis. Writing steps are HR_MANAGER only; results are read-only for GENERAL_MANAGER. */}
+            <Route path="cvs" element={<HRCVAnalysesListPage />} />
+            <Route
+              path="cvs/nuevo"
+              element={
+                <RoleRoute requiredRoles={['HR_MANAGER']} redirectTo="/rrhh/cvs">
+                  <HRCVWizardPage />
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="cvs/:id/preparar"
+              element={
+                <RoleRoute requiredRoles={['HR_MANAGER']} redirectTo="/rrhh/cvs">
+                  <HRCVWizardPage />
+                </RoleRoute>
+              }
+            />
+            <Route path="cvs/:id" element={<HRCVAnalysisPage />} />
             <Route
               path="plantillas"
               element={

@@ -8,11 +8,13 @@ import {
   X,
   Users,
   Settings,
+  ScanSearch,
 } from 'lucide-react';
 
 // `write: true` = HR_MANAGER only (GENERAL_MANAGER has read access).
 const NAV_ITEMS = [
   { label: 'Documentos',      to: '/rrhh/documentos',       icon: FileText,  end: true },
+  { label: 'Análisis de CVs', to: '/rrhh/cvs',              icon: ScanSearch, end: false },
   { label: 'Nuevo contrato',  to: '/rrhh/documentos/nuevo', icon: FilePlus2, end: true, write: true },
   { section: 'Configuración', write: true },
   { label: 'Plantillas',      to: '/rrhh/plantillas',       icon: FileStack, end: false, write: true },
@@ -90,7 +92,7 @@ export default function HRSidebar({ isOpen, onClose }) {
             </div>
             <div className="leading-tight">
               <p className="text-[13px] font-bold text-white/90 tracking-tight font-display">RR. HH.</p>
-              <p className="text-[10px] text-white/25 font-medium">Documentos de personal</p>
+              <p className="text-[10px] text-white/25 font-medium">Documentos y CVs</p>
             </div>
           </div>
         </div>

@@ -68,6 +68,14 @@ CACHES = {
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# SYSPCC-023: ALWAYS_EAGER would run a CV analysis inside the request. CVs go
+# to an in-process thread pool instead (progress lives in the DB, the request
+# never waits). Lower caps: 512 MB RAM and ephemeral disk on Render.
+HR_CV_DISPATCH = config('HR_CV_DISPATCH', default='thread')
+HR_CV_THREAD_WORKERS = config('HR_CV_THREAD_WORKERS', default=2, cast=int)
+HR_CV_MAX_ITEMS_PER_ANALYSIS = config('HR_CV_MAX_ITEMS_PER_ANALYSIS', default=30, cast=int)
+HR_CV_MAX_FILE_BYTES = config('HR_CV_MAX_FILE_BYTES', default=5 * 1024 * 1024, cast=int)
+
 # ============================================================
 # EMAIL — no real SMTP configured for the demo
 # ============================================================

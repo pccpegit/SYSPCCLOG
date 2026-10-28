@@ -22,6 +22,9 @@ def hr_env(settings, tmp_path):
     settings.HR_COMPANY_LEGAL_REP_TITLE = 'Gerente General'
     settings.HR_COMPANY_LEGAL_REP_POWERS = 'Poderes inscritos'
     settings.ANTHROPIC_API_KEY = ''
+    settings.HR_CV_PROVIDER = 'anthropic'
+    settings.HR_CV_FAKE_DELAY_SECONDS = 0
+    settings.HR_CV_FAKE_FAIL_PERCENT = 0
     settings.CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
     from django.core.cache import cache
 
@@ -83,3 +86,63 @@ def make_zip(files: dict) -> bytes:
         for name, content in files.items():
             zf.writestr(name, content)
     return buf.getvalue()
+
+
+# ----------------------------------------------------------- SYSPCC-023 (CV)
+
+@pytest.fixture(autouse=True)
+def no_real_anthropic(monkeypatch):
+    """Safety net for the whole hr suite: a real SDK call fails the test."""
+    import anthropic
+
+    def boom(*a, **k):
+        raise AssertionError('Real Anthropic client must never be used in tests')
+
+    monkeypatch.setattr(anthropic.resources.messages.Messages, 'parse', boom, raising=False)
+    monkeypatch.setattr(anthropic.resources.messages.Messages, 'create', boom, raising=False)
+
+
+@pytest.fixture
+def cv_env(settings, tmp_path):
+    """CV analysis enabled, synchronous dispatch, fake-able key."""
+    settings.ANTHROPIC_API_KEY = 'test-key'
+    settings.HR_CV_DISPATCH = 'inline'
+    settings.HR_CV_MAX_FILE_BYTES = 2 * 1024 * 1024
+    return settings
+
+
+@pytest.fixture
+def fake_cv_client(cv_env, monkeypatch):
+    """Fake Anthropic client wired as `anthropic.Anthropic(...)`."""
+    import anthropic
+
+    from apps.hr.tests.cv_helpers import FakeCVClient
+
+    client = FakeCVClient()
+    monkeypatch.setattr(anthropic, 'Anthropic', lambda **kw: client)
+    return client
+
+
+@pytest.fixture
+def fake_provider(settings, tmp_path):
+    """Simulated provider ("modo de prueba gratis"): no API key, DEBUG on, synchronous dispatch."""
+    settings.DEBUG = True
+    settings.HR_CV_PROVIDER = 'fake'
+    settings.HR_CV_FAKE_DELAY_SECONDS = 0
+    settings.HR_CV_FAKE_FAIL_PERCENT = 0
+    settings.ANTHROPIC_API_KEY = ''
+    settings.HR_CV_DISPATCH = 'inline'
+    settings.HR_CV_MAX_FILE_BYTES = 2 * 1024 * 1024
+    return settings
+
+
+@pytest.fixture
+def logs(caplog):
+    """caplog wired to the `apps` logger (it has propagate=False in LOGGING)."""
+    import logging
+
+    logger = logging.getLogger('apps')
+    logger.addHandler(caplog.handler)
+    caplog.set_level(logging.DEBUG, logger='apps')
+    yield caplog
+    logger.removeHandler(caplog.handler)

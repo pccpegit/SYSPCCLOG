@@ -146,3 +146,73 @@ describe('api/hr — sanitizeFilename', () => {
     client.get.mockRestore();
   });
 });
+
+describe('api/hr — análisis de CVs', () => {
+  // A previous test restores client.get; start from fresh spies.
+  beforeEach(() => {
+    ['get', 'post', 'patch', 'delete'].forEach((m) => {
+      client[m] = vi.fn().mockResolvedValue({ data: {}, headers: {} });
+    });
+  });
+
+  it('getCVProgress manda since solo cuando existe y pasa la señal', () => {
+    const signal = new AbortController().signal;
+    hr.getCVProgress(5, null, { signal });
+    expect(client.get).toHaveBeenLastCalledWith('/hr/cv-analyses/5/progress/', { params: undefined, signal });
+    hr.getCVProgress(5, '2026-10-27T10:00:00Z');
+    expect(client.get).toHaveBeenLastCalledWith('/hr/cv-analyses/5/progress/', { params: { since: '2026-10-27T10:00:00Z' }, signal: undefined });
+  });
+
+  it('uploadCVFiles envía cada archivo bajo "files" como multipart sin Content-Type fijo', () => {
+    const a = new File(['a'], 'a.pdf');
+    const b = new File(['b'], 'b.pdf');
+    const signal = new AbortController().signal;
+    hr.uploadCVFiles(5, [a, b], { signal });
+    const [url, body, config] = client.post.mock.calls.at(-1);
+    expect(url).toBe('/hr/cv-analyses/5/items/');
+    expect(body.getAll('files')).toEqual([a, b]);
+    expect(config.headers['Content-Type']).toBeUndefined();
+    expect(config.signal).toBe(signal);
+  });
+
+  it('uploadCVPosting usa el campo "file"; extractCVPosting manda el texto solo si hay', () => {
+    const f = new File(['x'], 'conv.pdf');
+    hr.uploadCVPosting(5, f);
+    expect(client.post.mock.calls.at(-1)[0]).toBe('/hr/cv-analyses/5/posting/');
+    expect(client.post.mock.calls.at(-1)[1].get('file')).toBe(f);
+    hr.extractCVPosting(5, { text: 'Se requiere ingeniero' });
+    expect(client.post).toHaveBeenLastCalledWith('/hr/cv-analyses/5/posting/extract/', { text: 'Se requiere ingeniero' }, expect.objectContaining({ timeout: 90000 }));
+    hr.extractCVPosting(5);
+    expect(client.post.mock.calls.at(-1)[1]).toEqual({});
+  });
+
+  it('crear, editar y borrar usan las rutas del contrato', () => {
+    hr.createCVAnalysis({ name: 'X' });
+    expect(client.post).toHaveBeenLastCalledWith('/hr/cv-analyses/', { name: 'X' });
+    hr.updateCVAnalysis(5, { requirements_text: 'a' });
+    expect(client.patch).toHaveBeenLastCalledWith('/hr/cv-analyses/5/', { requirements_text: 'a' });
+    hr.deleteCVAnalysis(5);
+    expect(client.delete).toHaveBeenLastCalledWith('/hr/cv-analyses/5/');
+    hr.retryFailedCVItems(5);
+    expect(client.post.mock.calls.at(-1)[0]).toBe('/hr/cv-analyses/5/retry-failed/');
+    hr.retryCVItem(5, 9);
+    expect(client.post.mock.calls.at(-1)[0]).toBe('/hr/cv-analyses/5/items/9/retry/');
+  });
+
+  it('las descargas piden blob, toman el nombre de Content-Disposition y el ZIP espera más', async () => {
+    client.get.mockResolvedValue({ data: new Blob(['z']), headers: { 'content-disposition': 'attachment; filename="CVs_x_20261027.zip"' } });
+    const out = await hr.downloadCVZip(5);
+    expect(client.get).toHaveBeenLastCalledWith('/hr/cv-analyses/5/download-zip/', { responseType: 'blob', timeout: 120000 });
+    expect(out.filename).toBe('CVs_x_20261027.zip');
+    await hr.downloadCVReport(5, 9);
+    expect(client.get).toHaveBeenLastCalledWith('/hr/cv-analyses/5/items/9/report/', { responseType: 'blob' });
+    expect((await hr.downloadCVXlsx(5)).filename).toBe('CVs_x_20261027.zip');
+  });
+
+  it('un error JSON en una descarga se vuelve a leer para tener el código', async () => {
+    const err = { response: { data: new Blob([JSON.stringify({ code: 'nothing_to_download', detail: 'Aún no hay CVs listos.' })]) } };
+    client.get.mockRejectedValue(err);
+    await expect(hr.downloadCVXlsx(5)).rejects.toBe(err);
+    expect(err.response.data).toEqual({ code: 'nothing_to_download', detail: 'Aún no hay CVs listos.' });
+  });
+});

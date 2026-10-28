@@ -8,6 +8,8 @@ from datetime import timedelta
 from decouple import config
 from celery.schedules import crontab
 
+from .guards import check_cv_provider_value
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -179,6 +181,17 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'warehouse.check_low_stock',
         'schedule': crontab(hour=7, minute=30),  # Every day at 7:30 AM Lima time
     },
+    # SYSPCC-023: re-enqueue CV items stuck in QUEUED/PROCESSING (worker crash, lost broker)
+    'hr-cv-requeue-stale': {
+        'task': 'hr.cv_requeue_stale',
+        'schedule': crontab(minute='*/5'),
+    },
+}
+
+# SYSPCC-023: CV analysis runs in its own queue so it never starves SLA/reminder tasks.
+CELERY_TASK_ROUTES = {
+    'hr.process_cv_item': {'queue': 'hr_cv'},
+    'hr.cv_requeue_stale': {'queue': 'hr_cv'},
 }
 
 # ============================================================
@@ -251,6 +264,10 @@ REST_FRAMEWORK = {
         # SYSPCC-022 (RR. HH.)
         'hr_assistant': '20/min',
         'hr_download': '60/min',
+        # SYSPCC-023 (CV analysis)
+        'hr_cv_upload': '60/min',
+        'hr_cv_progress': '90/min',
+        'hr_cv_posting': '20/min',
     },
 }
 
@@ -452,6 +469,61 @@ HR_ASSISTANT_DAILY_LIMIT_PER_USER = config('HR_ASSISTANT_DAILY_LIMIT_PER_USER', 
 # OPT-IN (default False) to Anthropic's server-side fallback beta; enable only
 # after validating it with the real account (verified present in the SDK: client.beta.messages.parse(betas=[...], fallbacks="default")).
 HR_ASSISTANT_SERVER_FALLBACK = config('HR_ASSISTANT_SERVER_FALLBACK', default=False, cast=bool)
+
+# ------------------------------------------------------------
+# RR. HH. - bulk CV analysis (SYSPCC-023). No secrets here: the API key is
+# ANTHROPIC_API_KEY above. CVs hold PII; see apps/hr/services/cv_*.py.
+# ------------------------------------------------------------
+HR_CV_MODEL = config('HR_CV_MODEL', default='claude-opus-5-5')
+HR_CV_EFFORT = config('HR_CV_EFFORT', default='medium')
+HR_CV_MAX_TOKENS = config('HR_CV_MAX_TOKENS', default=6000, cast=int)
+HR_CV_TIMEOUT = config('HR_CV_TIMEOUT', default=120, cast=int)
+HR_CV_MAX_ATTEMPTS = config('HR_CV_MAX_ATTEMPTS', default=4, cast=int)
+HR_CV_SERVER_FALLBACK = config('HR_CV_SERVER_FALLBACK', default=False, cast=bool)
+# 'celery' (worker, queue hr_cv) | 'thread' (in-process pool, demo without worker)
+# | 'inline' (synchronous; tests only)
+HR_CV_DISPATCH = config('HR_CV_DISPATCH', default='celery')
+HR_CV_THREAD_WORKERS = config('HR_CV_THREAD_WORKERS', default=2, cast=int)
+# Upload limits
+HR_CV_MAX_FILE_BYTES = config('HR_CV_MAX_FILE_BYTES', default=10 * 1024 * 1024, cast=int)
+HR_CV_MAX_FILES_PER_REQUEST = config('HR_CV_MAX_FILES_PER_REQUEST', default=25, cast=int)
+HR_CV_BATCH_SIZE = config('HR_CV_BATCH_SIZE', default=10, cast=int)  # advice for the client
+HR_CV_MAX_ITEMS_PER_ANALYSIS = config('HR_CV_MAX_ITEMS_PER_ANALYSIS', default=500, cast=int)
+HR_CV_DAILY_LIMIT_PER_USER = config('HR_CV_DAILY_LIMIT_PER_USER', default=500, cast=int)
+HR_CV_MAX_PAGES = config('HR_CV_MAX_PAGES', default=20, cast=int)
+HR_CV_MAX_IMAGE_PIXELS = config('HR_CV_MAX_IMAGE_PIXELS', default=40_000_000, cast=int)
+HR_CV_MAX_REQUIREMENTS = config('HR_CV_MAX_REQUIREMENTS', default=15, cast=int)
+# Recovery of stuck items (seconds) and optional retention (0 = off)
+HR_CV_STALE_SECONDS = config('HR_CV_STALE_SECONDS', default=600, cast=int)
+HR_CV_RETENTION_DAYS = config('HR_CV_RETENTION_DAYS', default=0, cast=int)
+# Score thresholds (suggestion only; a human decides)
+HR_CV_SCORE_ADVANCE = config('HR_CV_SCORE_ADVANCE', default=75, cast=int)
+HR_CV_SCORE_REVIEW = config('HR_CV_SCORE_REVIEW', default=50, cast=int)
+# Indicative price per million tokens (USD) to compute the real cost shown in the UI
+HR_CV_PRICE_IN_PER_MTOK = config('HR_CV_PRICE_IN_PER_MTOK', default='4')
+HR_CV_PRICE_OUT_PER_MTOK = config('HR_CV_PRICE_OUT_PER_MTOK', default='20')
+
+# Job posting ("convocatoria", iteration 2). The extraction request is SYNCHRONOUS
+# (inside the HTTP request), so its timeout must stay under the server's.
+HR_CV_POSTING_MAX_FILE_BYTES = config('HR_CV_POSTING_MAX_FILE_BYTES', default=5 * 1024 * 1024, cast=int)
+HR_CV_POSTING_MAX_PAGES = config('HR_CV_POSTING_MAX_PAGES', default=10, cast=int)
+HR_CV_POSTING_MAX_TEXT_CHARS = config('HR_CV_POSTING_MAX_TEXT_CHARS', default=12_000, cast=int)
+HR_CV_POSTING_MODEL = config('HR_CV_POSTING_MODEL', default='')  # '' = HR_CV_MODEL
+HR_CV_POSTING_EFFORT = config('HR_CV_POSTING_EFFORT', default='low')
+HR_CV_POSTING_MAX_TOKENS = config('HR_CV_POSTING_MAX_TOKENS', default=2000, cast=int)
+HR_CV_POSTING_TIMEOUT = config('HR_CV_POSTING_TIMEOUT', default=40, cast=int)
+# The extraction holds a request thread for up to ~2x the timeout: images are decoded in it
+# (lower pixel cap than CVs) and cost is bounded per analysis and per user per day.
+HR_CV_POSTING_MAX_IMAGE_PIXELS = config('HR_CV_POSTING_MAX_IMAGE_PIXELS', default=12_000_000, cast=int)
+HR_CV_POSTING_MAX_COST_USD = config('HR_CV_POSTING_MAX_COST_USD', default='0.50')  # per analysis
+HR_CV_POSTING_DAILY_LIMIT_PER_USER = config('HR_CV_POSTING_DAILY_LIMIT_PER_USER', default=40, cast=int)  # AI reads/day
+
+# Provider: 'anthropic' (real) | 'fake' (simulated "modo de prueba gratis"; only with
+# DEBUG=True: production.py / demo.py refuse to boot with it, see guards.py).
+HR_CV_PROVIDER = check_cv_provider_value(config('HR_CV_PROVIDER', default='anthropic'))
+HR_CV_FAKE_DELAY_SECONDS = config('HR_CV_FAKE_DELAY_SECONDS', default=1.5, cast=float)
+# Percentage (0-100) of simulated CVs that fail on purpose, to try the error UI.
+HR_CV_FAKE_FAIL_PERCENT = max(0, min(100, config('HR_CV_FAKE_FAIL_PERCENT', default=0, cast=int)))
 
 
 # ============================================================

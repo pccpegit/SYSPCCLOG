@@ -5,6 +5,8 @@ Development settings for SYSPCCLOG project.
 import os
 from django.core.exceptions import ImproperlyConfigured
 
+from .guards import validate_cv_provider
+
 # FIX-15: Guard against this file being loaded outside development environments.
 _django_env = os.environ.get('DJANGO_ENV')
 if _django_env not in ('development', 'local', None):
@@ -17,6 +19,9 @@ if _django_env not in ('development', 'local', None):
 from .base import *  # noqa: F401, F403
 
 DEBUG = True
+
+# SYSPCC-023: 'fake' (modo de prueba) is only valid with DEBUG on.
+validate_cv_provider(HR_CV_PROVIDER, DEBUG)  # noqa: F405
 
 ALLOWED_HOSTS = ['*']
 
@@ -45,6 +50,9 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'login': '30/min',
     'hr_assistant': '20/min',
     'hr_download': '60/min',
+    'hr_cv_upload': '60/min',
+    'hr_cv_progress': '90/min',
+    'hr_cv_posting': '20/min',
 }
 REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = REST_FRAMEWORK_THROTTLE_RATES  # noqa: F405
 

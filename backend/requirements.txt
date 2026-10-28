@@ -75,3 +75,9 @@ gunicorn==23.0.0
 # Static files on platforms without a CDN/object storage (SYSPCC-021 demo
 # deploy on Render free tier — see config/settings/demo.py)
 whitenoise==6.8.2
+
+# Object storage for uploads on platforms with ephemeral disks (SYSPCC-024:
+# DigitalOcean Spaces via the S3 API). Optional at runtime: only used when
+# AWS_STORAGE_BUCKET_NAME / HR_FILE_STORAGE=apps.hr.storage.PrivateS3Storage.
+django-storages[s3]==1.14.4
+boto3==1.35.99

@@ -1,0 +1,492 @@
+# ====================================================================
+# SYSPCC en DigitalOcean App Platform (SYSPCC-024)
+# Guia paso a paso: docs/08_Guia_Despliegue_DigitalOcean.md
+# ====================================================================
+#
+# ESTE ARCHIVO ES UNA PLANTILLA SIN SECRETOS. No lo apliques tal cual:
+#   1. Completa .env.do (gitignored) con los secretos.
+#   2. Renderiza:  backend/.venv/bin/python .do/render_spec.py
+#      -> genera .do/app.rendered.yaml (gitignored) con los secretos
+#      inyectados; los opcionales sin valor se eliminan del spec.
+#   3. Crea:       doctl apps create --spec .do/app.rendered.yaml --wait
+#
+# DESPUES del primer create, parte SIEMPRE de `doctl apps spec get <APP_ID>`
+# para cambiar el spec (trae los secretos cifrados EV[...]). Aplicar esta
+# plantilla otra vez BORRARIA los secretos ya cargados.
+#
+# Prerrequisito: el cluster Managed PostgreSQL `syspcc-pg` debe existir
+# antes del create (App Platform solo lo ADJUNTA; ver la guia, paso 5).
+#
+# Stack de prueba (~US$40/mes, region nyc):
+#   backend  apps-s-1vcpu-1gb-fixed  10.00
+#   worker   apps-s-1vcpu-0.5gb       5.00  (celery + beat embebido)
+#   redis    apps-s-1vcpu-0.5gb       5.00  (efimero, interno)
+#   Managed PG 1 GB                  15.15
+#   Spaces                            5.00
+#   frontend (static site)            0.00   + job PRE_DEPLOY: centavos
+name: syspcc
+region: nyc
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+# --------------------------------------------------------------------
+# Variables a nivel app (llegan a backend, worker y job; el static site
+# solo usa las BUILD_TIME de su propio bloque).
+# Las que tienen value "" son SECRET (o datos de empresa) que
+# render_spec.py completa desde .env.do.
+# --------------------------------------------------------------------
+envs:
+  - key: DJANGO_SETTINGS_MODULE
+    value: config.settings.production
+    scope: RUN_TIME
+  # Segunda senal de produccion: seed_guard bloquea seed_demo.
+  - key: DJANGO_ENV
+    value: production
+    scope: RUN_TIME
+  - key: SECRET_KEY
+    scope: RUN_TIME
+    type: SECRET
+    value: ""
+  # Dominio *.ondigitalocean.app asignado. Con un dominio propio agrega el
+  # nuevo host aqui (separado por comas) y en CSRF_TRUSTED_ORIGINS.
+  - key: ALLOWED_HOSTS
+    value: ${APP_DOMAIN}
+    scope: RUN_TIME
+  - key: CSRF_TRUSTED_ORIGINS
+    value: ${APP_URL}
+    scope: RUN_TIME
+  - key: CORS_ALLOWED_ORIGINS
+    value: ${APP_URL}
+    scope: RUN_TIME
+  # SECURE_SSL_REDIRECT queda en su default (True): production.py confia en
+  # X-Forwarded-Proto y /healthz/ esta exento del redireccionamiento.
+
+  # --- IP real del cliente (throttling) ---
+  # El ingress de DO escribe SU IP en X-Forwarded-For; la del cliente llega en
+  # el header do-connecting-ip. TRUST_DO_CONNECTING_IP la usa como REMOTE_ADDR
+  # y fija NUM_PROXIES=0. NO definas NUM_PROXIES en este spec.
+  - key: TRUST_DO_CONNECTING_IP
+    value: "True"
+    scope: RUN_TIME
+  # Conexiones persistentes a PG (60 s). Presupuesto de conexiones:
+  # hilos de gunicorn + procesos celery + job < limite del cluster (1 GB ~ 22).
+  - key: DB_CONN_MAX_AGE
+    value: "60"
+    scope: RUN_TIME
+
+  # --- Redis interno (service "redis"; sin TLS, solo red privada del app) ---
+  # ALTERNATIVA Managed Valkey (+US$15/mes): ver el bloque comentado al final
+  # de `databases:` y la seccion "Subir de nivel" de la guia.
+  - key: REDIS_URL
+    value: redis://redis:6379/0
+    scope: RUN_TIME
+  - key: CELERY_BROKER_URL
+    value: redis://redis:6379/1
+    scope: RUN_TIME
+  - key: CELERY_RESULT_BACKEND
+    value: redis://redis:6379/2
+    scope: RUN_TIME
+  # Redis efimero: si cae o se llena (noeviction), la cache/sesiones del panel
+  # degradan en vez de tumbar la API. Los throttles (login 5/min, anon, user)
+  # NO dependen de Redis en este modo: production.py los mueve a una cache
+  # local del proceso (THROTTLE_CACHE_ALIAS=throttle), asi el limite de login
+  # sigue vigente aunque Redis este caido (con 1 worker de gunicorn es exacto).
+  # Con la cache degradada las sesiones del admin se pierden y la cuota diaria
+  # del asistente RR. HH. responde 503 (falla cerrada).
+  - key: DJANGO_REDIS_IGNORE_EXCEPTIONS
+    value: "True"
+    scope: RUN_TIME
+
+  # --- Spaces (django-storages / S3) ---
+  # Dos buckets PRIVADOS en nyc3: media general y RR. HH. (PII).
+  - key: AWS_STORAGE_BUCKET_NAME
+    value: syspcc-media
+    scope: RUN_TIME
+  - key: AWS_S3_ENDPOINT_URL
+    value: https://nyc3.digitaloceanspaces.com
+    scope: RUN_TIME
+  - key: AWS_S3_REGION_NAME
+    value: nyc3
+    scope: RUN_TIME
+  - key: HR_FILE_STORAGE
+    value: apps.hr.storage.PrivateS3Storage
+    scope: RUN_TIME
+  - key: HR_PRIVATE_BUCKET_NAME
+    value: syspcc-hr-private
+    scope: RUN_TIME
+
+  # --- Secretos de integraciones: NO van aqui ---
+  # AWS_*, HR_AWS_*, ANTHROPIC_API_KEY, ONEDRIVE_TOKEN_ENCRYPTION_KEY,
+  # RUC_API_TOKEN y EMAIL_HOST_PASSWORD se declaran SOLO en los componentes
+  # que los usan (backend / worker). Asi el job PRE_DEPLOY `migrate` recibe
+  # unicamente SECRET_KEY y DB_* (minimo privilegio).
+
+  # --- Correo (DO bloquea el puerto 25; 587 funciona) ---
+  # EMAIL_HOST_PASSWORD va en backend y worker. Sin el, production.py envia los correos a la consola
+  # (logs) en vez de fallar cada dia con un error de autenticacion SMTP.
+  - key: EMAIL_HOST
+    value: smtp.office365.com
+    scope: RUN_TIME
+  - key: EMAIL_PORT
+    value: "587"
+    scope: RUN_TIME
+  - key: EMAIL_HOST_USER
+    value: sistemas@pcc.com.pe
+    scope: RUN_TIME
+  - key: DEFAULT_FROM_EMAIL
+    value: sistemas@pcc.com.pe
+    scope: RUN_TIME
+  - key: WAREHOUSE_ALERT_RECIPIENTS
+    value: sistemas@pcc.com.pe
+    scope: RUN_TIME
+
+  # --- RR. HH.: datos de la empresa impresos en los contratos ---
+  # Se completan desde .env.do (no son secretos, pero tampoco se versionan).
+  - key: HR_COMPANY_NAME
+    value: ""
+    scope: RUN_TIME
+  - key: HR_COMPANY_RUC
+    value: ""
+    scope: RUN_TIME
+  - key: HR_COMPANY_ADDRESS
+    value: ""
+    scope: RUN_TIME
+  - key: HR_COMPANY_LEGAL_REP_NAME
+    value: ""
+    scope: RUN_TIME
+  - key: HR_COMPANY_LEGAL_REP_DNI
+    value: ""
+    scope: RUN_TIME
+  - key: HR_COMPANY_LEGAL_REP_TITLE
+    value: ""
+    scope: RUN_TIME
+  - key: HR_COMPANY_LEGAL_REP_POWERS
+    value: ""
+    scope: RUN_TIME
+  - key: HR_MIN_WAGE
+    value: ""
+    scope: RUN_TIME
+
+# --------------------------------------------------------------------
+# Base de datos: Managed PostgreSQL (cluster creado ANTES, ver la guia).
+# NO se usa Dev Database: en PG 15+ no concede CREATE sobre el schema public
+# y el migrate del PRE_DEPLOY falla con "permission denied for schema public".
+# --------------------------------------------------------------------
+databases:
+  - name: db
+    engine: PG
+    version: "16"
+    production: true
+    cluster_name: syspcc-pg
+    db_name: syspcc
+    db_user: syspcc
+    # SEGURIDAD: tras crear el cluster restringe sus trusted sources a esta app
+    # (guia, paso 5): un cluster nuevo acepta conexiones desde cualquier IP.
+    # TLS: por defecto sslmode=require (cifra pero NO verifica el servidor).
+    # Para verificar, agrega en backend, worker y job (despues de comprobar que
+    # ${db.CA_CERT} resuelve): DB_SSLMODE=verify-ca y DB_CA_CERT=${db.CA_CERT}.
+
+  # ALTERNATIVA (Estandar/Propuesto, OBLIGATORIA antes de datos reales):
+  # Managed Valkey en lugar del service "redis" (este no tiene requirepass).
+  # Crea el cluster antes (doctl databases create syspcc-valkey --engine valkey
+  # ...), restringe sus trusted sources a la app, descomenta este bloque,
+  # elimina el service `redis` y cambia REDIS_URL / CELERY_BROKER_URL /
+  # CELERY_RESULT_BACKEND por:
+  #   rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/0   (/1 y /2)
+  # CERTIFICADO (recomendado): agrega en backend y worker
+  #   REDIS_CA_CERT=${cache.CA_CERT}      (texto PEM; o REDIS_SSL_CA_CERTS=<ruta>)
+  # y deja REDIS_SSL_CERT_REQS en su default `required`.
+  # REDIS_SSL_CERT_REQS=none NO autentica al servidor (un MITM podria leer la
+  # clave y las sesiones): solo como excepcion temporal sobre el host privado.
+  # Verifica los bindables con `echo $REDIS_URL` en la Console.
+  # - name: cache
+  #   engine: VALKEY
+  #   production: true
+  #   cluster_name: syspcc-valkey
+
+# --------------------------------------------------------------------
+# Servicios HTTP
+# --------------------------------------------------------------------
+services:
+  - name: backend
+    github:
+      repo: pccpegit/SYSPCCLOG
+      branch: develop
+      deploy_on_push: true
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    # collectstatic + gunicorn (sin migrate: lo hace el job PRE_DEPLOY).
+    run_command: sh scripts/do-start.sh
+    http_port: 8080
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
+    instance_count: 1
+    health_check:
+      # HealthCheckMiddleware responde antes de ALLOWED_HOSTS y del redirect SSL.
+      http_path: /healthz/
+      initial_delay_seconds: 60
+      period_seconds: 15
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 6
+    termination:
+      drain_seconds: 15
+      grace_period_seconds: 60
+    envs:
+      # LibreOffice: conversion de contratos .docx a PDF (+400-500 MB de imagen).
+      - key: INSTALL_LIBREOFFICE
+        value: "true"
+        scope: BUILD_TIME
+      - key: GUNICORN_WORKERS
+        value: "1"
+        scope: RUN_TIME
+      - key: GUNICORN_THREADS
+        value: "4"
+        scope: RUN_TIME
+      # --- Secretos de este componente (opcionales se omiten si estan vacios) ---
+      # Spaces: media general. Usa una Access Key limitada al bucket syspcc-media.
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      # Spaces: bucket RR. HH. (PII). OPCIONAL pero recomendado: una segunda Access
+      # Key limitada a syspcc-hr-private; sin ella se usa el par AWS_* de arriba.
+      - key: HR_AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: HR_AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: ANTHROPIC_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: ONEDRIVE_TOKEN_ENCRYPTION_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: RUC_API_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: EMAIL_HOST_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      # Los bindables ${db.*} van a nivel de componente (patron documentado).
+      - key: DB_NAME
+        value: ${db.DATABASE}
+        scope: RUN_TIME
+      - key: DB_USER
+        value: ${db.USERNAME}
+        scope: RUN_TIME
+      - key: DB_PASSWORD
+        value: ${db.PASSWORD}
+        scope: RUN_TIME
+      - key: DB_HOST
+        value: ${db.HOSTNAME}
+        scope: RUN_TIME
+      - key: DB_PORT
+        value: ${db.PORT}
+        scope: RUN_TIME
+
+  # Redis efimero SOLO para la prueba: sin ingress => no es publico, se
+  # alcanza como redis:6379 desde los demas componentes. Cada redeploy pierde
+  # cola, resultados y cache (tambien las sesiones del panel de admin).
+  # Sin `--save ""`: las comillas vacias no sobreviven al run_command sin
+  # shell; escribir dump.rdb en un contenedor efimero es inofensivo.
+  # Tras el primer deploy revisa `doctl apps logs <APP_ID> redis`.
+  - name: redis
+    image:
+      registry_type: DOCKER_HUB
+      registry: library
+      repository: redis
+      tag: 7-alpine
+      # Si Docker Hub limita los pulls anonimos, agrega registry_credentials
+      # ("usuario:token") a esta imagen.
+    # Sin requirepass: solo la red privada del app lo alcanza (sin ingress).
+    # Es aceptable UNICAMENTE para la prueba; ver la guia antes de cargar datos
+    # reales. Tras el primer deploy confirma que el service NO expone ningun
+    # puerto publico (`doctl apps get <APP_ID> -o json`; bug conocido que
+    # agrega 8080).
+    run_command: redis-server --appendonly no --maxmemory 200mb --maxmemory-policy noeviction
+    internal_ports:
+      - 6379
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    health_check:
+      port: 6379
+      initial_delay_seconds: 5
+
+# --------------------------------------------------------------------
+# Worker: UN contenedor con la cola por defecto + hr_cv (inocua hasta que
+# SYSPCC-023 este mergeado) y beat embebido (-B).
+# NO ESCALAR a mas de 1 instancia: beat quedaria duplicado y los
+# recordatorios / alertas saldrian repetidos (el tamano "fixed" ya lo limita).
+# Si aparece OOM: baja a -c 1 o sube a apps-s-1vcpu-1gb-fixed (+US$5).
+# --------------------------------------------------------------------
+workers:
+  - name: worker
+    github:
+      repo: pccpegit/SYSPCCLOG
+      branch: develop
+      deploy_on_push: true
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    run_command: celery -A config worker -B -Q celery,hr_cv -c 2 --max-tasks-per-child 100 --scheduler django_celery_beat.schedulers:DatabaseScheduler -l info
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: INSTALL_LIBREOFFICE
+        value: "false"
+        scope: BUILD_TIME
+      # --- Secretos de este componente (opcionales se omiten si estan vacios) ---
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: HR_AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: HR_AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: ANTHROPIC_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: ONEDRIVE_TOKEN_ENCRYPTION_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: EMAIL_HOST_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
+        value: ""
+      - key: DB_NAME
+        value: ${db.DATABASE}
+        scope: RUN_TIME
+      - key: DB_USER
+        value: ${db.USERNAME}
+        scope: RUN_TIME
+      - key: DB_PASSWORD
+        value: ${db.PASSWORD}
+        scope: RUN_TIME
+      - key: DB_HOST
+        value: ${db.HOSTNAME}
+        scope: RUN_TIME
+      - key: DB_PORT
+        value: ${db.PORT}
+        scope: RUN_TIME
+
+# --------------------------------------------------------------------
+# Jobs: antes de cada deploy migra el esquema y carga los datos de
+# referencia (seed_data es idempotente y no crea usuarios). Nunca seed_demo.
+# --------------------------------------------------------------------
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: pccpegit/SYSPCCLOG
+      branch: develop
+      deploy_on_push: true
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    run_command: sh scripts/do-predeploy.sh
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: INSTALL_LIBREOFFICE
+        value: "false"
+        scope: BUILD_TIME
+      - key: DB_NAME
+        value: ${db.DATABASE}
+        scope: RUN_TIME
+      - key: DB_USER
+        value: ${db.USERNAME}
+        scope: RUN_TIME
+      - key: DB_PASSWORD
+        value: ${db.PASSWORD}
+        scope: RUN_TIME
+      - key: DB_HOST
+        value: ${db.HOSTNAME}
+        scope: RUN_TIME
+      - key: DB_PORT
+        value: ${db.PORT}
+        scope: RUN_TIME
+
+# --------------------------------------------------------------------
+# Frontend: SPA React 19 + Vite 7. Node fijado por "engines" (22.x) en
+# frontend/package.json; el buildpack ya corre `npm ci`, por eso el
+# build_command es solo `npm run build`.
+# --------------------------------------------------------------------
+static_sites:
+  - name: frontend
+    github:
+      repo: pccpegit/SYSPCCLOG
+      branch: develop
+      deploy_on_push: true
+    source_dir: frontend
+    environment_slug: node-js
+    build_command: npm run build
+    output_dir: dist
+    # Deep links de React Router v7 (/rq/*, /almacen/*, /admin/*).
+    catchall_document: index.html
+    envs:
+      # Misma origin para SPA y API (cookies JWT SameSite=Lax + CSRF).
+      - key: VITE_API_URL
+        value: /api/v1/
+        scope: BUILD_TIME
+      # Vacio a proposito: SPA y API comparten origin (URLs relativas), igual que
+      # la demo en Vercel. render_spec.py lo conserva como "" (KEEP_EMPTY).
+      - key: VITE_BACKEND_URL
+        value: ""
+        scope: BUILD_TIME
+
+# --------------------------------------------------------------------
+# Ingress: App Platform recorta el prefijo por defecto; Django necesita
+# el path completo, de ahi preserve_path_prefix en cada regla al backend.
+# Las reglas especificas van antes del catch-all "/".
+# /healthz NO se publica: el health_check de la plataforma llega directo al
+# componente (no pasa por el ingress) y exponerlo permitiria a cualquiera
+# consumir conexiones de BD. /media tampoco: con Spaces las URLs firmadas son
+# absolutas y production.py no sirve /media.
+# --------------------------------------------------------------------
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /api
+      component:
+        name: backend
+        preserve_path_prefix: true
+    - match:
+        path:
+          prefix: /mgmt-panel
+      component:
+        name: backend
+        preserve_path_prefix: true
+    - match:
+        path:
+          prefix: /static
+      component:
+        name: backend
+        preserve_path_prefix: true
+    - match:
+        path:
+          prefix: /
+      component:
+        name: frontend

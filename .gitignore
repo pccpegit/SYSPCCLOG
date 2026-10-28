@@ -87,3 +87,7 @@ frontend/src/.claude/
 # volcados de BD con datos de negocio (proyectos, cotizaciones, OC)
 frontend/docs/schema_actual.sql
 *.sql
+
+# ── DigitalOcean (SYSPCC-024): spec con secretos renderizados ──
+.env.do
+.do/*.rendered.yaml

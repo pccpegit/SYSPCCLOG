@@ -167,6 +167,16 @@ class HRAssistantService:
         except ValueError:  # key evicted between add and incr
             cache.set(key, 1, timeout=60 * 60 * 26)
             used = 1
+        if used is None:
+            # django-redis returns None instead of raising when the cache is
+            # down and DJANGO_REDIS_IGNORE_EXCEPTIONS is on. The quota guards
+            # a paid API, so fail closed with a clean 503, not a TypeError 500.
+            logger.warning('hr.assistant.quota_cache_unavailable', extra={'user_id': user.pk})
+            raise HRDomainError(
+                'assistant_unavailable',
+                'El asistente no está disponible por el momento. Completa el formulario manualmente.',
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         if used > limit:
             raise HRDomainError(
                 'assistant_rate_limited',

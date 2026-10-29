@@ -12,9 +12,13 @@ from django.utils.functional import lazy
 from rest_framework import serializers
 
 from apps.rq.models import Request, RequestItem
-from apps.core.enums import OFICINA_CENTRAL_FRENTE, ItemSourceChoices
+from apps.core.enums import OFICINA_CENTRAL_FRENTE, ItemSourceChoices, RoleChoices
 from apps.core.serializers.user import UserListSerializer
 from apps.rq.services.request_items import log_proposed_catalog_links
+from apps.rq.services.request_submission import (
+    MAX_REQUEST_ITEMS as _SUBMISSION_MAX_ITEMS,
+    new_provisional_number,
+)
 from apps.warehouse.models import Inventory
 
 logger = logging.getLogger(__name__)
@@ -26,7 +30,7 @@ MIN_DB_INT = -(2**63)
 MAX_DB_INT = 2**63 - 1
 
 # One POST must not be an amplifier: every line costs queries and log volume.
-MAX_REQUEST_ITEMS = 200
+MAX_REQUEST_ITEMS = _SUBMISSION_MAX_ITEMS
 
 # The unknown-keys warning is one record per request, bounded in size.
 MAX_LOGGED_UNKNOWN_KEYS = 10
@@ -482,6 +486,8 @@ class RequestCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Request
         fields = [
+            'id',
+            'status',
             'rq_number',
             'flow',
             'project',
@@ -504,10 +510,15 @@ class RequestCreateSerializer(serializers.ModelSerializer):
         # locks the latest RQ row). Making it read-only closes the TOCTOU window where
         # a client-supplied number could collide with one generated concurrently, and
         # stops clients from spoofing/forging the RQ number.
-        read_only_fields = ['rq_number']
+        read_only_fields = ['id', 'status', 'rq_number']
         # SYSPCC-026: the area (OP/QC/HSE/ADM) is mandatory when creating an RQ.
         # It stays optional on the model so historical RQs remain valid.
-        extra_kwargs = {'requesting_area': {'required': True, 'allow_blank': False}}
+        extra_kwargs = {
+            'requesting_area': {'required': True, 'allow_blank': False},
+            # The column accepts NULL only so a draft can be saved without a date
+            # (SYSPCC-031); a full creation still demands it.
+            'fecha_necesidad': {'required': True, 'allow_null': False},
+        }
 
     def validate(self, attrs):
         flow = attrs.get('flow')
@@ -576,3 +587,135 @@ class RequestCreateSerializer(serializers.ModelSerializer):
         # them in two queries instead of one per line.
         prefetch_related_objects([request_obj], 'items__inventory_item')
         return request_obj
+
+
+class RequestItemDraftSerializer(RequestItemSerializer):
+    """
+    Line of a draft (SYSPCC-031). Same fields as a full creation, but the quantity may
+    still be 0 (the requester has not decided it yet); a line with 0 units cannot be sent,
+    `request_submission.readiness_errors` demands it greater than zero at that moment.
+    """
+
+    class Meta(RequestItemSerializer.Meta):
+        list_serializer_class = RequestItemCreateListSerializer
+        extra_kwargs = {
+            **RequestItemSerializer.Meta.extra_kwargs,
+            # The server numbers the lines of a draft by position.
+            'line_number': {'required': False},
+            'quantity': {
+                'min_value': Decimal('0'),
+                'error_messages': {'min_value': 'La cantidad no puede ser negativa.'},
+            },
+        }
+
+
+class RequestDraftSerializer(RequestCreateSerializer):
+    """
+    Saves an RQ as a draft (`DRAFT`): POST /requests/ with `save_as_draft: true` and
+    PATCH/PUT /requests/{id}/ on a draft (SYSPCC-031).
+
+    Minimal validation, only what is needed to store the data: the flow, at least one
+    line, and the consistency rules that never change (Oficina Central goes through the
+    Administración flow; quantities cannot be negative). The area, the frente, the
+    service, the need date and the origin (project / department) can be filled in later:
+    they are all demanded when the draft is SENT (`request_submission.readiness_errors`).
+
+    Nothing of the workflow runs here: no approval record, no activity log, no
+    notification, no SLA. The draft gets a provisional `rq_number` (see
+    `request_submission`); the official one is assigned when it is sent. On update, `items`
+    (when sent) REPLACES the lines of the draft.
+    """
+
+    save_as_draft = serializers.BooleanField(write_only=True, required=False, default=False)
+    items = RequestItemDraftSerializer(
+        many=True,
+        allow_empty=False,
+        max_length=MAX_REQUEST_ITEMS,
+        error_messages={
+            'empty': 'Agregue al menos un ítem al borrador.',
+            'max_length': 'Un requerimiento admite como máximo {max_length} ítems.',
+        },
+    )
+
+    class Meta(RequestCreateSerializer.Meta):
+        fields = [*RequestCreateSerializer.Meta.fields, 'save_as_draft']
+        extra_kwargs = {
+            'requesting_area': {'required': False, 'allow_blank': True},
+            'fecha_necesidad': {'required': False, 'allow_null': True},
+            'acquisition_type': {'required': False},
+        }
+
+    def validate(self, attrs):
+        # Only the rule that does not depend on what is still missing. On a partial update
+        # the keys not sent keep the value of the draft.
+        current = self.instance
+        front_area = attrs.get('front_area', getattr(current, 'front_area', '')) or ''
+        flow = attrs.get('flow', getattr(current, 'flow', None))
+        if front_area.strip().upper() == OFICINA_CENTRAL_FRENTE and flow != 'ADMINISTRATIVE':
+            raise serializers.ValidationError({
+                'flow': 'El frente "Oficina Central" debe registrarse por el flujo de Administración.',
+            })
+        return attrs
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        validated_data.pop('save_as_draft', None)
+        validated_data.pop('rq_number', None)
+        validated_data.setdefault('acquisition_type', 'COMPRA_LOCAL')
+        validated_data['requested_by'] = self.context['request'].user
+        validated_data['status'] = 'DRAFT'
+
+        with transaction.atomic():
+            request_obj = None
+            for _attempt in range(3):
+                validated_data['rq_number'] = new_provisional_number()
+                try:
+                    with transaction.atomic():
+                        request_obj = Request.objects.create(**validated_data)
+                    break
+                except IntegrityError:
+                    # 48 random bits: a collision is practically impossible, but retrying is free.
+                    logger.warning('request.draft.number_collision')
+            if request_obj is None:
+                raise serializers.ValidationError(
+                    {'rq_number': 'No se pudo guardar el borrador, intente nuevamente.'}
+                )
+            self._replace_items(request_obj, items_data)
+
+        prefetch_related_objects([request_obj], 'items__inventory_item')
+        return request_obj
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        validated_data.pop('save_as_draft', None)
+        validated_data.pop('rq_number', None)
+
+        with transaction.atomic():
+            # Lock the row: a concurrent send (DRAFT -> SUBMITTED) must not be overwritten.
+            locked = Request.objects.select_for_update().get(pk=instance.pk)
+            if locked.status != 'DRAFT':
+                raise serializers.ValidationError(
+                    {'detail': 'Solo se pueden editar requerimientos en estado BORRADOR.'}
+                )
+            for attr, value in validated_data.items():
+                setattr(locked, attr, value)
+            locked.save()
+            if items_data is not None:
+                locked.items.all().delete()
+                self._replace_items(locked, items_data)
+
+        prefetch_related_objects([locked], 'items__inventory_item')
+        return locked
+
+    @staticmethod
+    def _replace_items(request_obj, items_data):
+        for idx, item_data in enumerate(items_data, start=1):
+            item_data['line_number'] = idx
+            RequestItem.objects.create(request=request_obj, **item_data)
+
+
+class SubmitDraftSerializer(serializers.Serializer):
+    """Optional body of POST /requests/{id}/submit/ (SYSPCC-031)."""
+
+    acting_role = serializers.ChoiceField(choices=RoleChoices.choices, default=RoleChoices.REQUESTER)
+    comments = serializers.CharField(required=False, allow_blank=True, default='', max_length=1000)

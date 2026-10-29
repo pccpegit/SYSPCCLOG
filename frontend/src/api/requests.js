@@ -16,7 +16,22 @@ export const getRequest = (id) =>
 export const createRequest = (data) =>
   client.post('/requests/', data);
 
-/** PATCH /requests/{id}/ */
+/**
+ * POST /requests/ with `save_as_draft: true` (SYSPCC-031): stores the RQ as a draft (DRAFT) with
+ * minimal validation: no approval, no notification, provisional number. 201 -> the draft (`id`, `status`).
+ */
+export const createDraft = (data) =>
+  client.post('/requests/', { ...data, save_as_draft: true });
+
+/**
+ * POST /requests/{id}/submit/ (SYSPCC-031): sends a draft (DRAFT -> SUBMITTED). The server checks ALL the
+ * rules of a full send and answers 400 `{ detail: { field: [messages] } }` (`items` lists "Ítem N: ...")
+ * when something is missing; on success it assigns the official `rq_number` and answers the RQ detail.
+ */
+export const submitDraft = (id) =>
+  client.post(`/requests/${id}/submit/`);
+
+/** PATCH /requests/{id}/ — on a draft, `items` (when sent) replaces its lines. */
 export const updateRequest = (id, data) =>
   client.patch(`/requests/${id}/`, data);
 

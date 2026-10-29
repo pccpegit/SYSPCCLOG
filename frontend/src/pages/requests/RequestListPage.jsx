@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, FileText, Plus, X } from 'lucide-react';
+import { Search, Filter, FileText, Plus, X, Pencil, Send, Trash2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ROLES, STATUS_CONFIG, PRIORITY_CONFIG } from '../../data/constants';
-import { getRequests } from '../../api/requests';
+import { getRequests, submitDraft, deleteRequest } from '../../api/requests';
 import { getProjects } from '../../api/core';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/apiErrors';
+import { extractSubmitErrorMessages } from '../../utils/requestCapture';
+import ConfirmModal from '../../components/ui/ConfirmModal';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 
@@ -31,12 +35,18 @@ export default function RequestListPage() {
   const { primaryRole, currentUser } = useAuth();
   const navigate = useNavigate();
 
+  const { showToast } = useToast();
   const role = primaryRole ?? ROLES.REQUESTER;
 
   const [requests,  setRequests]  = useState([]);
   const [projects,  setProjects]  = useState([]);
   const [total,     setTotal]     = useState(0);
   const [loading,   setLoading]   = useState(true);
+  // SYSPCC-031 (drafts): the one being sent/deleted, the delete awaiting confirmation, and what
+  // the server listed as missing when a draft is not ready to be sent.
+  const [busyId,        setBusyId]        = useState(null);
+  const [toDelete,      setToDelete]      = useState(null);
+  const [submitProblem, setSubmitProblem] = useState(null);
 
   const [filters, setFilters] = useState({
     status:   '',
@@ -83,6 +93,50 @@ export default function RequestListPage() {
   useEffect(() => {
     fetchRequests(filters);
   }, [filters, fetchRequests]);
+
+  const openDraft = (req) => navigate(`/rq/requests/draft/${req.id}`);
+
+  async function handleSendDraft(req) {
+    if (busyId) return;
+    setBusyId(req.id);
+    setSubmitProblem(null);
+    try {
+      const { data } = await submitDraft(req.id);
+      showToast({ type: 'success', message: `Requerimiento enviado. N° ${data.rq_number}.` });
+      await fetchRequests(filters);
+    } catch (err) {
+      console.error('Error al enviar el borrador:', err);
+      if (err?.response?.status === 400) {
+        setSubmitProblem({
+          id: req.id,
+          messages: extractSubmitErrorMessages(err, 'No se pudo enviar el borrador.'),
+        });
+      } else {
+        showToast({ type: 'error', message: extractErrorMessage(err, 'No se pudo enviar el borrador.') });
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleConfirmDelete() {
+    const req = toDelete;
+    if (!req || busyId) return;
+    setBusyId(req.id);
+    try {
+      await deleteRequest(req.id);
+      setToDelete(null);
+      if (submitProblem?.id === req.id) setSubmitProblem(null);
+      showToast({ type: 'success', message: 'Borrador eliminado.' });
+      await fetchRequests(filters);
+    } catch (err) {
+      console.error('Error al eliminar el borrador:', err);
+      setToDelete(null);
+      showToast({ type: 'error', message: extractErrorMessage(err, 'No se pudo eliminar el borrador.') });
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   function handleFilter(e) {
     const { name, value } = e.target;
@@ -206,6 +260,40 @@ export default function RequestListPage() {
         )}
       </div>
 
+      {submitProblem && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 p-4 bg-red-50 border-2 border-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-xl"
+        >
+          <AlertCircle size={20} aria-hidden="true" className="text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold text-red-700 dark:text-red-300">
+              El borrador no está listo para enviarse. Complételo y vuelva a intentarlo:
+            </p>
+            <ul className="mt-1.5 space-y-0.5 list-disc pl-5">
+              {submitProblem.messages.map((message, i) => (
+                <li key={i} className="text-sm text-red-700 dark:text-red-300">{message}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => navigate(`/rq/requests/draft/${submitProblem.id}`)}
+              className="mt-3 inline-flex items-center gap-1.5 text-sm font-bold text-red-700 dark:text-red-300 underline underline-offset-2"
+            >
+              Continuar el borrador
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubmitProblem(null)}
+            aria-label="Cerrar aviso"
+            className="text-red-500 hover:text-red-700 dark:text-red-300"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
         {loading ? (
@@ -243,17 +331,21 @@ export default function RequestListPage() {
                   <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider font-display">Estado</th>
                   <th className="py-3 px-5 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider hidden lg:table-cell font-display">Fecha Req.</th>
                   <th className="py-3 px-5 text-right text-[11px] font-bold text-gray-400 uppercase tracking-wider hidden xl:table-cell font-display">Costo Est.</th>
+                  <th className="py-3 px-5 text-right text-[11px] font-bold text-gray-400 uppercase tracking-wider font-display">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {requests.map((req) => (
+                {requests.map((req) => {
+                  const isDraft = req.status === 'DRAFT';
+                  const busy = busyId === req.id;
+                  return (
                   <tr
                     key={req.id}
-                    onClick={() => navigate(`/rq/requests/${req.rq_number ?? req.rqNumber}`)}
+                    onClick={() => (isDraft ? openDraft(req) : navigate(`/rq/requests/${req.rq_number ?? req.rqNumber}`))}
                     className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-500/10 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
                   >
                     <td className="py-3.5 px-5 font-mono font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap text-xs">
-                      {req.rq_number ?? req.rqNumber}
+                      {isDraft ? <span className="font-sans font-semibold italic text-gray-500">Borrador</span> : (req.rq_number ?? req.rqNumber)}
                     </td>
                     <td className="py-3.5 px-5 text-gray-700 max-w-xs">
                       <span className="line-clamp-2 leading-snug">{req.description}</span>
@@ -279,8 +371,45 @@ export default function RequestListPage() {
                     <td className="py-3.5 px-5 text-right font-semibold text-gray-700 hidden xl:table-cell whitespace-nowrap">
                       {formatCurrency(req.estimated_cost ?? req.estimatedCost)}
                     </td>
+                    <td className="py-3.5 px-5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      {isDraft && (
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openDraft(req)}
+                            disabled={busy}
+                            aria-label={`Continuar el borrador del ${formatDate(req.created_at)}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            <Pencil size={13} aria-hidden="true" />
+                            Continuar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendDraft(req)}
+                            disabled={busy}
+                            aria-label={`Enviar el borrador del ${formatDate(req.created_at)}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            <Send size={13} aria-hidden="true" />
+                            {busy && !toDelete ? 'Enviando...' : 'Enviar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setToDelete(req)}
+                            disabled={busy}
+                            aria-label={`Eliminar el borrador del ${formatDate(req.created_at)}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-300 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            <Trash2 size={13} aria-hidden="true" />
+                            Eliminar
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -299,6 +428,17 @@ export default function RequestListPage() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={Boolean(toDelete)}
+        title="Eliminar borrador"
+        message="El borrador se eliminará de forma definitiva. Esta acción no se puede deshacer."
+        confirmText={busyId ? 'Eliminando...' : 'Eliminar'}
+        confirmColor="bg-red-600 hover:bg-red-700"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => { if (!busyId) setToDelete(null); }}
+        icon={Trash2}
+      />
     </div>
   );
 }

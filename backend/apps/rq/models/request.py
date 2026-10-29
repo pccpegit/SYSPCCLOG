@@ -174,7 +174,12 @@ class Request(TimeStampedModel):
     # Dates
     fecha_necesidad = models.DateField(
         _('fecha de necesidad'),
-        help_text=_('Fecha en que se necesitan los materiales/servicios'),
+        null=True,
+        blank=True,
+        help_text=_(
+            'Fecha en que se necesitan los materiales/servicios. Solo un borrador (DRAFT) '
+            'puede no tenerla todavía: al enviarlo se exige (SYSPCC-031).'
+        ),
     )
     fecha_estimada_entrega = models.DateField(
         _('fecha estimada de entrega'),

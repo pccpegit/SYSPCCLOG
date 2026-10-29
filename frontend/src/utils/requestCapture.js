@@ -311,3 +311,76 @@ export function extractCreateErrorMessage(err, fallback, rowNumbers) {
   }
   return extractErrorMessage(err, fallback);
 }
+
+// ── SYSPCC-031: borradores ───────────────────────────────────────────────────────────────────────
+
+/** Fixed rows the form shows when it starts (a loaded draft is padded up to this many). */
+export const MIN_FORM_ROWS = 5;
+
+const numberOrBlank = (value) => {
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n > 0 ? String(n) : '';
+};
+
+/**
+ * Lines of the form from the lines of a saved draft (`GET /requests/{id}/` -> `items`).
+ * A line linked to the catalog shows its product (code/description/unit come flat from the
+ * API; the central stock is not part of the detail, so it shows "—"); a quantity of 0 (not
+ * decided yet) comes back as an empty box. The result always has at least `MIN_FORM_ROWS` rows.
+ */
+export function itemsFromDraft(apiItems = []) {
+  const rows = apiItems.map((api) => {
+    const base = newCaptureItem();
+    const linked = api.inventory_item != null;
+    const stockObra = parseFloat(api.stock_almacen_obra) || 0;
+    const stockCentral = parseFloat(api.stock_almacen_central) || 0;
+    return {
+      ...base,
+      mode: !linked && api.is_off_catalog ? 'off_catalog' : 'catalog',
+      product: linked
+        ? {
+            id: api.inventory_item,
+            product_code: api.inventory_item_code ?? '',
+            description: api.inventory_item_description ?? api.description ?? '',
+            unit: api.inventory_item_unit ?? api.unit ?? '',
+            category: '',
+            available: null,
+          }
+        : null,
+      descripcion: api.description ?? '',
+      unidad: api.unit || 'UND',
+      cantidad: numberOrBlank(api.quantity),
+      stockAlmacenObra: stockObra,
+      stockAlmacenPrincipal: stockCentral,
+      presupuestadoAdicional: api.presupuestado_adicional || 'P',
+      rfiFwo: api.rfi_fwo ?? '',
+      comentarios: api.comentarios ?? '',
+      itemSource: api.item_source ?? '',
+    };
+  });
+  while (rows.length < MIN_FORM_ROWS) rows.push(newCaptureItem());
+  return rows;
+}
+
+/** How many touched lines `buildItemsPayload` leaves out because they are not resolved yet. */
+export function countUnresolvedTouched(items) {
+  return items.filter((item) => isItemTouched(item) && !getItemResolution(item)).length;
+}
+
+/**
+ * Every message of a 400 from `POST /requests/{id}/submit/` (or from saving a draft), flat and
+ * ready for a list: the server sends `detail: { field: [messages] }` (the lines as "Ítem N: ...").
+ * Falls back to the single generic message when the body has no field messages.
+ */
+export function extractSubmitErrorMessages(err, fallback) {
+  const detail = err?.response?.data?.detail;
+  const out = [];
+  const push = (value) => {
+    if (typeof value === 'string' && value.trim()) out.push(value);
+    else if (Array.isArray(value)) value.forEach(push);
+    else if (value && typeof value === 'object') Object.values(value).forEach(push);
+  };
+  if (detail && typeof detail === 'object') push(detail);
+  if (out.length > 0) return out;
+  return [extractErrorMessage(err, fallback)];
+}

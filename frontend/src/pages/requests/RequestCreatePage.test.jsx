@@ -508,28 +508,6 @@ describe('RequestCreatePage — SYSPCC-026 catálogo, Área y Fuente', () => {
     ).toBeInTheDocument();
   });
 
-  // The backend creates the RQ already SUBMITTED (there is no editable draft), so the second
-  // button must not promise one: it is "Enviar sin Excel" and says it went to validation.
-  it('"Enviar sin Excel" también exige Área y líneas resueltas (el backend las pide), no descarga el Excel y no habla de borrador', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<RequestCreatePage />);
-    await screen.findByText('MINERA YANAOCHA');
-    expect(screen.queryByRole('button', { name: /borrador/i })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Enviar sin Excel' }));
-    expect(requestsApi.createRequest).not.toHaveBeenCalled();
-    expect(screen.getAllByText('Seleccione el área del RQ (OP, QC, HSE o ADM).').length).toBeGreaterThan(0);
-
-    await user.selectOptions(screen.getByLabelText(/Área del RQ/), 'QC');
-    await fillOffCatalogItem(user);
-    await user.click(screen.getByRole('button', { name: 'Enviar sin Excel' }));
-    await screen.findByText('Requerimiento registrado y enviado a validación.');
-    expect(screen.queryByText(/borrador/i)).not.toBeInTheDocument();
-
-    expect(lastCreatePayload().requesting_area).toBe('QC');
-    expect(exportRQ.exportRQToExcel).not.toHaveBeenCalled();
-  });
-
   it('un doble clic en Enviar crea el RQ una sola vez y deja el botón deshabilitado', async () => {
     const user = userEvent.setup();
     requestsApi.createRequest.mockImplementation(() => new Promise(() => {})); // nunca responde

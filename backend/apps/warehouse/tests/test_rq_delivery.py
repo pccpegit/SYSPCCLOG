@@ -582,7 +582,7 @@ class TestDeliverBusinessRules:
 
 class TestDeliverStates:
     @pytest.mark.parametrize('status', [
-        'DRAFT', 'SUBMITTED', 'VALIDATED', 'REQUIRES_PURCHASE', 'QUOTING', 'PO_GENERATED', 'RECEIVING',
+        'SUBMITTED', 'VALIDATED', 'REQUIRES_PURCHASE', 'QUOTING', 'PO_GENERATED', 'RECEIVING',
         'QUALITY_REJECTED', 'DISPATCHED_TO_SITE', 'DELIVERED', 'WAREHOUSE_UPDATED', 'USER_CONFORMITY',
         'CLAIM_IN_REVIEW', 'CLOSED', 'CANCELLED', 'GM_REJECTED',
     ])
@@ -598,6 +598,18 @@ class TestDeliverStates:
         body = response.json()
         assert body['code'] == 'INVALID_STATE' and body['status'] == status
         assert body['allowed_statuses'] == ['IN_STOCK', 'QUALITY_APPROVED']
+        assert pool(item.inventory_item) == Decimal('10.000')
+
+    def test_a_draft_is_private_to_its_requester_so_the_warehouse_gets_404_and_no_stock_moves(
+        self, ops_in_stock, central_warehouse,
+    ):
+        """SYSPCC-031."""
+        rq, item = ops_in_stock
+        set_status(rq, 'DRAFT')
+
+        response = client_for(central_warehouse).post(deliver_url(rq), payload((item, 1)), format='json')
+
+        assert response.status_code == 404
         assert pool(item.inventory_item) == Decimal('10.000')
 
     def test_state_is_checked_before_the_payload_so_a_late_client_gets_409(

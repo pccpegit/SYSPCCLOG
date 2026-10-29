@@ -3,7 +3,7 @@ RQ-specific permissions.
 """
 
 from rest_framework.permissions import BasePermission
-from apps.core.enums import RoleChoices
+from apps.core.enums import RoleChoices, RQStatusChoices
 
 
 # Roles with visibility over every Request regardless of project/department scope.
@@ -39,6 +39,19 @@ DEPARTMENT_SCOPE_ROLES = [
 ]
 
 
+def never_sent_q():
+    """
+    Q for the RQs that were NEVER sent (SYSPCC-031): still a draft, or a draft that was
+    cancelled before being sent. The explicit marker is the provisional number
+    (`BOR-…`): it is only replaced by the official `RQ-YYYY-NNNN` when the draft is sent,
+    and the client cannot choose it (`rq_number` is read-only).
+    """
+    from django.db.models import Q
+    from apps.rq.services.request_submission import PROVISIONAL_PREFIX
+
+    return Q(status=RQStatusChoices.DRAFT) | Q(rq_number__startswith=PROVISIONAL_PREFIX)
+
+
 def get_accessible_requests_queryset(user):
     """
     SYSPCC-006 FIX 3 / SYSPCC-011 FIX 1: queryset of `Request` objects the
@@ -49,6 +62,8 @@ def get_accessible_requests_queryset(user):
       project/department their UserRole is scoped to.
     - Everyone else (in particular a plain REQUESTER): only requests they
       created themselves.
+    - SYSPCC-031: a DRAFT (or a draft cancelled before being sent) is visible only to
+      the user who created it (applies on top of every rule above, staff included).
 
     This is the single source of truth for Request visibility — RequestViewSet
     and the Quotation/PurchaseOrder viewsets all filter through this function
@@ -57,7 +72,10 @@ def get_accessible_requests_queryset(user):
     from django.db.models import Q
     from apps.rq.models import Request
 
-    qs = Request.objects.all()
+    # SYSPCC-031: a draft is private work of its requester, not yet a requirement for
+    # anyone else: nobody else sees it, whatever their role. That includes a draft that
+    # was cancelled (the universal CANCELLED transition leaves DRAFT): it never was sent.
+    qs = Request.objects.exclude(~Q(requested_by=user) & never_sent_q())
     if user.is_staff or user.is_superuser:
         return qs
 

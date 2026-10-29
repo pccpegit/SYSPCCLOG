@@ -108,11 +108,11 @@ function RequestsTable({ requests, onRowClick }) {
           {requests.map((req) => (
             <tr
               key={req.id}
-              onClick={() => onRowClick(req.rq_number ?? req.rqNumber)}
+              onClick={() => onRowClick(req.status === 'DRAFT' ? `draft/${req.id}` : (req.rq_number ?? req.rqNumber))}
               className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-500/10 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
             >
               <td className="py-3.5 px-5 font-mono font-bold text-blue-600 whitespace-nowrap text-xs">
-                {req.rq_number ?? req.rqNumber}
+                {req.status === 'DRAFT' ? 'Borrador' : (req.rq_number ?? req.rqNumber)}
               </td>
               <td className="py-3.5 px-5 text-gray-700 max-w-xs">
                 <span className="line-clamp-2 leading-snug">{req.description}</span>

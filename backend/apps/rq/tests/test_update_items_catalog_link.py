@@ -482,6 +482,11 @@ class TestStateGuard:
         item.refresh_from_db()
         ops_rq.refresh_from_db()
         assert ops_rq.status == state  # the guard never moves the workflow
+        if state == 'DRAFT':
+            # SYSPCC-031: a draft is private to its requester: logistics does not see it (404).
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+            assert item.inventory_item_id is None
+            return
         if state in EDITABLE_STATES:
             assert response.status_code == status.HTTP_200_OK, (state, response.data)
             assert item.inventory_item_id == helmet.pk

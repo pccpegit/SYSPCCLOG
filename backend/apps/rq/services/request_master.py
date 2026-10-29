@@ -45,7 +45,7 @@ from apps.core.enums import (
     RQStatusChoices,
 )
 from apps.rq.models import ActivityLog, Approval, Request, RequestItem
-from apps.rq.permissions import get_accessible_requests_queryset
+from apps.rq.permissions import get_accessible_requests_queryset, never_sent_q
 from apps.rq.services import item_tracking as tracking_rules
 from apps.rq.services.item_tracking import ItemFacts, ItemStatus, classify_item, summarize_progress
 from apps.warehouse.models import WarehouseDispatchItem
@@ -263,9 +263,18 @@ def facts_from_item(item: RequestItem, dispatch: DispatchAggregate = _NO_DISPATC
     }, dispatch)
 
 
+def _tracked_requests(user):
+    """
+    RQs the Master tracks for `user`: the accessible ones minus the never-sent ones
+    (drafts, and drafts cancelled before being sent: SYSPCC-031). They are not a
+    requirement: their lines have nothing to be attended. Excluded even for their owner.
+    """
+    return get_accessible_requests_queryset(user).exclude(never_sent_q()).values('pk')
+
+
 def master_queryset(user, params: MasterParams):
     """RequestItem anotados, con el alcance del usuario y los filtros de base de datos."""
-    scope = get_accessible_requests_queryset(user).values('pk')
+    scope = _tracked_requests(user)
     qs = annotate_items(RequestItem.objects.filter(request_id__in=scope))
 
     if params.project:
@@ -627,7 +636,7 @@ def user_is_logistics(user) -> bool:
 
 def get_master_row(user, item_id: int) -> Optional[dict]:
     """Fila del Master de UN ítem visible para `user` (None si no existe o no lo puede ver)."""
-    scope = get_accessible_requests_queryset(user).values('pk')
+    scope = _tracked_requests(user)
     item = detail_queryset().filter(pk=item_id, request_id__in=scope).first()
     if item is None:
         return None

@@ -89,6 +89,7 @@ export default function App() {
             <Route index element={<DashboardPage />} />
             <Route path="requests"     element={<RequestListPage />}   />
             <Route path="requests/new" element={<RequestCreatePage />} />
+            <Route path="requests/draft/:draftId" element={<RequestCreatePage />} />
             <Route path="requests/:id" element={<RequestDetailPage />} />
             <Route path="master"       element={<RequestMasterPage />} />
             <Route path="approvals"    element={<ApprovalsPage />}     />

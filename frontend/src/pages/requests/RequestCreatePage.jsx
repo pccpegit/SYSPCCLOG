@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Plus, Trash2, ArrowLeft, Save, Send, AlertCircle, Download } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getProjects, getDepartments } from '../../api/core';
-import { createRequest } from '../../api/requests';
+import { createRequest, createDraft, getRequest, submitDraft, updateRequest } from '../../api/requests';
 import { exportRQToExcel } from '../../utils/exportRQ';
 import { useToast } from '../../context/ToastContext';
 import { isOficinaCentral } from '../../data/constants';
@@ -13,7 +13,11 @@ import {
   applyProduct,
   buildItemsPayload,
   clearProduct,
+  countUnresolvedTouched,
   extractCreateErrorMessage,
+  extractSubmitErrorMessages,
+  getItemResolution,
+  itemsFromDraft,
   payloadRowNumbers,
   newCaptureItem,
   setItemSource,
@@ -139,6 +143,8 @@ export default function RequestCreatePage() {
   const { currentUser } = useAuth();
   const navigate        = useNavigate();
   const { showToast }   = useToast();
+  // SYSPCC-031: /rq/requests/draft/:draftId reopens a saved draft in this same form.
+  const { draftId: routeDraftId } = useParams();
 
   // Determine user's primary role info
   const primaryRoleObj = currentUser?.roles?.find((r) => r.is_primary) ?? currentUser?.roles?.[0];
@@ -191,7 +197,11 @@ export default function RequestCreatePage() {
   const [announcement, setAnnouncement] = useState('');
   // A 400 from the server that is not tied to one field; shown in the summary so the
   // message does not depend on a toast that disappears.
+  // A string, or the list of messages the server sent when a draft is not ready to be sent.
   const [serverError, setServerError] = useState(null);
+  // Id of the draft being edited (from the route, or once "Guardar borrador" created it).
+  const [draftId, setDraftId] = useState(routeDraftId ?? null);
+  const [draftState, setDraftState] = useState(routeDraftId ? 'loading' : 'ready'); // loading | ready | missing
   const submitLock  = useRef(false);
   const summaryRef  = useRef(null);
 
@@ -218,6 +228,9 @@ export default function RequestCreatePage() {
         projList.forEach((p) => { if (p.frente) frenteSet.add(p.frente); });
         deptList.forEach((d) => { if (d.frente) frenteSet.add(d.frente); });
         setFrentes([...frenteSet].sort());
+
+        // A saved draft carries its own origin: do not overwrite it with the user's defaults.
+        if (routeDraftId) return;
 
         // If user has a project assigned (OPS), auto-fill and lock
         if (userProjectId) {
@@ -248,6 +261,47 @@ export default function RequestCreatePage() {
     fetchData();
   }, []);
 
+  // Reopen a saved draft: the form is filled with what the server kept.
+  useEffect(() => {
+    if (!routeDraftId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await getRequest(routeDraftId);
+        if (cancelled) return;
+        if (data.status !== 'DRAFT') {
+          showToast({ type: 'error', message: 'Este requerimiento ya fue enviado y no se puede editar.' });
+          navigate(`/rq/requests/${data.rq_number ?? routeDraftId}`, { replace: true });
+          return;
+        }
+        let destinationKey = '';
+        if (isOficinaCentral(data.front_area)) {
+          destinationKey = userDepartmentId ? `dept-${userDepartmentId}` : 'dept-oficina';
+        } else if (data.project) {
+          destinationKey = `proj-${data.project}`;
+        } else if (data.department) {
+          destinationKey = `dept-${data.department}`;
+        }
+        setForm((f) => ({
+          ...f,
+          destinationKey,
+          frente:         data.front_area ?? '',
+          servicio:       data.service ?? '',
+          usoEspecifico:  data.specific_use ?? '',
+          fechaEntrega:   data.fecha_necesidad ?? '',
+          requestingArea: data.requesting_area ?? '',
+        }));
+        setItems(itemsFromDraft(data.items));
+        setDraftState('ready');
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Error al cargar el borrador:', err);
+        setDraftState('missing');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [routeDraftId]);
+
   const selectedProject = destType === 'project' ? projects.find((p) => p.id === destId) : null;
   const selectedDepartment = destType === 'department' ? departments.find((d) => d.id === destId) : null;
 
@@ -277,7 +331,7 @@ export default function RequestCreatePage() {
       text: issue.message,
       targets: itemIssueTargets(issue, items),
     })),
-    ...(serverError ? [{ key: 'server', text: serverError, targets: [] }] : []),
+    ...[].concat(serverError ?? []).map((text, i) => ({ key: `server-${i}`, text, targets: [] })),
   ];
   const hasErrors = summaryEntries.length > 0;
 
@@ -401,14 +455,14 @@ export default function RequestCreatePage() {
 
   // ── Validation ───────────────────────────────────────────────
 
-  // The area is required also for "Guardar borrador": the backend creates the RQ
-  // straight from this payload and answers 400 without it. The lines are checked
-  // separately (validateCaptureItems), for both buttons.
-  function validate(asDraft) {
+  // Full send (direct, or a draft that is sent from this form). The area is checked in both
+  // paths; the N° is only typed on a NEW requirement: a saved draft has no N° of its own (the
+  // system assigns the official one when it is sent), so it is not asked again.
+  // A DRAFT is saved with minimal validation (see handleSaveDraft): nothing here.
+  function validate() {
     const errs = {};
     if (!form.requestingArea) errs.requestingArea = 'Seleccione el área del RQ (OP, QC, HSE o ADM).';
-    if (asDraft) return errs;
-    if (!form.rqNumber.trim()) errs.rqNumber = 'Ingrese el N° de Requerimiento.';
+    if (!draftId && !form.rqNumber.trim()) errs.rqNumber = 'Ingrese el N° de Requerimiento.';
     if (!form.frente)          errs.frente        = 'Seleccione el frente.';
     if (!form.destinationKey)  errs.destinationKey = 'Seleccione un servicio.';
     if (!form.area)            errs.area         = 'Seleccione el área.';
@@ -416,14 +470,90 @@ export default function RequestCreatePage() {
     return errs;
   }
 
-  // ── Submit ───────────────────────────────────────────────────
+  // Body of POST /requests/ and PATCH /requests/{id}/. Only resolved lines go out (catalog
+  // product or explicit off-catalog); `supply_source` is logistics' call and is never sent from
+  // here. As a draft the header fields that are still empty go out empty (the server accepts it).
+  function buildPayload(asDraft) {
+    const isProject = form.destinationKey?.startsWith('proj-');
+    const isOficina = form.destinationKey === 'dept-oficina';
+    const parsedDestId = isOficina ? null : destId;
+    // For Oficina Central, find the ADM department
+    const adminDept = departments.find((d) => d.code === 'ADM');
+    const deptIdToSend = isOficina ? (adminDept?.id ?? null) : (isProject ? null : parsedDestId);
+    return {
+      // The server generates the official number: only a brand-new full send keeps the legacy field.
+      ...(asDraft || draftId ? {} : { rq_number: `REQ-${form.rqNumber.trim()}` }),
+      flow:                isProject ? 'OPERATIONS' : 'ADMINISTRATIVE',
+      requesting_area:     form.requestingArea,
+      project:             isProject ? destId : null,
+      department:          deptIdToSend,
+      front_area:          form.frente,
+      service:             form.servicio,
+      specific_use:        form.usoEspecifico,
+      acquisition_type:    form.tipoPedido || 'COMPRA_LOCAL',
+      priority:            'NORMAL',
+      fecha_necesidad:     asDraft ? (form.fechaEntrega || null) : (form.fechaEntrega || today()),
+      estimated_cost:      0,
+      items:               buildItemsPayload(items, calcXAtender),
+    };
+  }
 
-  async function handleSubmit(asDraft = false) {
+  // ── Save as draft ────────────────────────────────────────────
+
+  // SYSPCC-031: stores the requirement as a DRAFT. Minimal validation: at least one resolved line
+  // (a catalog product or an off-catalog description). Lines still half-filled are not saved.
+  async function handleSaveDraft() {
+    if (submitLock.current) return;
+
+    setServerError(null);
+    if (!items.some((item) => getItemResolution(item))) {
+      setErrors({});
+      setServerError('Para guardar el borrador agregue al menos un ítem: elija un producto del catálogo o márquelo como fuera de catálogo.');
+      setSubmitAttempt((n) => n + 1);
+      return;
+    }
+    setErrors({});
+    submitLock.current = true;
+    setSubmitting(true);
+    const rowNumbers = payloadRowNumbers(items);
+    const skipped = countUnresolvedTouched(items);
+
+    try {
+      const payload = buildPayload(true);
+      if (draftId) {
+        await updateRequest(draftId, payload);
+      } else {
+        const { data } = await createDraft(payload);
+        setDraftId(data.id);
+      }
+      showToast({
+        type: 'success',
+        message: skipped > 0
+          ? `Borrador guardado. ${skipped} ítem${skipped === 1 ? ' incompleto no se guardó' : 's incompletos no se guardaron'}.`
+          : 'Borrador guardado.',
+      });
+      setTimeout(() => navigate('/rq/requests'), 250);
+    } catch (err) {
+      console.error('Error al guardar el borrador:', err);
+      const message = extractCreateErrorMessage(err, 'No se pudo guardar el borrador.', rowNumbers);
+      if (err?.response?.status === 400) {
+        setServerError(message);
+        setSubmitAttempt((n) => n + 1);
+      }
+      showToast({ type: 'error', message });
+      submitLock.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  // ── Send ─────────────────────────────────────────────────────
+
+  async function handleSubmit() {
     // Double click / Enter twice: the state below is not updated yet, the ref is.
     if (submitLock.current) return;
 
     setServerError(null);
-    const errs = validate(asDraft);
+    const errs = validate();
     const capture = validateCaptureItems(items);
     if (Object.keys(errs).length > 0 || !capture.valid) {
       setErrors(errs);
@@ -436,52 +566,31 @@ export default function RequestCreatePage() {
     // The server points at a line by its position among the lines SENT (blank rows are skipped);
     // keep the map to the form's row numbers from this very submit.
     const rowNumbers = payloadRowNumbers(items);
+    // A saved draft is first brought up to date with the form, then sent: that way what the
+    // server validates is exactly what the person sees.
+    let draftSaved = false;
 
     try {
-      // Only resolved lines go out (catalog product or explicit off-catalog);
-      // `supply_source` is logistics' call and is never sent from here.
-      const filledItems = buildItemsPayload(items, calcXAtender);
-
-      const isProject = form.destinationKey?.startsWith('proj-');
-      const isOficina = form.destinationKey === 'dept-oficina';
-      const parsedDestId = isOficina ? null : destId;
-      // For Oficina Central, find the ADM department
-      const adminDept = departments.find((d) => d.code === 'ADM');
-      const deptIdToSend = isOficina ? (adminDept?.id ?? null) : (isProject ? null : parsedDestId);
-      const payload = {
-        rq_number:           `REQ-${form.rqNumber.trim()}`,
-        flow:                isProject ? 'OPERATIONS' : 'ADMINISTRATIVE',
-        requesting_area:     form.requestingArea,
-        project:             isProject ? destId : null,
-        department:          deptIdToSend,
-        front_area:          form.frente,
-        service:             form.servicio,
-        specific_use:        form.usoEspecifico,
-        acquisition_type:    form.tipoPedido || 'COMPRA_LOCAL',
-        priority:            'NORMAL',
-        fecha_necesidad:     form.fechaEntrega || today(),
-        estimated_cost:      0,
-        items:               filledItems,
-      };
-
-      const { data: createdReq } = await createRequest(payload);
-
-      // Download Excel for submitted requests
-      if (!asDraft) {
-        try {
-          await exportRQToExcel({ form, items, currentUser, rqNumber: createdReq.rq_number ?? rqNumber });
-        } catch (excelErr) {
-          console.error('Error al exportar Excel:', excelErr);
-        }
+      const payload = buildPayload(false);
+      let createdReq;
+      if (draftId) {
+        await updateRequest(draftId, payload);
+        draftSaved = true;
+        ({ data: createdReq } = await submitDraft(draftId));
+      } else {
+        ({ data: createdReq } = await createRequest(payload));
       }
 
-      // The backend creates the RQ already SUBMITTED (there is no editable draft):
-      // both buttons end up in validation, so neither message may say "borrador".
+      // Download the Excel of the submitted requirement (with the official number).
+      try {
+        await exportRQToExcel({ form, items, currentUser, rqNumber: createdReq.rq_number ?? rqNumber });
+      } catch (excelErr) {
+        console.error('Error al exportar Excel:', excelErr);
+      }
+
       showToast({
         type:    'success',
-        message: asDraft
-          ? 'Requerimiento registrado y enviado a validación.'
-          : 'Requerimiento enviado exitosamente. El Excel se ha descargado.',
+        message: 'Requerimiento enviado exitosamente. El Excel se ha descargado.',
       });
       setTimeout(() => navigate('/rq/requests'), 250);
     } catch (err) {
@@ -498,10 +607,15 @@ export default function RequestCreatePage() {
       if (err?.response?.status === 400) {
         // Something to fix: put it in the summary and move the focus there (the toast alone
         // disappears in seconds and the user is looking at the buttons at the bottom).
-        if (!areaFromServer) setServerError(message);
+        if (draftSaved) {
+          // The draft was rejected by the send: every message the server listed.
+          setServerError(extractSubmitErrorMessages(err, message));
+        } else if (!areaFromServer) {
+          setServerError(message);
+        }
         setSubmitAttempt((n) => n + 1);
       }
-      showToast({ type: 'error', message });
+      showToast({ type: 'error', message: draftSaved && err?.response?.status === 400 ? 'El borrador no está listo para enviarse. Revise los errores.' : message });
       submitLock.current = false;
       setSubmitting(false);
     }
@@ -532,6 +646,32 @@ export default function RequestCreatePage() {
     }`;
   }
 
+  if (draftState === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-64" role="status" aria-label="Cargando borrador">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 dark:border-t-blue-400" />
+      </div>
+    );
+  }
+
+  if (draftState === 'missing') {
+    return (
+      <div className="max-w-xl mx-auto py-16 text-center">
+        <p className="text-lg font-extrabold text-gray-700">No se encontró el borrador</p>
+        <p className="text-sm text-gray-500 mt-2">
+          Puede que ya se haya enviado o eliminado. Revise su lista de requerimientos.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/rq/requests')}
+          className="mt-5 px-5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700"
+        >
+          Ir a mis requerimientos
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[1400px] mx-auto">
 
@@ -549,7 +689,7 @@ export default function RequestCreatePage() {
           Volver
         </button>
         <span className="text-gray-300 text-lg font-light">/</span>
-        <span className="text-base font-bold text-gray-800">Nuevo Requerimiento</span>
+        <span className="text-base font-bold text-gray-800">{draftId ? 'Borrador de requerimiento' : 'Nuevo Requerimiento'}</span>
       </div>
 
       {/* ── Global error banner ──────────────────────────────────── */}
@@ -670,9 +810,12 @@ export default function RequestCreatePage() {
                   {currentUser?.full_name ?? (`${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim() || '—')}
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600 whitespace-nowrap w-44">
-                  <FieldLabel htmlFor="rqNumber" required>N° Requerimiento:</FieldLabel>
+                  {draftId ? 'N° Requerimiento:' : <FieldLabel htmlFor="rqNumber" required>N° Requerimiento:</FieldLabel>}
                 </td>
                 <td className="px-2 py-2">
+                  {draftId ? (
+                    <p className="text-xs text-gray-600 px-2 py-1.5">Borrador: el sistema asigna el N° al enviarlo.</p>
+                  ) : (
                   <div className="flex items-center gap-0">
                     <span className="text-xs font-mono font-bold text-gray-700 bg-gray-100 border border-r-0 border-gray-200 rounded-l px-2 py-1.5 select-none">REQ-</span>
                     <input
@@ -686,6 +829,7 @@ export default function RequestCreatePage() {
                       className={fieldCls(errors.rqNumber) + ' font-mono font-bold rounded-l-none'}
                     />
                   </div>
+                  )}
                   <FieldError id="rqNumber-error">{errors.rqNumber}</FieldError>
                 </td>
               </tr>
@@ -1278,22 +1422,21 @@ export default function RequestCreatePage() {
             Descargar Excel
           </button>
 
-          {/* Secondary — register without downloading the Excel. NOT a draft: the backend creates
-              the RQ already SUBMITTED, so it goes straight to validation (product decision pending). */}
+          {/* Secondary — saves a real draft (DRAFT): minimal validation, nothing is sent. */}
           <button
             type="button"
-            onClick={() => handleSubmit(true)}
+            onClick={handleSaveDraft}
             disabled={submitting}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 border-2 border-gray-400 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 hover:border-gray-500 transition-all duration-200 disabled:opacity-50"
           >
             <Save size={18} aria-hidden="true" />
-            Enviar sin Excel
+            Guardar borrador
           </button>
 
           {/* Primary — submit: BIG and obvious */}
           <button
             type="button"
-            onClick={() => handleSubmit(false)}
+            onClick={handleSubmit}
             disabled={submitting}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-10 py-4 bg-blue-600 text-white rounded-xl text-base font-extrabold hover:bg-blue-700 hover:shadow-xl hover:-translate-y-0.5 active:scale-95 transition-all duration-200 disabled:opacity-50 shadow-lg"
           >

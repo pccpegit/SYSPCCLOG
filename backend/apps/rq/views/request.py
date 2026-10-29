@@ -6,7 +6,7 @@ import logging
 
 from django.db import IntegrityError
 
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -19,6 +19,8 @@ from apps.rq.serializers.request import (
     RequestListSerializer,
     RequestDetailSerializer,
     RequestCreateSerializer,
+    RequestDraftSerializer,
+    SubmitDraftSerializer,
     RequestItemSerializer,
     UpdateItemsSerializer,
 )
@@ -31,14 +33,38 @@ from apps.rq.serializers.master import AttentionOverrideSerializer, MasterRowSer
 from apps.rq.services import request_master
 from apps.rq.services.item_attention import ItemNotFound, set_attention_override
 from apps.rq.services.request_items import update_request_items
+from apps.rq.services.request_submission import submit_draft
 from apps.rq.services.stock_availability import build_stock_availability
 from apps.rq.services.workflow_engine import WorkflowEngine
 from apps.core.exceptions import WorkflowError, PermissionDeniedForAction, RequestItemConflict
+from apps.core.enums import RoleChoices
 from apps.core.permissions import IsLogisticsStaff
 from apps.rq.filters import RequestFilter
 from apps.rq.permissions import get_accessible_requests_queryset, CanPerformWorkflowAction
 
 logger = logging.getLogger(__name__)
+
+MSG_DRAFT_OWNER_EDIT = 'Solo el solicitante puede editar su borrador.'
+MSG_DRAFT_OWNER_DELETE = 'Solo el solicitante puede eliminar su borrador.'
+MSG_DRAFT_REQUIRES_REQUESTER = 'Solo un usuario con el rol Solicitante puede guardar borradores.'
+
+
+def _wants_draft(data) -> bool:
+    """
+    True when the body of POST /requests/ asks to save a draft (`save_as_draft`).
+    A value that is not a boolean also counts: the draft serializer answers 400 for it
+    instead of a full (SUBMITTED) creation being made by mistake.
+    """
+    try:
+        raw = data.get('save_as_draft')
+    except AttributeError:  # body that is not a mapping: the serializer rejects it
+        return False
+    if raw is None:
+        return False
+    try:
+        return bool(serializers.BooleanField().to_internal_value(raw))
+    except serializers.ValidationError:
+        return True
 
 
 def _error_envelope(http_status: int, detail: str, code: str) -> Response:
@@ -96,30 +122,100 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         if self.action == 'create':
-            return RequestCreateSerializer
+            # SYSPCC-031: `save_as_draft` stores a draft; without it the RQ is created
+            # SUBMITTED exactly as before.
+            return RequestDraftSerializer if _wants_draft(self.request.data) else RequestCreateSerializer
+        if self.action in ('update', 'partial_update'):
+            return RequestDraftSerializer
         if self.action in ('list',):
             return RequestListSerializer
         return RequestDetailSerializer
 
+    def create(self, request, *args, **kwargs):
+        # SYSPCC-031: only a REQUESTER can send a draft (DRAFT -> SUBMITTED), so only a
+        # REQUESTER can keep one. The direct creation is unchanged.
+        if _wants_draft(request.data) and not request.user.user_roles.filter(
+            role=RoleChoices.REQUESTER,
+        ).exists():
+            return Response({'detail': MSG_DRAFT_REQUIRES_REQUESTER}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
     def update(self, request, *args, **kwargs):
-        """Only DRAFT requests can be updated."""
+        """
+        Only DRAFT requests can be updated, and only by their requester (SYSPCC-031).
+        `items`, when sent, replaces the lines of the draft. Answers with the detail.
+        """
+        partial = kwargs.pop('partial', False)
         instance = self.get_object()
         if instance.status != 'DRAFT':
             return Response(
                 {'detail': 'Solo se pueden editar requerimientos en estado BORRADOR.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return super().update(request, *args, **kwargs)
+        if instance.requested_by_id != request.user.id:
+            return Response({'detail': MSG_DRAFT_OWNER_EDIT}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+        refreshed = self.get_queryset().get(pk=updated.pk)
+        return Response(RequestDetailSerializer(refreshed, context=self.get_serializer_context()).data)
 
     def destroy(self, request, *args, **kwargs):
-        """Only DRAFT requests can be deleted."""
+        """Only DRAFT requests can be deleted, and only by their requester (SYSPCC-031)."""
         instance = self.get_object()
         if instance.status != 'DRAFT':
             return Response(
                 {'detail': 'Solo se pueden eliminar requerimientos en estado BORRADOR.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if instance.requested_by_id != request.user.id:
+            return Response({'detail': MSG_DRAFT_OWNER_DELETE}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(
+        tags=['requests'],
+        summary='Send a draft (DRAFT -> SUBMITTED)',
+        request=SubmitDraftSerializer,
+        responses={200: RequestDetailSerializer},
+    )
+    @action(detail=True, methods=['post'], url_path='submit')
+    def submit(self, request, pk=None):
+        """
+        SYSPCC-031: sends a draft. Validates it against ALL the rules of a full creation
+        (400 with the list of what is missing, nothing changes), gives it its official
+        `RQ-YYYY-NNNN` number and runs the existing DRAFT -> SUBMITTED transition through
+        the WorkflowEngine. Only the requester of the draft. Answers with the RQ detail
+        (the new `rq_number` is what the Excel carries).
+        """
+        rq_instance = self.get_object()
+        payload = SubmitDraftSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        approval = self._submit_draft(
+            rq_instance, request.user, payload.validated_data['acting_role'],
+            payload.validated_data['comments'],
+        )
+        if isinstance(approval, Response):
+            return approval
+        refreshed = self.get_queryset().get(pk=rq_instance.pk)
+        return Response(RequestDetailSerializer(refreshed, context=self.get_serializer_context()).data)
+
+    def _submit_draft(self, rq_instance, user, acting_role, comments):
+        """`submit_draft` with the HTTP mapping of its errors; returns the Approval or a Response."""
+        ctx = {'rq_id': rq_instance.pk, 'user_id': user.id, 'action': 'SUBMITTED'}
+        try:
+            return submit_draft(rq_instance, user, acting_role, comments)
+        except WorkflowError as e:
+            logger.warning('rq.action.invalid', extra=ctx | {'reason': str(e.message)})
+            return Response({'detail': str(e.message)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionDeniedForAction as e:
+            logger.warning('rq.action.forbidden', extra=ctx | {'reason': str(e.message)})
+            return Response({'detail': str(e.message)}, status=status.HTTP_403_FORBIDDEN)
+        except serializers.ValidationError:
+            raise
+        except Exception:
+            logger.exception('rq.action.unexpected', extra=ctx)
+            raise
 
     @extend_schema(
         tags=['requests'],
@@ -138,6 +234,17 @@ class RequestViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         data = serializer.validated_data
+
+        # SYSPCC-031: sending a draft goes through the same validation + numbering as
+        # POST /requests/{id}/submit/, never straight to the engine.
+        if rq_instance.status == 'DRAFT' and data['action'] == 'SUBMITTED':
+            result = self._submit_draft(
+                rq_instance, request.user, data['acting_role'], data.get('comments', ''),
+            )
+            if isinstance(result, Response):
+                return result
+            return Response(ApprovalSerializer(result).data, status=status.HTTP_200_OK)
+
         engine = WorkflowEngine(
             request=rq_instance,
             user=request.user,

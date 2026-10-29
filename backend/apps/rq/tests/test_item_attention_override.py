@@ -260,12 +260,20 @@ class TestConflictsAndNotFound:
         world.b.save(update_fields=['status'])
         assert send(logistics_coordinator, world.b, world.b1, {'override': ''}).status_code == 409
 
-    @pytest.mark.parametrize('status', ['DRAFT', 'SUBMITTED', 'VALIDATED', 'IN_STOCK', 'PO_GENERATED',
+    @pytest.mark.parametrize('status', ['SUBMITTED', 'VALIDATED', 'IN_STOCK', 'PO_GENERATED',
                                          'DELIVERED', 'CLAIM_IN_REVIEW'])
     def test_open_requests_in_any_phase_accept_it(self, world, logistics_coordinator, status):
         world.b.status = status
         world.b.save(update_fields=['status'])
         assert send(logistics_coordinator, world.b, world.b1, {'override': 'STAND_BY', 'note': 'x'}).status_code == 200
+
+    def test_a_draft_is_not_a_requirement_yet_so_logistics_does_not_even_see_it(self, world, logistics_coordinator):
+        """SYSPCC-031: a draft is private to its requester; there is nothing to track in it."""
+        world.b.status = 'DRAFT'
+        world.b.save(update_fields=['status'])
+        assert send(logistics_coordinator, world.b, world.b1, {'override': 'STAND_BY', 'note': 'x'}).status_code == 404
+        world.b1.refresh_from_db()
+        assert world.b1.attention_override == ''
 
     def test_unknown_request_item_and_cross_request_item_are_404(self, world, logistics_coordinator):
         cross = send(logistics_coordinator, world.b, world.a1, {'override': 'STAND_BY', 'note': 'x'})

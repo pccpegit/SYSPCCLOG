@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import client from './client';
 import {
+  createDraft,
   getAvailableActions,
   getStockAvailability,
   searchRequestCatalog,
   STOCK_AVAILABILITY_TIMEOUT_MS,
+  submitDraft,
   updateRequestItems,
 } from './requests';
 
@@ -77,5 +79,23 @@ describe('getAvailableActions (SYSPCC-029)', () => {
     expect(client.get).toHaveBeenLastCalledWith('/requests/7/available-actions/', undefined);
     getAvailableActions(7, 'CENTRAL_WAREHOUSE');
     expect(client.get).toHaveBeenLastCalledWith('/requests/7/available-actions/', { params: { role: 'CENTRAL_WAREHOUSE' } });
+  });
+});
+
+describe('borradores (SYSPCC-031)', () => {
+  it('createDraft hace POST /requests/ con save_as_draft: true y el resto del cuerpo', () => {
+    client.post.mockResolvedValue({ data: {} });
+
+    createDraft({ flow: 'OPERATIONS', items: [] });
+
+    expect(client.post).toHaveBeenCalledWith('/requests/', { flow: 'OPERATIONS', items: [], save_as_draft: true });
+  });
+
+  it('submitDraft hace POST /requests/{id}/submit/ sin cuerpo', () => {
+    client.post.mockResolvedValue({ data: {} });
+
+    submitDraft(7);
+
+    expect(client.post).toHaveBeenCalledWith('/requests/7/submit/');
   });
 });

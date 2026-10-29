@@ -34,7 +34,10 @@ export function extractFieldErrors(err) {
 /** Best-effort single human-readable message, for a toast or banner. */
 export function extractErrorMessage(err, fallback = 'Ocurrió un error inesperado. Intente nuevamente.') {
   const data = err?.response?.data;
-  if (!data) return fallback;
+  // A reverse proxy (502/504, nginx 413) answers an HTML page or plain text, which axios hands
+  // over as a STRING. Walking its characters below would show "<" in a toast, so anything that
+  // is not an object means "Django did not write this": use the fallback.
+  if (!data || typeof data !== 'object') return fallback;
 
   if (typeof data.detail === 'string') return data.detail;
 

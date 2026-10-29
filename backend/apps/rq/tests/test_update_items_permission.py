@@ -22,6 +22,13 @@ def _client_for(user):
     return client
 
 
+@pytest.fixture(autouse=True)
+def _request_in_editable_state(ops_request):
+    """SYSPCC-026: update-items only edits from VALIDATED up to before the dispatch."""
+    ops_request.status = 'VALIDATED'
+    ops_request.save(update_fields=['status'])
+
+
 @pytest.fixture
 def item(db, ops_request):
     return RequestItem.objects.create(

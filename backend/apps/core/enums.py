@@ -138,6 +138,37 @@ class BudgetClassificationChoices(models.TextChoices):
     BC_OUT_OF_ANNUAL_PLAN = 'BC_OUT_OF_ANNUAL_PLAN', _('ADM: Fuera del Plan Anual')
 
 
+class RequestingAreaChoices(models.TextChoices):
+    """
+    SYSPCC-026: functional area of the company that raises the RQ (the
+    "Área" column of the management's RQ master). Not to be confused with the
+    user's department nor with the front/work area (`front_area`).
+    """
+
+    OP = 'OP', _('Operaciones (OP)')
+    QC = 'QC', _('Control de Calidad (QC)')
+    HSE = 'HSE', _('Seguridad y Salud (HSE)')
+    ADM = 'ADM', _('Administración (ADM)')
+
+
+class ItemSourceChoices(models.TextChoices):
+    """
+    SYSPCC-026: product family of a request line (the "Fuente" column of the
+    RQ master). Controlled vocabulary; it is proposed from the warehouse
+    catalog category when the line is linked and corrected by hand.
+    """
+
+    EPP = 'EPP', _('EPP')
+    HERRAMIENTAS = 'HERRAMIENTAS', _('Herramientas')
+    MATERIALES = 'MATERIALES', _('Materiales')
+    EQUIPOS = 'EQUIPOS', _('Equipos')
+    FORMATERIA = 'FORMATERIA', _('Formatería')
+    CONSUMIBLES = 'CONSUMIBLES', _('Consumibles')
+    UNIDADES = 'UNIDADES', _('Unidades')
+    UTILES = 'UTILES', _('Útiles')
+    GASES = 'GASES', _('Gases')
+
+
 class ApprovalActionChoices(models.TextChoices):
     # Request
     SUBMITTED = 'SUBMITTED', _('Enviado')

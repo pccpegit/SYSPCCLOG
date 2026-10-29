@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -20,13 +20,27 @@ import {
 } from 'lucide-react';
 import { ROLES, STATUS } from '../../data/constants';
 import { useAuth } from '../../context/AuthContext';
-import { getRequest, getRequests, performAction, updateRequestItems } from '../../api/requests';
-import { checkStock } from '../../api/warehouse';
+import {
+  getRequest,
+  getRequests,
+  getStockAvailability,
+  performAction,
+  updateRequestItems,
+} from '../../api/requests';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ApprovalChain from '../../components/requests/ApprovalChain';
+import CoverageBadge from '../../components/requests/CoverageBadge';
+import StockCheckPanel from '../../components/requests/StockCheckPanel';
 import ConfirmModal from '../../components/ui/ConfirmModal';
+import NotesField from '../../components/ui/NotesField';
 import { useToast } from '../../context/ToastContext';
+import { formatQty } from '../../utils/quantity';
+import {
+  describeUpdateItemsError,
+  findUpdateItemsProblem,
+  indexAvailability,
+} from '../../utils/stockCheck';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -44,12 +58,6 @@ function formatCurrency(val) {
   return `S/ ${Number(val).toLocaleString('es-PE')}`;
 }
 
-function formatQty(val) {
-  const n = Number(val);
-  if (isNaN(n)) return val;
-  return n % 1 === 0 ? n.toFixed(0) : n.toFixed(2);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +70,8 @@ function LoadingSpinner() {
   );
 }
 
-function InfoRow({ icon: Icon, label, value }) {
+function InfoRow({ icon, label, value }) {
+  const Icon = icon;
   return (
     <div className="flex gap-3 py-2.5 border-b border-gray-50 last:border-0">
       <Icon size={14} className="text-gray-400 mt-0.5 shrink-0" />
@@ -128,7 +137,6 @@ function LogisticsProgressBar({ currentStatus }) {
           const StepIcon  = step.icon;
           const isDone    = idx < activeIdx;
           const isActive  = idx === activeIdx;
-          const isPending = idx > activeIdx;
 
           return (
             <div key={step.key} className="flex items-center flex-1 min-w-0">
@@ -183,9 +191,8 @@ function LogisticsProgressBar({ currentStatus }) {
 // Items table — stock check variant
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ItemsTable({ items, showStock, stockData = [] }) {
-  // Match stock data to items by index (same order as descriptions sent)
-  const getStock = (idx) => stockData[idx] || null;
+function ItemsTable({ items, showStock, availability }) {
+  const loading = availability?.status === 'loading';
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -194,8 +201,8 @@ function ItemsTable({ items, showStock, stockData = [] }) {
           Ítems del Requerimiento ({items.length})
         </h2>
         {showStock && (
-          <p className="text-xs text-gray-400 mt-0.5">
-            Stock consultado en tiempo real desde el sistema de almacén.
+          <p className="text-xs text-gray-500 mt-0.5">
+            Disponibilidad del almacén central, descontando lo comprometido con otros requerimientos.
           </p>
         )}
       </div>
@@ -203,28 +210,28 @@ function ItemsTable({ items, showStock, stockData = [] }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500 w-8">#</th>
-              <th className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500">Descripción</th>
-              <th className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">Cant. Req.</th>
-              <th className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500">Und.</th>
+              <th scope="col" className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500 w-8">#</th>
+              <th scope="col" className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500">Descripción</th>
+              <th scope="col" className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">Cant. Req.</th>
+              <th scope="col" className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500">Und.</th>
               {showStock && (
                 <>
-                  <th className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">
-                    Stk. Obra
+                  <th scope="col" className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">
+                    Stock en obra (declarado)
                   </th>
-                  <th className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">
-                    Stk. Central
+                  <th scope="col" className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">
+                    Disponible neto
                   </th>
-                  <th className="py-2.5 px-4 text-center text-xs font-semibold text-gray-500">
-                    Disponible
+                  <th scope="col" className="py-2.5 px-4 text-center text-xs font-semibold text-gray-500">
+                    Cobertura
                   </th>
-                  <th className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">
-                    x Atender
+                  <th scope="col" className="py-2.5 px-4 text-right text-xs font-semibold text-gray-500">
+                    Faltante
                   </th>
                 </>
               )}
               {!showStock && (
-                <th className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500 hidden md:table-cell">
+                <th scope="col" className="py-2.5 px-4 text-left text-xs font-semibold text-gray-500 hidden md:table-cell">
                   Especificaciones
                 </th>
               )}
@@ -232,25 +239,23 @@ function ItemsTable({ items, showStock, stockData = [] }) {
           </thead>
           <tbody>
             {items.map((item, idx) => {
-              const stock = getStock(idx);
-              const stkObra = stock ? stock.stock_obra : (item.stock_almacen_obra ?? 0);
-              const stkCentral = stock ? stock.stock_central : (item.stock_almacen_central ?? 0);
-              const hasStock = stock ? stock.has_stock : (stkObra > 0 || stkCentral > 0);
-              const qty = parseFloat(item.quantity) || 0;
-              const xAtender = Math.max(0, qty - stkObra - stkCentral);
+              const row = availability?.byItem?.[item.id];
+              const linkKind = row?.link_status
+                ?? (item.inventory_item ? 'LINKED' : item.is_off_catalog ? 'OFF_CATALOG' : 'UNLINKED');
+              const code = row?.inventory_item?.product_code ?? item.inventory_item_code;
 
               return (
                 <tr
                   key={item.line_number ?? item.lineNumber ?? idx}
-                  className={`border-b border-gray-50 ${idx % 2 !== 0 ? 'bg-gray-50/40' : ''}`}
+                  className={`border-b border-gray-50 ${idx % 2 !== 0 ? 'bg-gray-50/40 dark:bg-white/5' : ''}`}
                 >
-                  <td className="py-3 px-4 text-gray-400 font-mono text-xs">
+                  <td className="py-3 px-4 text-gray-500 font-mono text-xs">
                     {item.line_number ?? item.lineNumber ?? idx + 1}
                   </td>
                   <td className="py-3 px-4 text-gray-800 font-medium leading-snug">
                     <div>{item.description}</div>
-                    {stock?.matched_product && (
-                      <span className="text-xs text-gray-400 font-mono">{stock.matched_product}</span>
+                    {code && (
+                      <span className="text-xs text-gray-500 font-mono">{code}</span>
                     )}
                   </td>
                   <td className="py-3 px-4 text-right text-gray-700 font-semibold">
@@ -263,38 +268,24 @@ function ItemsTable({ items, showStock, stockData = [] }) {
                   </td>
                   {showStock && (
                     <>
-                      <td className="py-3 px-4 text-right">
-                        <span className={`text-sm font-semibold ${
-                          stkObra > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400'
-                        }`}>
-                          {formatQty(stkObra)}
-                        </span>
+                      <td className="py-3 px-4 text-right text-sm font-semibold text-gray-600">
+                        {formatQty(item.stock_almacen_obra ?? 0)}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span className={`text-sm font-semibold ${
-                          stkCentral > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'
+                          row?.available_net > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500'
                         }`}>
-                          {formatQty(stkCentral)}
+                          {row ? formatQty(row.available_net) : loading ? '…' : '—'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {hasStock ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-2 py-1 rounded-full dark:bg-green-500/10 dark:text-green-300">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                            Sí
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold bg-red-100 text-red-700 px-2 py-1 rounded-full dark:bg-red-500/10 dark:text-red-300">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                            No
-                          </span>
-                        )}
+                        <CoverageBadge coverage={row?.coverage ?? null} linkStatus={linkKind} loading={loading} />
                       </td>
                       <td className="py-3 px-4 text-right">
                         <span className={`text-sm font-semibold ${
-                          xAtender > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'
+                          row?.shortfall > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500'
                         }`}>
-                          {xAtender > 0 ? formatQty(xAtender) : '—'}
+                          {row?.shortfall > 0 ? formatQty(row.shortfall) : '—'}
                         </span>
                       </td>
                     </>
@@ -310,8 +301,8 @@ function ItemsTable({ items, showStock, stockData = [] }) {
             {items.length === 0 && (
               <tr>
                 <td
-                  colSpan={showStock ? 7 : 5}
-                  className="py-8 text-center text-gray-400 italic text-sm"
+                  colSpan={showStock ? 8 : 5}
+                  className="py-8 text-center text-gray-500 italic text-sm"
                 >
                   Sin ítems registrados.
                 </td>
@@ -328,223 +319,10 @@ function ItemsTable({ items, showStock, stockData = [] }) {
 // Action panels per status
 // ─────────────────────────────────────────────────────────────────────────────
 
-function NotesField({ value, onChange }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-      <label className="block text-sm font-semibold text-gray-800 mb-2">
-        Notas / Comentarios
-      </label>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={4}
-        placeholder="Observaciones, condiciones, referencias de cotización..."
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 hover:border-gray-400 transition-colors resize-none"
-      />
-      <p className="mt-1 text-xs text-gray-400">{value.length} / 500 caracteres</p>
-    </div>
-  );
-}
-
-// VALIDATED — stock check decision per item
-function StockCheckPanel({ items, stockData, submitting, notes, onNotes, onAction }) {
-  const [itemSources, setItemSources] = useState({});
-
-  // Auto-assign based on stock data
-  useEffect(() => {
-    if (stockData.length > 0 && Object.keys(itemSources).length === 0) {
-      const auto = {};
-      items.forEach((item, idx) => {
-        const stock = stockData[idx];
-        auto[idx] = stock?.has_stock ? 'stock' : 'purchase';
-      });
-      setItemSources(auto);
-    }
-  }, [stockData, items]);
-
-  const allAssigned = items.length > 0 && items.every((_, idx) => itemSources[idx]);
-  const hasAnyPurchase = Object.values(itemSources).some((v) => v === 'purchase');
-  const allStock = Object.values(itemSources).every((v) => v === 'stock');
-
-  const handleConfirm = () => {
-    const summary = items.map((item, idx) => {
-      const source = itemSources[idx];
-      const stock = stockData[idx];
-      return `${item.description}: ${source === 'stock' ? 'STOCK' : 'COMPRA'} (Central: ${stock?.stock_central ?? 0}, Obra: ${stock?.stock_obra ?? 0})`;
-    }).join('\n');
-    const itemDecisions = items.map((item, idx) => ({
-      item_id: item.id,
-      supply_source: itemSources[idx] === 'stock' ? 'STOCK' : 'PURCHASE',
-    }));
-    onAction(!hasAnyPurchase, summary, itemDecisions);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 flex gap-3 dark:bg-teal-500/10 dark:border-teal-500/30">
-        <Info size={16} className="text-teal-600 shrink-0 mt-0.5 dark:text-teal-400" />
-        <div>
-          <p className="text-sm font-semibold text-teal-800 dark:text-teal-300">Verificación de Stock por Ítem</p>
-          <p className="text-xs text-teal-700 mt-0.5 leading-relaxed dark:text-teal-300">
-            Marque cada ítem como "Atender de Stock" o "Requiere Compra" según la disponibilidad.
-          </p>
-        </div>
-      </div>
-
-      {/* Per-item stock decision */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-800">Decisión por Ítem</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Seleccione la fuente de atención para cada ítem</p>
-        </div>
-        <div className="divide-y divide-gray-100">
-          {items.map((item, idx) => {
-            const stock = stockData[idx];
-            const source = itemSources[idx];
-            const stkCentral = stock?.stock_central ?? 0;
-            const stkObra = stock?.stock_obra ?? 0;
-            const totalStock = stkCentral + stkObra;
-            const qty = parseFloat(item.quantity) || 0;
-            const sufficient = totalStock >= qty;
-
-            return (
-              <div
-                key={idx}
-                className={`px-6 py-4 transition-all ${
-                  source === 'stock' ? 'bg-teal-50/50 dark:bg-teal-500/10' : source === 'purchase' ? 'bg-orange-50/50 dark:bg-orange-500/10' : ''
-                }`}
-              >
-                {/* Item header */}
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{idx + 1}</span>
-                      <p className="text-sm font-semibold text-gray-800">{item.description}</p>
-                    </div>
-                    {stock?.matched_product && (
-                      <p className="text-xs text-gray-400 font-mono mt-0.5 ml-7">{stock.matched_product}</p>
-                    )}
-                  </div>
-                  {/* Status indicator */}
-                  {totalStock > 0 ? (
-                    <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                      sufficient ? 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${sufficient ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                      {sufficient ? 'Stock suficiente' : 'Stock parcial'}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-300">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                      Sin stock
-                    </span>
-                  )}
-                </div>
-
-                {/* Stock details grid */}
-                <div className="ml-7 grid grid-cols-4 gap-3 mb-3">
-                  <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
-                    <p className="text-xs text-gray-400">Solicitado</p>
-                    <p className="text-sm font-bold text-gray-800">{formatQty(item.quantity)}</p>
-                    <p className="text-xs text-gray-400">{item.unit}</p>
-                  </div>
-                  <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
-                    <p className="text-xs text-gray-400">Almacén Central</p>
-                    <p className={`text-sm font-bold ${stkCentral > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300'}`}>{formatQty(stkCentral)}</p>
-                    <p className="text-xs text-gray-400">{item.unit}</p>
-                  </div>
-                  <div className="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
-                    <p className="text-xs text-gray-400">Almacén Obra</p>
-                    <p className={`text-sm font-bold ${stkObra > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-gray-300'}`}>{formatQty(stkObra)}</p>
-                    <p className="text-xs text-gray-400">{item.unit}</p>
-                  </div>
-                  <div className={`rounded-lg border px-3 py-2 text-center ${
-                    qty - totalStock > 0 ? 'bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/30' : 'bg-green-50 border-green-200 dark:bg-green-500/10 dark:border-green-500/30'
-                  }`}>
-                    <p className="text-xs text-gray-400">Faltante</p>
-                    <p className={`text-sm font-bold ${qty - totalStock > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>
-                      {formatQty(Math.max(0, qty - totalStock))}
-                    </p>
-                    <p className="text-xs text-gray-400">{item.unit}</p>
-                  </div>
-                </div>
-
-                {/* Action buttons */}
-                <div className="ml-7 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setItemSources((prev) => ({ ...prev, [idx]: 'stock' }))}
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all border-2 ${
-                      source === 'stock'
-                        ? 'bg-teal-600 text-white border-teal-600 shadow-md'
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-teal-300 hover:text-teal-700 dark:hover:border-teal-500/30 dark:hover:text-teal-300'
-                    }`}
-                  >
-                    <CheckCircle2 size={16} />
-                    Atender de Stock
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setItemSources((prev) => ({ ...prev, [idx]: 'purchase' }))}
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all border-2 ${
-                      source === 'purchase'
-                        ? 'bg-orange-500 text-white border-orange-500 shadow-md'
-                        : 'bg-white text-gray-500 border-gray-200 hover:border-orange-300 hover:text-orange-700 dark:hover:border-orange-500/30 dark:hover:text-orange-300'
-                    }`}
-                  >
-                    <ShoppingCart size={16} />
-                    Requiere Compra
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Summary */}
-      {allAssigned && (
-        <div className={`rounded-xl border p-4 ${hasAnyPurchase ? 'bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-500/30' : 'bg-teal-50 border-teal-200 dark:bg-teal-500/10 dark:border-teal-500/30'}`}>
-          <p className={`text-sm font-semibold ${hasAnyPurchase ? 'text-orange-800 dark:text-orange-300' : 'text-teal-800 dark:text-teal-300'}`}>
-            {allStock
-              ? 'Todos los ítems se pueden atender de stock.'
-              : `${Object.values(itemSources).filter((v) => v === 'purchase').length} ítem(s) requieren compra, ${Object.values(itemSources).filter((v) => v === 'stock').length} se atienden de stock.`
-            }
-          </p>
-        </div>
-      )}
-
-      <NotesField value={notes} onChange={onNotes} />
-
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-3">
-        <button
-          type="button"
-          onClick={handleConfirm}
-          disabled={submitting || !allAssigned}
-          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3.5 text-white text-base font-bold rounded-xl transition-all duration-200 disabled:opacity-50 shadow-md ${
-            !allAssigned
-              ? 'bg-gray-300 cursor-not-allowed'
-              : hasAnyPurchase
-              ? 'bg-orange-500 hover:bg-orange-600 hover:shadow-lg'
-              : 'bg-teal-600 hover:bg-teal-700 hover:shadow-lg'
-          }`}
-        >
-          {submitting ? 'Procesando...' : !allAssigned ? 'Marque todos los ítems arriba' : hasAnyPurchase ? 'Confirmar — Enviar a Cotización' : 'Confirmar — Todo de Stock'}
-        </button>
-
-        <p className="text-xs text-gray-400 text-center pt-1">
-          Esta decisión quedará registrada en el historial del requerimiento.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // REQUIRES_PURCHASE — send to quoting
 function RequestQuotesPanel({ items, submitting, notes, onNotes, onAction }) {
   const purchaseItems = items.filter((i) => i.supply_source === 'PURCHASE');
   const stockItems = items.filter((i) => i.supply_source === 'STOCK');
-  const unclassified = items.filter((i) => !i.supply_source || (i.supply_source !== 'PURCHASE' && i.supply_source !== 'STOCK'));
 
   return (
     <div className="space-y-4">
@@ -1393,7 +1171,7 @@ function InStockPanel({ navigate }) {
         <CheckCircle2 size={40} className="text-teal-500" />
         <p className="text-base font-bold text-teal-800 dark:text-teal-300">Stock Disponible</p>
         <p className="text-sm text-teal-700 max-w-xs leading-relaxed dark:text-teal-300">
-          El pedido ha sido derivado al Almacén para su atención y despacho a obra.
+          El requerimiento ha sido derivado al Almacén para su atención y despacho a obra.
         </p>
         <button
           type="button"
@@ -1443,6 +1221,9 @@ const ACTIONABLE_STATUSES = new Set([
   STATUS.QUOTE_SELECTED,
 ]);
 
+// Statuses in which logistics runs the stock check (and the stock columns are shown).
+const STOCK_CHECK_STATUSES = [STATUS.VALIDATED, STATUS.STOCK_CHECK];
+
 export default function LogisticsActionPage() {
   const { id }          = useParams();
   const navigate        = useNavigate();
@@ -1450,7 +1231,8 @@ export default function LogisticsActionPage() {
   const { showToast }   = useToast();
 
   const [req,              setReq]              = useState(null);
-  const [stockData,        setStockData]        = useState([]);
+  // SYSPCC-026: availability per line from GET /requests/{id}/stock-availability/
+  const [availability,     setAvailability]     = useState({ status: 'loading', byItem: {} });
   const [selectedQuotation, setSelectedQuotation] = useState(null);
   const [approvals,        setApprovals]        = useState([]);
   const [loading,          setLoading]          = useState(true);
@@ -1460,8 +1242,8 @@ export default function LogisticsActionPage() {
   const [error,        setError]        = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
-  function requestConfirm({ title, message, confirmText, confirmColor, icon, onConfirm }) {
-    setConfirmModal({ title, message, confirmText, confirmColor, icon, onConfirm });
+  function requestConfirm({ title, message, confirmText, cancelText, confirmColor, icon, onConfirm, children }) {
+    setConfirmModal({ title, message, confirmText, cancelText, confirmColor, icon, onConfirm, children });
   }
 
   // Derive acting role — prefer user's primary role; fall back to LOGISTICS_COORDINATOR
@@ -1469,6 +1251,20 @@ export default function LogisticsActionPage() {
     primaryRole === ROLES.LOGISTICS_SUPERVISOR
       ? ROLES.LOGISTICS_SUPERVISOR
       : ROLES.LOGISTICS_COORDINATOR;
+
+  // `silent` keeps the figures on screen while refreshing (after saving a link).
+  const loadAvailability = useCallback(async (requestId, { silent = false } = {}) => {
+    if (!silent) setAvailability({ status: 'loading', byItem: {} });
+    try {
+      const { data } = await getStockAvailability(requestId);
+      setAvailability({ status: 'ready', byItem: indexAvailability(data?.items) });
+      return true;
+    } catch (err) {
+      console.error('Error loading stock availability:', err);
+      setAvailability({ status: 'error', byItem: {} });
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     const fetchReq = async () => {
@@ -1491,17 +1287,10 @@ export default function LogisticsActionPage() {
           setNotFound(true);
         } else {
           setReq(requestData);
-          // Fetch real stock data from warehouse
-          const items = requestData.items ?? [];
-          if (items.length > 0) {
-            try {
-              const descriptions = items.map((i) => i.description);
-              const projectId = requestData.project ?? requestData.project_id;
-              const { data: stockResults } = await checkStock(projectId, descriptions);
-              setStockData(stockResults);
-            } catch {
-              // Stock check failed — non-fatal, show items without stock
-            }
+          // Availability only matters while the stock check is pending. It does
+          // not block the page: the panel shows its own loading / error state.
+          if (STOCK_CHECK_STATUSES.includes(requestData.status)) {
+            loadAvailability(requestData.id);
           }
           // Fetch selected quotation and approvals if applicable
           try {
@@ -1533,7 +1322,7 @@ export default function LogisticsActionPage() {
       }
     };
     fetchReq();
-  }, [id]);
+  }, [id, loadAvailability]);
 
   // ── Action dispatchers ──────────────────────────────────────────────────
 
@@ -1561,24 +1350,94 @@ export default function LogisticsActionPage() {
     }
   }
 
-  function handleStockCheck(allFromStock, summary, itemDecisions) {
+  // Saves the catalog link of ONE line the moment logistics picks it, so the
+  // availability on screen is the real one. Returns { ok, message? } to the panel.
+  async function handleLinkChange(item, patch) {
+    try {
+      const { data } = await updateRequestItems(req.id, [{ item_id: item.id, ...patch }]);
+      const problem = findUpdateItemsProblem(data);
+      if (problem) return { ok: false, message: problem };
+      const saved = new Map((data?.items ?? []).map((it) => [it.id, it]));
+      if (saved.size > 0) {
+        setReq((prev) => (prev
+          ? { ...prev, items: prev.items.map((it) => (saved.has(it.id) ? { ...it, ...saved.get(it.id) } : it)) }
+          : prev));
+      }
+      await loadAvailability(req.id, { silent: true });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, message: describeUpdateItemsError(err) };
+    }
+  }
+
+  // `warnings` lists lines marked "Atender de Stock" that the pool does not fully
+  // cover. It only changes the confirmation: the decision (`has_stock`) and the
+  // workflow action are exactly the same, and nothing here blocks the transition.
+  function handleStockCheck(allFromStock, summary, itemDecisions, warnings = []) {
     const hasAnyPurchase = !allFromStock;
+    const hasWarnings = warnings.length > 0;
+
+    let title = hasAnyPurchase ? 'Confirmar — Ítems Requieren Compra' : 'Confirmar — Todo de Stock';
+    let message = hasAnyPurchase
+      ? 'Algunos ítems no tienen stock disponible. El requerimiento pasará a cotización para los ítems que requieren compra.'
+      : '¿Confirma que hay stock disponible en almacén para todos los ítems? El requerimiento será derivado al Almacén.';
+    let confirmText = hasAnyPurchase ? 'Sí, Enviar a Cotización' : 'Sí, Todo de Stock';
+    // -700 / -800: white text on -500/-600 does not reach 4.5:1 (WCAG 1.4.3).
+    let confirmColor = hasAnyPurchase ? 'bg-orange-700 hover:bg-orange-800' : 'bg-teal-700 hover:bg-teal-800';
+    let cancelText;
+    let icon = hasAnyPurchase ? ShoppingCart : CheckCircle2;
+    let children = null;
+
+    if (hasWarnings) {
+      title = 'Hay ítems de stock sin cobertura completa';
+      message = allFromStock
+        ? 'Marcó todo de stock, pero el almacén central no cubre por completo los ítems de abajo. Si continúa, el faltante no se atenderá desde el stock. También puede volver y enviar el requerimiento a compra.'
+        : 'Algunos ítems marcados para atender de stock no están cubiertos por completo por el almacén central. Si continúa, el faltante no se atenderá desde el stock.';
+      confirmText = 'Sí, continuar de todos modos';
+      // "Cancelar" next to a flow that has a CANCELADO state reads as "cancel the RQ".
+      cancelText = 'Volver y revisar';
+      confirmColor = 'bg-amber-700 hover:bg-amber-800';
+      icon = AlertCircle;
+      children = (
+        <ul className="list-disc space-y-1 pl-5 text-left text-xs text-gray-700">
+          {warnings.map((w) => (
+            <li key={w.itemId}>
+              <span className="font-semibold">Ítem {w.line}</span> ({w.description}): {w.text}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
     requestConfirm({
-      title:        hasAnyPurchase ? 'Confirmar — Ítems Requieren Compra' : 'Confirmar — Todo de Stock',
-      message:      hasAnyPurchase
-        ? 'Algunos ítems no tienen stock disponible. El requerimiento pasará a cotización para los ítems que requieren compra.'
-        : '¿Confirma que hay stock disponible en almacén para todos los ítems? El pedido será derivado al Almacén.',
-      confirmText:  hasAnyPurchase ? 'Sí, Enviar a Cotización' : 'Sí, Todo de Stock',
-      confirmColor: hasAnyPurchase ? 'bg-orange-500 hover:bg-orange-600' : 'bg-teal-600 hover:bg-teal-700',
-      icon:         hasAnyPurchase ? ShoppingCart : CheckCircle2,
-      onConfirm:    async () => {
-        // Save supply_source for each item
+      title,
+      message,
+      confirmText,
+      cancelText,
+      confirmColor,
+      icon,
+      children,
+      onConfirm: async () => {
+        // The per-line decisions must be saved BEFORE the stock check is sent:
+        // if saving fails the whole step is aborted (nothing half-done).
+        setSubmitting(true);
+        setError(null);
+        let saveError = null;
         if (itemDecisions?.length > 0) {
           try {
-            await updateRequestItems(req.id, itemDecisions);
+            const { data } = await updateRequestItems(req.id, itemDecisions);
+            saveError = findUpdateItemsProblem(data);
           } catch (err) {
             console.error('Error saving item decisions:', err);
+            saveError = describeUpdateItemsError(err);
           }
+        }
+        if (saveError) {
+          const msg = `No se guardaron las decisiones por ítem, así que la verificación de stock no se envió. ${saveError}`;
+          setError(msg);
+          showToast({ type: 'error', message: msg });
+          setSubmitting(false);
+          return;
         }
         doAction(
           {
@@ -1588,7 +1447,7 @@ export default function LogisticsActionPage() {
           },
           hasAnyPurchase
             ? 'Registrado. Puede proceder a solicitar cotizaciones para los ítems sin stock.'
-            : 'Stock confirmado. El pedido ha sido derivado al Almacén.'
+            : 'Stock confirmado. El requerimiento ha sido derivado al Almacén.'
         );
       },
     });
@@ -1693,7 +1552,7 @@ export default function LogisticsActionPage() {
   const reqStatus = req.status;
 
   // Show stock columns only when doing the stock check step
-  const showStock = [STATUS.VALIDATED, STATUS.STOCK_CHECK].includes(reqStatus);
+  const showStock = STOCK_CHECK_STATUSES.includes(reqStatus);
 
   // Determine which action panel to render
   function renderActionPanel() {
@@ -1703,7 +1562,9 @@ export default function LogisticsActionPage() {
         return (
           <StockCheckPanel
             items={items}
-            stockData={stockData}
+            availability={availability}
+            onRetryAvailability={() => loadAvailability(req.id)}
+            onLinkChange={handleLinkChange}
             submitting={submitting}
             notes={notes}
             onNotes={setNotes}
@@ -2276,17 +2137,19 @@ export default function LogisticsActionPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl dark:bg-red-500/10 dark:border-red-500/30">
-          <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+        <div role="alert" className="flex items-start gap-3 p-4 bg-red-50 border border-red-300 rounded-xl dark:bg-red-500/10 dark:border-red-500/30">
+          <AlertCircle size={18} aria-hidden="true" className="text-red-500 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-sm font-semibold text-red-700 dark:text-red-300">Error al procesar la acción</p>
             <p className="text-sm text-red-600 mt-0.5 dark:text-red-400">{error}</p>
           </div>
           <button
+            type="button"
             onClick={() => setError(null)}
+            aria-label="Cerrar el mensaje de error"
             className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-400"
           >
-            <XCircle size={18} />
+            <XCircle size={18} aria-hidden="true" />
           </button>
         </div>
       )}
@@ -2361,7 +2224,7 @@ export default function LogisticsActionPage() {
           </div>
 
           {/* Items table */}
-          <ItemsTable items={items} showStock={showStock} stockData={stockData} />
+          <ItemsTable items={items} showStock={showStock} availability={availability} />
 
         </div>
 
@@ -2387,11 +2250,14 @@ export default function LogisticsActionPage() {
         title={confirmModal.title}
         message={confirmModal.message}
         confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
         confirmColor={confirmModal.confirmColor}
         icon={confirmModal.icon}
         onConfirm={() => { setConfirmModal(null); confirmModal.onConfirm(); }}
         onCancel={() => setConfirmModal(null)}
-      />
+      >
+        {confirmModal.children}
+      </ConfirmModal>
     )}
     </>
   );

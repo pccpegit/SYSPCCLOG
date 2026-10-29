@@ -4,6 +4,7 @@ from .request import (
     RequestDetailSerializer,
     RequestCreateSerializer,
     RequestItemSerializer,
+    RequestItemCreateSerializer,
 )
 from .approval import ApprovalSerializer, WorkflowActionSerializer
 from .supplier import SupplierSerializer
@@ -21,6 +22,7 @@ __all__ = [
     'RequestDetailSerializer',
     'RequestCreateSerializer',
     'RequestItemSerializer',
+    'RequestItemCreateSerializer',
     'ApprovalSerializer',
     'WorkflowActionSerializer',
     'SupplierSerializer',

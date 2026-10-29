@@ -26,6 +26,9 @@ def _payload(**overrides):
     payload = {
         'flow': 'OPERATIONS',
         'project': overrides.pop('project_id'),
+        # SYSPCC-026: requesting_area became mandatory on creation (item_source did not:
+        # a payload without it is what old clients and integrations still send).
+        'requesting_area': 'OP',
         'acquisition_type': 'COMPRA_LOCAL',
         'fecha_necesidad': '2026-12-31',
         'description': 'Materiales de prueba',
@@ -76,8 +79,10 @@ class TestRequestCreateAtomicity:
         payload = _payload(
             project_id=project.pk,
             items=[
-                {'line_number': 1, 'description': 'Cemento', 'quantity': '10.000', 'unit': 'bls'},
-                {'line_number': 2, 'description': 'Fierro', 'quantity': '5.000', 'unit': 'kg'},
+                {'line_number': 1, 'description': 'Cemento', 'quantity': '10.000', 'unit': 'bls',
+                 'item_source': 'MATERIALES'},
+                {'line_number': 2, 'description': 'Fierro', 'quantity': '5.000', 'unit': 'kg',
+                 'item_source': 'MATERIALES'},
             ],
         )
 

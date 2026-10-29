@@ -24,6 +24,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import LifecycleBar from '../../components/requests/LifecycleBar';
 import ApprovalChain from '../../components/requests/ApprovalChain';
+import { describeItemLink, itemSourceLabel, requestingAreaLabel } from '../../data/requestCapture';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -235,7 +236,14 @@ function DocumentFields({ req }) {
       {/* Row 3 */}
       <div className="flex border-b border-gray-300">
         <div className="flex-1 border-r border-gray-300">
-          <FormCell label="Área:" value={req.area ?? '—'} />
+          <FormCell
+            label="Área del RQ:"
+            value={
+              req.requestingArea
+                ? requestingAreaLabel(req.requestingArea, req.requestingAreaDisplay)
+                : <span className="font-normal italic text-gray-500">{requestingAreaLabel('')}</span>
+            }
+          />
         </div>
         <div className="w-56 shrink-0">
           <FormCell label="Frente:" value={req.frente ?? '—'} />
@@ -275,16 +283,47 @@ function DocumentFields({ req }) {
 const TABLE_HEADERS = [
   { label: 'Item',                      className: 'w-10 text-center' },
   { label: 'Equipos / Materiales',      className: 'min-w-[160px]' },
+  { label: 'Producto de catálogo',      className: 'min-w-[150px]' },
+  { label: 'Fuente',                    className: 'w-24 text-center' },
   { label: 'Unidad de Medida',          className: 'w-24 text-center' },
   { label: 'Cantidad',                  className: 'w-20 text-center' },
-  { label: 'Stock Almacén Obra',        className: 'w-24 text-center' },
-  { label: 'Stock Almacén Principal',   className: 'w-24 text-center' },
+  { label: 'Stock Almacén Obra',        className: 'w-24 text-center', title: 'Stock declarado por el solicitante en el almacén de obra' },
+  { label: 'Stock Almacén Principal',   className: 'w-24 text-center', title: 'Stock declarado por el solicitante en el almacén principal (el almacén central del sistema)' },
   { label: 'X Atender',                 className: 'w-20 text-center' },
   { label: 'Presup. / Adic.',           className: 'w-20 text-center' },
   { label: 'RFI / FWO',                 className: 'w-24 text-center' },
   { label: 'Estatus / Guía',            className: 'w-28 text-center' },
   { label: 'Comentarios',              className: 'min-w-[120px]' },
 ];
+
+// How the line relates to the warehouse catalog (SYSPCC-026): the linked product,
+// "Fuera de catálogo" (marked on purpose) or "Sin vincular" (still to confirm).
+// Text always accompanies the color.
+function CatalogLink({ item }) {
+  const link = describeItemLink(item);
+  if (link.kind === 'LINKED') {
+    return (
+      <div>
+        <span className="font-mono font-bold text-gray-800">{item.inventory_item_code ?? '—'}</span>
+        {item.inventory_item_description && (
+          <span className="block text-[11px] text-gray-500">{item.inventory_item_description}</span>
+        )}
+      </div>
+    );
+  }
+  if (link.kind === 'OFF_CATALOG') {
+    return (
+      <span className="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-700">
+        Fuera de catálogo
+      </span>
+    );
+  }
+  return (
+    <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+      Sin vincular
+    </span>
+  );
+}
 
 function DocumentItemsTable({ items = [] }) {
   return (
@@ -298,6 +337,7 @@ function DocumentItemsTable({ items = [] }) {
             {TABLE_HEADERS.map((h) => (
               <th
                 key={h.label}
+                title={h.title}
                 className={`border border-gray-400 px-2 py-2 font-bold text-gray-700 uppercase tracking-wide text-center leading-tight ${h.className}`}
                 style={{ fontSize: '10px' }}
               >
@@ -327,6 +367,12 @@ function DocumentItemsTable({ items = [] }) {
               </td>
               <td className="border border-gray-300 px-2 py-2 text-gray-800 font-medium leading-snug">
                 {item.description}
+              </td>
+              <td className="border border-gray-300 px-2 py-2 leading-snug">
+                <CatalogLink item={item} />
+              </td>
+              <td className="border border-gray-300 px-2 py-2 text-center text-gray-700">
+                {itemSourceLabel(item.item_source, item.item_source_display) || '—'}
               </td>
               <td className="border border-gray-300 px-2 py-2 text-center text-gray-600 font-mono">
                 {item.unit ?? '—'}
@@ -503,6 +549,8 @@ export default function RequestDetailPage() {
           poNumber:            requestData.po_number             ?? requestData.poNumber,
           createdAt:           requestData.created_at            ?? requestData.createdAt,
           updatedAt:           requestData.updated_at            ?? requestData.updatedAt,
+          requestingArea:      requestData.requesting_area       ?? requestData.requestingArea,
+          requestingAreaDisplay: requestData.requesting_area_display ?? requestData.requestingAreaDisplay,
           usoEspecifico:       requestData.uso_especifico        ?? requestData.usoEspecifico,
           fechaEntrega:        requestData.fecha_entrega         ?? requestData.fechaEntrega,
           workLocation:        requestData.work_location         ?? requestData.workLocation,
@@ -516,7 +564,8 @@ export default function RequestDetailPage() {
             estimatedCost: item.estimated_cost ?? item.estimatedCost,
             specifications:item.specifications,
             stockAlmacenObra:      item.stock_almacen_obra      ?? item.stockAlmacenObra,
-            stockAlmacenPrincipal: item.stock_almacen_principal ?? item.stockAlmacenPrincipal,
+            // The API field is stock_almacen_central; the old *_principal name never existed.
+            stockAlmacenPrincipal: item.stock_almacen_central ?? item.stock_almacen_principal ?? item.stockAlmacenPrincipal,
             xAtender:      item.x_atender      ?? item.xAtender,
             presupuestadoAdicional: item.presupuestado_adicional ?? item.presupuestadoAdicional,
             rfiFwo:        item.rfi_fwo        ?? item.rfiFwo,
@@ -569,10 +618,6 @@ export default function RequestDetailPage() {
 
   const role      = primaryRole;
   const statusCfg = STATUS_CONFIG[req.status] ?? {};
-  const totalCost = req.items?.reduce((s, i) => s + (i.estimated_cost ?? i.estimatedCost ?? 0), 0)
-    ?? req.estimated_cost
-    ?? req.estimatedCost
-    ?? 0;
 
   const rqId = req.rq_number ?? req.rqNumber ?? req.id;
 

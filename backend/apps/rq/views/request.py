@@ -4,7 +4,7 @@ Request (RQ) viewset - the central API resource.
 
 import logging
 
-from django.db.models import Case, When, Value, CharField
+from django.db import IntegrityError
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -19,14 +19,18 @@ from apps.rq.serializers.request import (
     RequestListSerializer,
     RequestDetailSerializer,
     RequestCreateSerializer,
+    RequestItemSerializer,
     UpdateItemsSerializer,
 )
 from apps.rq.serializers.approval import ApprovalSerializer, WorkflowActionSerializer
 from apps.rq.serializers.activity_log import ActivityLogSerializer
 from apps.rq.serializers.attachment import AttachmentSerializer
+from apps.rq.serializers.catalog import StockAvailabilitySerializer
 from apps.rq.serializers.notification import NotificationSerializer
+from apps.rq.services.request_items import update_request_items
+from apps.rq.services.stock_availability import build_stock_availability
 from apps.rq.services.workflow_engine import WorkflowEngine
-from apps.core.exceptions import WorkflowError, PermissionDeniedForAction
+from apps.core.exceptions import WorkflowError, PermissionDeniedForAction, RequestItemConflict
 from apps.core.permissions import IsLogisticsStaff
 from apps.rq.filters import RequestFilter
 from apps.rq.permissions import get_accessible_requests_queryset, CanPerformWorkflowAction
@@ -63,11 +67,16 @@ class RequestViewSet(viewsets.ModelViewSet):
         return get_accessible_requests_queryset(self.request.user).select_related(
             'project', 'department', 'requested_by', 'current_step',
             'budget_line', 'annual_plan_line',
-        ).prefetch_related('items')
+        ).prefetch_related('items__inventory_item')
 
     def get_permissions(self):
         # SYSPCC-011 FIX 2: only logistics roles may rewrite item supply_source.
         if self.action == 'update_items':
+            return [IsAuthenticated(), IsLogisticsStaff()]
+        # SYSPCC-026: the net availability carries demand aggregated across
+        # projects (what is promised to other RQs), so it is for the stock check,
+        # i.e. logistics only. Checked before the object lookup: no oracle on RQ ids.
+        if self.action == 'stock_availability':
             return [IsAuthenticated(), IsLogisticsStaff()]
         # SYSPCC-011 FIX 5: defense-in-depth HTTP-layer rejection in addition to
         # WorkflowEngine's own acting_role validation (see execute_action below).
@@ -202,34 +211,89 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         tags=['requests'],
-        summary='Update supply source for request items',
+        summary='Update the lines of a request during the stock check (logistics)',
         request=UpdateItemsSerializer,
     )
     @action(detail=True, methods=['patch'], url_path='update-items')
     def update_items(self, request, pk=None):
         """
-        Update supply_source for each item (set by logistics during stock check).
-        SYSPCC-011 FIX 2: restricted to logistics roles (see get_permissions) and
-        payload is validated by UpdateItemsSerializer — item_id must be an
-        integer and supply_source must be a valid choice, so a malformed
-        payload returns 400 instead of failing inside the Case/When update.
+        Logistics confirms, line by line, the catalog product (`inventory_item`) or
+        marks it off-catalog (`is_off_catalog`), the family (`item_source`) and the
+        origin of the supply (`supply_source`). Only the keys sent are applied.
+
+        SYSPCC-011 FIX 2: restricted to logistics roles (see get_permissions); the
+        payload is validated by UpdateItemsSerializer, so a malformed body returns 400.
+        SYSPCC-026: runs atomically under a lock and answers 409 when the RQ is in a
+        final state or a line already has warehouse dispatches (nothing is written).
+        Item ids that do not belong to this RQ are never touched and come back in
+        `ignored_item_ids`. The guard lives here only: it never blocks a workflow transition.
         """
         rq_instance = self.get_object()
-        serializer = UpdateItemsSerializer(data=request.data)
+        serializer = UpdateItemsSerializer(
+            data=request.data, context={'line_count': rq_instance.items.count()},
+        )
         serializer.is_valid(raise_exception=True)
         items_data = serializer.validated_data['items']
 
-        cases = []
-        item_ids = []
-        for item_update in items_data:
-            item_id = item_update['item_id']
-            supply_source = item_update['supply_source']
-            cases.append(When(id=item_id, then=Value(supply_source)))
-            item_ids.append(item_id)
-        if cases:
-            # Scoped to rq_instance.items so an item_id belonging to a
-            # different Request can never be touched from this endpoint.
-            rq_instance.items.filter(id__in=item_ids).update(
-                supply_source=Case(*cases, output_field=CharField())
+        ctx = {'rq_id': rq_instance.pk, 'user_id': request.user.id}
+        try:
+            result = update_request_items(rq_instance, items_data, request.user)
+        except RequestItemConflict as exc:
+            logger.warning(
+                'rq.update_items.conflict',
+                extra=ctx | {'code': exc.code, 'item_ids': exc.item_ids},
             )
-        return Response({'detail': 'Items actualizados.'})
+            return Response(
+                {'detail': exc.message, 'code': exc.code, 'item_ids': exc.item_ids},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except Request.DoesNotExist:
+            logger.warning('rq.update_items.not_found', extra=ctx)
+            return Response(
+                {'detail': 'El requerimiento ya no existe.'}, status=status.HTTP_404_NOT_FOUND,
+            )
+        except IntegrityError:
+            # A catalog product deleted between validation and save, or the DB-level
+            # catalog/off-catalog constraint: nothing was persisted (atomic rollback).
+            logger.warning('rq.update_items.integrity_error', extra=ctx)
+            return Response(
+                {'detail': 'No se pudieron guardar los cambios porque los datos cambiaron. '
+                           'Actualice la página e intente nuevamente.',
+                 'code': 'INTEGRITY_ERROR'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except Exception:
+            # Last barrier: unexpected failure — full stack with context, then 500.
+            logger.exception('rq.update_items.unexpected', extra=ctx)
+            raise
+
+        return Response({
+            'detail': 'Ítems actualizados.',
+            'updated_item_ids': [item.pk for item in result.updated],
+            'unchanged_item_ids': result.unchanged_item_ids,
+            'ignored_item_ids': result.ignored_item_ids,
+            'items': RequestItemSerializer(result.updated, many=True).data,
+        })
+
+    @extend_schema(
+        tags=['requests'],
+        summary='Stock availability of the request lines against the central warehouse',
+        responses={200: StockAvailabilitySerializer},
+    )
+    @action(detail=True, methods=['get'], url_path='stock-availability')
+    def stock_availability(self, request, pk=None):
+        """
+        For each line: what was requested, the linked catalog product, how much the
+        CENTRAL pool holds (minus what is still owed to other RQs already in IN_STOCK)
+        and whether that covers the line fully, partially or not at all.
+
+        Read-only and advisory: the stock-check decision stays with logistics.
+        Restricted to logistics roles (see get_permissions): `committed_other_requests`
+        and `available_net` reveal what other projects have asked for. The RQ is looked
+        up through get_accessible_requests_queryset (a foreign RQ answers 404). Uses
+        only the `inventory_item` link, never a text match; `link_confirmed` tells
+        whether logistics already confirmed it.
+        """
+        rq_instance = self.get_object()
+        report = build_stock_availability(rq_instance)
+        return Response(StockAvailabilitySerializer(report).data)

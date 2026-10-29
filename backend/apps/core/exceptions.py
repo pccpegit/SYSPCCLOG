@@ -64,3 +64,25 @@ class PermissionDeniedForAction(Exception):
         self.required_role = required_role
         self.user_roles = user_roles or []
         super().__init__(message)
+
+
+class RequestItemConflict(Exception):
+    """
+    Raised (SYSPCC-026) when the items of a request cannot be edited: the RQ is
+    terminal, it is in a state outside the editable window (before validation or
+    from the dispatch on), or an item already has warehouse dispatches. The view
+    maps it to HTTP 409.
+
+    `code` is a stable machine-readable reason for the frontend;
+    `item_ids` lists the offending RequestItem ids when applicable.
+    """
+
+    REQUEST_TERMINAL = 'REQUEST_TERMINAL'
+    REQUEST_STATE_NOT_EDITABLE = 'REQUEST_STATE_NOT_EDITABLE'
+    ITEMS_ALREADY_DISPATCHED = 'ITEMS_ALREADY_DISPATCHED'
+
+    def __init__(self, message: str, code: str = None, item_ids: list = None):
+        self.message = message
+        self.code = code
+        self.item_ids = item_ids or []
+        super().__init__(message)

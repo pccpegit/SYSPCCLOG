@@ -190,6 +190,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'warehouse.check_low_stock',
         'schedule': crontab(hour=7, minute=30),  # Every day at 7:30 AM Lima time
     },
+    # SYSPCC-025: expire inventory-import previews and drop the uploaded workbooks (personal data)
+    'warehouse-purge-stale-imports': {
+        'task': 'warehouse.purge_stale_imports',
+        'schedule': crontab(hour=3, minute=0),  # Every day at 3 AM Lima time
+    },
     # SYSPCC-023: re-enqueue CV items stuck in QUEUED/PROCESSING (worker crash, lost broker)
     'hr-cv-requeue-stale': {
         'task': 'hr.cv_requeue_stale',
@@ -281,6 +286,9 @@ REST_FRAMEWORK = {
         'hr_cv_upload': '60/min',
         'hr_cv_progress': '90/min',
         'hr_cv_posting': '20/min',
+        # SYSPCC-025 (warehouse)
+        'warehouse_lookup': '120/min',
+        'warehouse_import': '10/hour',
     },
 }
 

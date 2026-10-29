@@ -54,6 +54,9 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'hr_cv_upload': '60/min',
     'hr_cv_progress': '90/min',
     'hr_cv_posting': '20/min',
+    # SYSPCC-025 (warehouse)
+    'warehouse_lookup': '120/min',
+    'warehouse_import': '10/hour',
 }
 REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = REST_FRAMEWORK_THROTTLE_RATES  # noqa: F405
 

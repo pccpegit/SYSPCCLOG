@@ -215,11 +215,12 @@ class ItemTypeChoices(models.TextChoices):
     CONSUMABLE = 'CONSUMABLE', _('Consumible')
     TOOL = 'TOOL', _('Herramienta')
     MATERIAL = 'MATERIAL', _('Material')
+    EPP = 'EPP', _('EPP')
 
 
 class MovementTypeChoices(models.TextChoices):
-    ENTRY = 'ENTRY', _('Entrada')
-    EXIT = 'EXIT', _('Salida')
+    ENTRY = 'ENTRY', _('Ingreso')
+    EXIT = 'EXIT', _('Egreso')
     TRANSFER = 'TRANSFER', _('Transferencia')
     ADJUSTMENT = 'ADJUSTMENT', _('Ajuste')
 

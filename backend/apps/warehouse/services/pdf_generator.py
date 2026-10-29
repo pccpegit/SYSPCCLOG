@@ -1,11 +1,12 @@
 """
-PDF generator for warehouse movement vouchers (vales de entrada/salida).
+PDF generator for warehouse movement vouchers (vales de ingreso/egreso).
 Uses ReportLab to produce clean, professional PDF documents.
 """
 import io
 import logging
 import os
 from datetime import datetime
+from xml.sax.saxutils import escape as _xml_escape
 
 from django.conf import settings
 
@@ -16,25 +17,33 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
+from apps.warehouse.services.dates import operational_date_label
 
+
+# User-facing wording must match the UI and ``apps.core.enums`` labels (Ingreso/Egreso, with accents).
 WAREHOUSE_LABELS = {
-    'CENTRAL': 'Almacen Central',
-    'SITE': 'Almacen de Obra',
-    'OFFICE': 'Almacen/Bodega Oficina',
+    'CENTRAL': 'Almacén Central',
+    'SITE': 'Almacén de Obra',
+    'OFFICE': 'Almacén/Bodega de Oficina',
 }
 
 SOURCE_LABELS = {
     'PURCHASE': 'Compra',
-    'RETURN': 'Devolucion',
-    'TRANSFER_IN': 'Traslado entrante',
+    'RETURN': 'Devolución',
+    'TRANSFER_IN': 'Transferencia entrante',
     'INITIAL_LOAD': 'Carga inicial',
+    'ADJUSTMENT': 'Ajuste de inventario',
 }
 
 DEST_LABELS = {
     'PROJECT': 'Proyecto / Obra',
-    'DEPARTMENT': 'Area / Depto.',
+    'DEPARTMENT': 'Área / Departamento',
     'EMPLOYEE': 'Colaborador',
+    'TRANSFER_OUT': 'Transferencia saliente',
+    'ADJUSTMENT': 'Ajuste de inventario',
 }
+
+COMPANY_TAGLINE = 'Proyectos, Construcción & Comisionamiento'
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +99,7 @@ def generate_movement_pdf(movement) -> bytes:
 
     elements = []
     is_entry = movement.movement_type == 'ENTRY'
-    doc_type = 'VALE DE ENTRADA' if is_entry else 'VALE DE SALIDA'
+    doc_type = 'VALE DE INGRESO' if is_entry else 'VALE DE EGRESO'
 
     # ── Header ────────────────────────────────────────────────────────────
     logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'pcc_logo.png')
@@ -100,7 +109,7 @@ def generate_movement_pdf(movement) -> bytes:
             logo,
             Paragraph(
                 '<b>PCC S.A.C.</b><br/>'
-                '<font size="8" color="#888888">Proyectos, Construccion &amp; Comisionamiento</font>',
+                '<font size="8" color="#888888">Proyectos, Construcción &amp; Comisionamiento</font>',
                 ParagraphStyle('HeaderText', parent=styles['Normal'], fontSize=14, leading=18),
             ),
         ]]
@@ -113,7 +122,7 @@ def generate_movement_pdf(movement) -> bytes:
     else:
         elements.append(Paragraph('PCC S.A.C.', styles['DocTitle']))
         elements.append(Paragraph(
-            'Proyectos, Construccion & Comisionamiento',
+            COMPANY_TAGLINE,
             styles['DocSubtitle'],
         ))
     elements.append(Spacer(1, 6 * mm))
@@ -125,7 +134,7 @@ def generate_movement_pdf(movement) -> bytes:
                 'TitleLeft', parent=styles['Normal'], fontSize=14,
             )),
             Paragraph(
-                f'<b>{movement.movement_number}</b>',
+                f'<b>{_esc(movement.movement_number)}</b>',
                 ParagraphStyle('TitleRight', parent=styles['Normal'],
                                fontSize=12, alignment=TA_RIGHT,
                                textColor=colors.Color(0.2, 0.2, 0.2)),
@@ -142,31 +151,31 @@ def generate_movement_pdf(movement) -> bytes:
     elements.append(Spacer(1, 5 * mm))
 
     # ── Info block ────────────────────────────────────────────────────────
-    date_str = movement.created_at.strftime('%d/%m/%Y %H:%M')
+    # SYSPCC-025: the operational date, not the registration timestamp (same rule as the group vale).
+    date_str = operational_date_label(movement.movement_date)
     wh_label = WAREHOUSE_LABELS.get(movement.warehouse, movement.warehouse)
     project_name = movement.project.name if movement.project else '-'
 
     info_rows = [
-        [_field('Fecha', date_str, styles), _field('Almacen', wh_label, styles)],
+        [_field('Fecha', date_str, styles), _field('Almacén', wh_label, styles)],
         [_field('Proyecto', project_name, styles), ''],
     ]
 
     if is_entry:
         source = SOURCE_LABELS.get(movement.source_type, movement.source_type)
         info_rows[1][1] = _field('Origen', source, styles)
-        if movement.supplier_name:
-            info_rows.append([
-                _field('Proveedor', movement.supplier_name, styles),
-                _field('N. Factura / Guia', movement.invoice_number or '-', styles),
-            ])
+        info_rows.extend(_entry_document_rows(movement, styles))
     else:
         dest = DEST_LABELS.get(movement.destination_type, movement.destination_type)
-        info_rows[1][1] = _field('Tipo destino', dest, styles)
+        info_rows[1][1] = _field('Tipo de destino', dest, styles)
         if movement.destination_detail:
             info_rows.append([
                 _field('Destino', movement.destination_detail, styles),
                 _field('Solicitado por', movement.requested_by.get_full_name() if movement.requested_by else '-', styles),
             ])
+
+    if movement.voucher_number:
+        info_rows.append([_field('N° de vale (físico)', movement.voucher_number, styles), ''])
 
     info_table = Table(info_rows, colWidths=[doc.width * 0.5, doc.width * 0.5])
     info_table.setStyle(TableStyle([
@@ -178,7 +187,7 @@ def generate_movement_pdf(movement) -> bytes:
     elements.append(Spacer(1, 6 * mm))
 
     # ── Item table ────────────────────────────────────────────────────────
-    item_header = ['Codigo', 'Descripcion', 'Unidad', 'Cantidad']
+    item_header = ['Código', 'Descripción', 'Unidad', 'Cantidad']
     item_row = [
         movement.inventory.product_code,
         movement.inventory.description,
@@ -215,7 +224,7 @@ def generate_movement_pdf(movement) -> bytes:
     if movement.notes:
         elements.append(Spacer(1, 5 * mm))
         elements.append(Paragraph(
-            f'<b>Observaciones:</b> {movement.notes}',
+            f'<b>Observaciones:</b> {_esc(movement.notes)}',
             ParagraphStyle('Notes', parent=styles['Normal'], fontSize=9,
                            textColor=colors.Color(0.3, 0.3, 0.3)),
         ))
@@ -238,14 +247,14 @@ def generate_movement_pdf(movement) -> bytes:
             '____________________',
         ],
         [
-            Paragraph('<b>Entrego</b>', styles['SmallCenter']),
-            Paragraph('<b>Recibio</b>', styles['SmallCenter']),
-            Paragraph('<b>Autorizo</b>', styles['SmallCenter']),
+            Paragraph('<b>Entregó</b>', styles['SmallCenter']),
+            Paragraph('<b>Recibió</b>', styles['SmallCenter']),
+            Paragraph('<b>Autorizó</b>', styles['SmallCenter']),
         ],
         [
-            Paragraph(registered_name, styles['SmallCenter']),
+            Paragraph(_esc(registered_name), styles['SmallCenter']),
             Paragraph('', styles['SmallCenter']),
-            Paragraph(authorized_name, styles['SmallCenter']),
+            Paragraph(_esc(authorized_name), styles['SmallCenter']),
         ],
     ]
 
@@ -261,7 +270,7 @@ def generate_movement_pdf(movement) -> bytes:
     # ── Footer ────────────────────────────────────────────────────────────
     elements.append(Spacer(1, 10 * mm))
     elements.append(Paragraph(
-        f'Documento generado automaticamente por SYSPCC - {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+        f'Documento generado automáticamente por SYSPCC - {datetime.now().strftime("%d/%m/%Y %H:%M")}',
         ParagraphStyle('Footer', parent=styles['Normal'], fontSize=7,
                        alignment=TA_CENTER, textColor=colors.Color(0.6, 0.6, 0.6)),
     ))
@@ -290,11 +299,44 @@ def _get_signature_image(user):
     return ''
 
 
+def _esc(value) -> str:
+    """
+    Escape user data before it goes inside a ``Paragraph``.
+
+    ReportLab parses a Paragraph's text as mini-markup. Unescaped, a vale number
+    like ``<img src="http://host/a.png"/>`` makes the server open an outbound
+    connection (blind SSRF) and an unclosed ``<b>`` raises ``ValueError`` so the
+    PDF is never produced. Every value that comes from a user, an import or the
+    database must go through here; only constant labels are written as markup.
+    """
+    return _xml_escape('' if value is None else str(value))
+
+
+def _entry_document_rows(obj, styles):
+    """
+    Rows with the documents that back an entry: supplier + invoice, then delivery note (guía de
+    remisión) and purchase order. ``obj`` is a ``MovementGroup`` or an ``InventoryMovement``; both
+    carry the same fields. Empty references are left out so the vale does not print blank boxes.
+    """
+    rows = []
+    if obj.supplier_name or obj.invoice_number:
+        rows.append([
+            _field('Proveedor', obj.supplier_name or '-', styles),
+            _field('N° de factura', obj.invoice_number or '-', styles),
+        ])
+    if obj.guide_number or obj.po_number:
+        rows.append([
+            _field('Guía de remisión', obj.guide_number, styles) if obj.guide_number else '',
+            _field('OC / PO', obj.po_number, styles) if obj.po_number else '',
+        ])
+    return rows
+
+
 def _field(label, value, styles):
     """Helper to create a label+value block for the info table."""
     return Paragraph(
-        f'<font size="8" color="#999999">{label}</font><br/>'
-        f'<font size="10"><b>{value}</b></font>',
+        f'<font size="8" color="#999999">{_esc(label)}</font><br/>'
+        f'<font size="10"><b>{_esc(value)}</b></font>',
         styles['Normal'],
     )
 
@@ -375,7 +417,7 @@ def generate_group_pdf(group) -> bytes:
 
     elements = []
     is_entry = group.movement_type == 'ENTRY'
-    doc_type = 'VALE DE ENTRADA' if is_entry else 'VALE DE SALIDA'
+    doc_type = 'VALE DE INGRESO' if is_entry else 'VALE DE EGRESO'
 
     # ── Header ────────────────────────────────────────────────────────────
     logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'pcc_logo.png')
@@ -385,7 +427,7 @@ def generate_group_pdf(group) -> bytes:
             logo,
             Paragraph(
                 '<b>PCC S.A.C.</b><br/>'
-                '<font size="8" color="#888888">Proyectos, Construccion &amp; Comisionamiento</font>',
+                '<font size="8" color="#888888">Proyectos, Construcción &amp; Comisionamiento</font>',
                 ParagraphStyle('GHeaderText', parent=styles['Normal'], fontSize=14, leading=18),
             ),
         ]]
@@ -398,7 +440,7 @@ def generate_group_pdf(group) -> bytes:
     else:
         elements.append(Paragraph('PCC S.A.C.', styles['GroupDocTitle']))
         elements.append(Paragraph(
-            'Proyectos, Construccion & Comisionamiento',
+            COMPANY_TAGLINE,
             styles['GroupDocSubtitle'],
         ))
     elements.append(Spacer(1, 6 * mm))
@@ -409,7 +451,7 @@ def generate_group_pdf(group) -> bytes:
             'GTitleLeft', parent=styles['Normal'], fontSize=14,
         )),
         Paragraph(
-            f'<b>{group.group_number}</b>',
+            f'<b>{_esc(group.group_number)}</b>',
             ParagraphStyle('GTitleRight', parent=styles['Normal'],
                            fontSize=12, alignment=TA_RIGHT,
                            textColor=colors.Color(0.2, 0.2, 0.2)),
@@ -425,31 +467,35 @@ def generate_group_pdf(group) -> bytes:
     elements.append(Spacer(1, 5 * mm))
 
     # ── Info block ────────────────────────────────────────────────────────
-    date_str = group.created_at.strftime('%d/%m/%Y %H:%M')
+    # SYSPCC-025: the vale shows the operational date (movement_date), which can be
+    # earlier than the registration time when the vale is loaded retroactively.
+    if group.movement_date:
+        date_str = group.movement_date.strftime('%d/%m/%Y')
+    else:
+        date_str = group.created_at.strftime('%d/%m/%Y %H:%M')
     wh_label = WAREHOUSE_LABELS.get(group.warehouse, group.warehouse)
     project_name = group.project.name if group.project else '-'
 
     info_rows = [
-        [_field('Fecha', date_str, styles), _field('Almacen', wh_label, styles)],
+        [_field('Fecha', date_str, styles), _field('Almacén', wh_label, styles)],
         [_field('Proyecto', project_name, styles), ''],
     ]
 
     if is_entry:
         source = SOURCE_LABELS.get(group.source_type, group.source_type)
         info_rows[1][1] = _field('Origen', source, styles)
-        if group.supplier_name:
-            info_rows.append([
-                _field('Proveedor', group.supplier_name, styles),
-                _field('N. Factura / Guia', group.invoice_number or '-', styles),
-            ])
+        info_rows.extend(_entry_document_rows(group, styles))
     else:
         dest = DEST_LABELS.get(group.destination_type, group.destination_type)
-        info_rows[1][1] = _field('Tipo destino', dest, styles)
+        info_rows[1][1] = _field('Tipo de destino', dest, styles)
         if group.destination_detail:
             info_rows.append([
                 _field('Destino', group.destination_detail, styles),
                 '',
             ])
+
+    if group.voucher_number:
+        info_rows.append([_field('N° de vale (físico)', group.voucher_number, styles), ''])
 
     info_table = Table(info_rows, colWidths=[doc.width * 0.5, doc.width * 0.5])
     info_table.setStyle(TableStyle([
@@ -461,7 +507,7 @@ def generate_group_pdf(group) -> bytes:
     elements.append(Spacer(1, 6 * mm))
 
     # ── Items table (multi-row) ────────────────────────────────────────────
-    item_header = ['#', 'Codigo', 'Descripcion', 'Unidad', 'Cantidad']
+    item_header = ['#', 'Código', 'Descripción', 'Unidad', 'Cantidad']
     rows = [item_header]
 
     movements = list(group.movements.select_related('inventory').order_by('movement_number'))
@@ -511,7 +557,7 @@ def generate_group_pdf(group) -> bytes:
     if group.notes:
         elements.append(Spacer(1, 5 * mm))
         elements.append(Paragraph(
-            f'<b>Observaciones:</b> {group.notes}',
+            f'<b>Observaciones:</b> {_esc(group.notes)}',
             ParagraphStyle('GNotes', parent=styles['Normal'], fontSize=9,
                            textColor=colors.Color(0.3, 0.3, 0.3)),
         ))
@@ -526,12 +572,12 @@ def generate_group_pdf(group) -> bytes:
         [reg_sig, '', ''],
         ['____________________', '____________________', '____________________'],
         [
-            Paragraph('<b>Entrego</b>', styles['GroupSmallCenter']),
-            Paragraph('<b>Recibio</b>', styles['GroupSmallCenter']),
-            Paragraph('<b>Autorizo</b>', styles['GroupSmallCenter']),
+            Paragraph('<b>Entregó</b>', styles['GroupSmallCenter']),
+            Paragraph('<b>Recibió</b>', styles['GroupSmallCenter']),
+            Paragraph('<b>Autorizó</b>', styles['GroupSmallCenter']),
         ],
         [
-            Paragraph(registered_name, styles['GroupSmallCenter']),
+            Paragraph(_esc(registered_name), styles['GroupSmallCenter']),
             Paragraph('', styles['GroupSmallCenter']),
             Paragraph('', styles['GroupSmallCenter']),
         ],
@@ -548,7 +594,7 @@ def generate_group_pdf(group) -> bytes:
     # ── Footer ────────────────────────────────────────────────────────────
     elements.append(Spacer(1, 10 * mm))
     elements.append(Paragraph(
-        f'Documento generado automaticamente por SYSPCC - {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+        f'Documento generado automáticamente por SYSPCC - {datetime.now().strftime("%d/%m/%Y %H:%M")}',
         ParagraphStyle('GFooter', parent=styles['Normal'], fontSize=7,
                        alignment=TA_CENTER, textColor=colors.Color(0.6, 0.6, 0.6)),
     ))

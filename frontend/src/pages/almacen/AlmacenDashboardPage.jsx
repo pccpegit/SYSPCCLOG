@@ -1,263 +1,244 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Package,
-  AlertTriangle,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  ChevronRight,
-  TrendingUp,
-  TrendingDown,
-  Activity,
+  AlertTriangle, ArrowDownToLine, ArrowRightLeft, ArrowUpFromLine, ChevronRight, FileUp,
+  MapPinOff, Package, PackageX, Receipt, Scale, Boxes,
 } from 'lucide-react';
-import { getSummary, getAlerts } from '../../api/almacen';
+import { getAlerts, getMovementSummary, getMovements, getSummary } from '../../api/almacen';
+import { useAuth } from '../../context/AuthContext';
+import { ASSIGN_LOCATION_ROLES, COUNTER_ROLES, IMPORT_ROLES } from '../../data/almacenRoles';
+import { addDaysISO, formatQty, hasAnyRole, localISODate } from '../../utils/almacen';
+import { Banner, Card, EmptyBlock, ErrorBlock, PageHeader } from '../../components/almacen/ui';
+import { TONES, btnPrimary } from '../../components/almacen/uiStyles';
 
-import { fmtNum } from '../../utils/format';
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, icon: Icon, color, loading }) {
-  const colorMap = {
-    emerald: { bg: 'bg-emerald-50 dark:bg-emerald-500/10', icon: 'text-emerald-600 dark:text-emerald-400', ring: 'ring-emerald-100 dark:ring-emerald-500/30' },
-    amber:   { bg: 'bg-amber-50 dark:bg-amber-500/10',     icon: 'text-amber-600 dark:text-amber-400',     ring: 'ring-amber-100 dark:ring-amber-500/30'   },
-    teal:    { bg: 'bg-teal-50 dark:bg-teal-500/10',       icon: 'text-teal-600 dark:text-teal-400',       ring: 'ring-teal-100 dark:ring-teal-500/30'    },
-    rose:    { bg: 'bg-rose-50 dark:bg-rose-500/10',       icon: 'text-rose-600 dark:text-rose-400',       ring: 'ring-rose-100 dark:ring-rose-500/30'    },
-  };
-  const c = colorMap[color] ?? colorMap.emerald;
-
-  return (
-    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-gray-100 hover:border-gray-200 transition-colors">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-11 h-11 rounded-xl ${c.bg} ring-1 ${c.ring} flex items-center justify-center`}>
-          <Icon size={20} className={c.icon} strokeWidth={1.8} />
-        </div>
+function KpiCard({ label, value, icon, tone, loading, to, hint }) {
+  const Icon = icon;
+  const body = (
+    <Card className="p-5 h-full hover:border-gray-200 transition-colors">
+      <div className={`w-10 h-10 rounded-xl ring-1 flex items-center justify-center mb-3 ${TONES[tone] ?? TONES.gray}`}>
+        <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
       </div>
       {loading ? (
-        <div className="space-y-2">
+        <div className="space-y-2" role="status" aria-label={`Cargando ${label}`}>
           <div className="h-8 w-20 bg-gray-100 animate-pulse rounded-lg" />
           <div className="h-4 w-28 bg-gray-50 animate-pulse rounded" />
         </div>
       ) : (
         <>
-          <p className="text-3xl font-bold text-gray-900 tracking-tight font-display">{fmtNum(value ?? 0)}</p>
-          <p className="text-[13px] text-gray-500 mt-1 font-display">{label}</p>
+          <p className="text-3xl font-bold text-gray-900 tracking-tight font-display tabular-nums">{value == null ? '—' : formatQty(value)}</p>
+          <p className="text-sm text-gray-600 mt-1 font-display">{label}</p>
+          {hint && <p className="text-xs text-gray-500 mt-0.5">{hint}</p>}
         </>
       )}
-    </div>
+    </Card>
   );
+  return to
+    ? <Link to={to} className="block rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">{body}</Link>
+    : body;
 }
 
-function QuickAction({ label, description, icon: Icon, color, onClick }) {
-  const colorMap = {
-    emerald: 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20',
-    rose:    'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20',
-    gray:    'bg-white hover:bg-gray-50 shadow-none border border-gray-200 !text-gray-700 !shadow-sm',
-  };
-
+function QuickAction({ to, label, description, icon, primary }) {
+  const Icon = icon;
   return (
-    <button
-      onClick={onClick}
-      className={`group flex items-center gap-4 px-5 py-4 rounded-2xl text-white text-left transition-all duration-150 shadow-lg active:scale-[0.97] active:shadow-md ${colorMap[color]}`}
+    <Link
+      to={to}
+      className={`group flex items-center gap-4 px-5 py-4 rounded-2xl text-left transition-all duration-150 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
+        primary
+          ? 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-lg shadow-emerald-700/20'
+          : 'bg-white hover:bg-gray-50 border border-gray-200 text-gray-800'
+      }`}
     >
-      <div className={`w-10 h-10 rounded-xl ${color === 'gray' ? 'bg-gray-100' : 'bg-white/15'} flex items-center justify-center shrink-0`}>
-        <Icon size={20} className={color === 'gray' ? 'text-gray-500' : 'text-white'} strokeWidth={1.8} />
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${primary ? 'bg-white/15' : 'bg-gray-100'}`}>
+        <Icon size={19} strokeWidth={1.8} className={primary ? 'text-white' : 'text-gray-600'} aria-hidden="true" />
       </div>
       <div className="min-w-0">
-        <p className={`text-sm font-semibold font-display ${color === 'gray' ? 'text-gray-800' : ''}`}>{label}</p>
-        <p className={`text-xs mt-0.5 ${color === 'gray' ? 'text-gray-400' : 'text-white/60'}`}>{description}</p>
+        <p className="text-sm font-semibold font-display">{label}</p>
+        <p className={`text-xs mt-0.5 ${primary ? 'text-white/95' : 'text-gray-500'}`}>{description}</p>
       </div>
-      <ChevronRight size={16} className={`ml-auto shrink-0 opacity-40 group-hover:opacity-70 group-hover:translate-x-0.5 transition-all ${color === 'gray' ? 'text-gray-400' : ''}`} />
-    </button>
+      <ChevronRight size={16} className="ml-auto shrink-0 opacity-50 group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
+    </Link>
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────
+function AlertTable({ title, tone, icon, rows, to, emptyText, loading = false }) {
+  const Icon = icon;
+  return (
+    <Card className="overflow-hidden" role="region" aria-label={title}>
+      <div className="px-5 py-4 flex items-center justify-between border-b border-gray-100">
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl ring-1 flex items-center justify-center ${TONES[tone]}`}>
+            <Icon size={17} aria-hidden="true" />
+          </div>
+          <h2 className="text-sm sm:text-base font-semibold text-gray-900 font-display">
+            {title} {!loading && <span className="text-gray-500 font-normal tabular-nums">({rows.length})</span>}
+          </h2>
+        </div>
+        <Link to={to} className="text-xs text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 font-semibold flex items-center gap-1 font-display">
+          Ver todos <ChevronRight size={14} aria-hidden="true" />
+        </Link>
+      </div>
+      {loading ? (
+        // While the alerts are on their way, never claim that nothing is wrong (empty-state copy is a statement of fact).
+        <div role="status" aria-label={`Cargando ${title}`} className="p-5 space-y-3">
+          <div className="h-4 w-2/3 bg-gray-100 animate-pulse rounded" />
+          <div className="h-4 w-1/2 bg-gray-100 animate-pulse rounded" />
+          <div className="h-4 w-3/5 bg-gray-100 animate-pulse rounded" />
+        </div>
+      ) : rows.length === 0 ? (
+        <EmptyBlock icon={Package} title={emptyText} />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <caption className="sr-only">{title}</caption>
+            <thead>
+              <tr className="bg-gray-50 text-left">
+                <th scope="col" className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Código</th>
+                <th scope="col" className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Descripción</th>
+                <th scope="col" className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Stock</th>
+                <th scope="col" className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right hidden sm:table-cell">Mín.</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.slice(0, 8).map((item) => (
+                <tr key={item.id} className="hover:bg-gray-50">
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <Link to={`/almacen/inventario/${item.id}`} className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline">{item.product_code}</Link>
+                  </td>
+                  <td className="px-5 py-3 text-gray-800">{item.description}</td>
+                  <td className="px-5 py-3 text-right font-bold tabular-nums text-gray-900">{formatQty(item.current_stock)}</td>
+                  <td className="px-5 py-3 text-right text-gray-500 tabular-nums hidden sm:table-cell">{formatQty(item.min_stock)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export default function AlmacenDashboardPage() {
-  const navigate = useNavigate();
+  const { userRoles } = useAuth();
+  const canCounter = hasAnyRole(userRoles, COUNTER_ROLES);
+  const canImport = hasAnyRole(userRoles, IMPORT_ROLES);
+  const canAssign = hasAnyRole(userRoles, ASSIGN_LOCATION_ROLES);
 
-  const [summary, setSummary] = useState(null);
-  const [alerts, setAlerts]   = useState([]);
-  const [loadingSummary, setLoadingSummary] = useState(true);
-  const [loadingAlerts, setLoadingAlerts]   = useState(true);
-  const [error, setError] = useState('');
+  const [state, setState] = useState({ status: 'loading' });
+
+  const load = useCallback(async () => {
+    setState({ status: 'loading' });
+    const since = addDaysISO(localISODate(), -30);
+    const [summary, alerts, units, noVoucher] = await Promise.allSettled([
+      getSummary(),
+      getAlerts(),
+      getMovementSummary({ page_size: 1 }),
+      getMovements({ no_voucher: 'true', date_from: since, page_size: 1 }),
+    ]);
+    if (summary.status === 'rejected') {
+      setState({ status: 'error' });
+      return;
+    }
+    const alertRows = alerts.status === 'fulfilled'
+      ? (Array.isArray(alerts.value.data) ? alerts.value.data : (alerts.value.data?.results ?? []))
+      : null;
+    setState({
+      status: 'ready',
+      summary: summary.value.data,
+      alerts: alertRows,
+      units: units.status === 'fulfilled' ? units.value.data?.meta?.totals?.closing ?? null : null,
+      noVoucher: noVoucher.status === 'fulfilled' ? noVoucher.value.data?.count ?? null : null,
+    });
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const timer = setTimeout(load, 0);
+    return () => clearTimeout(timer);
+  }, [load]);
 
-    async function fetchData() {
-      try {
-        const [summaryRes, alertsRes] = await Promise.all([
-          getSummary(),
-          getAlerts(),
-        ]);
-        if (cancelled) return;
-        setSummary(summaryRes.data);
-        const alertData = alertsRes.data?.results ?? alertsRes.data ?? [];
-        setAlerts(Array.isArray(alertData) ? alertData : []);
-      } catch {
-        if (!cancelled) setError('No se pudieron cargar los datos del dashboard.');
-      } finally {
-        if (!cancelled) {
-          setLoadingSummary(false);
-          setLoadingAlerts(false);
-        }
-      }
-    }
-
-    fetchData();
-    return () => { cancelled = true; };
-  }, []);
+  const loading = state.status === 'loading';
+  const summary = state.summary;
+  const alertRows = state.alerts ?? [];
+  const noStock = alertRows.filter((a) => Number(a.current_stock) <= 0);
+  const lowStock = alertRows.filter((a) => Number(a.current_stock) > 0);
 
   return (
     <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto">
+      <PageHeader title="Dashboard" subtitle="Resumen del inventario y de los movimientos del día." />
 
-      {/* ── Page header ─────────────────────────────────────── */}
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 font-display tracking-tight">Dashboard</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Resumen del inventario y movimientos del dia.
-        </p>
-      </div>
-
-      {/* ── Error banner ────────────────────────────────────── */}
-      {error && (
-        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
-          <AlertTriangle size={16} className="shrink-0" />
-          {error}
-        </div>
+      {state.status === 'error' && (
+        <Card><ErrorBlock message="No se pudieron cargar los datos del dashboard." onRetry={load} /></Card>
       )}
 
-      {/* ── KPI cards ───────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <KpiCard label="Total de items"        value={summary?.total_items}    icon={Package}         color="emerald" loading={loadingSummary} />
-        <KpiCard label="Alertas stock bajo"    value={summary?.low_stock_count} icon={AlertTriangle}   color="amber"   loading={loadingSummary} />
-        <KpiCard label="Entradas hoy"          value={summary?.today_entries}  icon={ArrowDownToLine} color="teal"    loading={loadingSummary} />
-        <KpiCard label="Salidas hoy"           value={summary?.today_exits}    icon={ArrowUpFromLine} color="rose"    loading={loadingSummary} />
-      </div>
+      {state.status !== 'error' && (
+        <>
+          {summary?.undated_movements > 0 && (
+            <Banner tone="amber">
+              {formatQty(summary.undated_movements)} {summary.undated_movements === 1 ? 'movimiento no tiene' : 'movimientos no tienen'} fecha registrada.{' '}
+              <Link to="/almacen/movimientos?sin_fecha=1" className="font-semibold underline">Revisarlos</Link>
+            </Banner>
+          )}
 
-      {/* ── Quick actions ───────────────────────────────────── */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 px-1 font-display">
-          Acciones rapidas
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <QuickAction
-            label="Registrar Entrada"
-            description="Ingreso de materiales"
-            icon={ArrowDownToLine}
-            color="emerald"
-            onClick={() => navigate('/almacen/entrada')}
-          />
-          <QuickAction
-            label="Registrar Salida"
-            description="Despacho de materiales"
-            icon={ArrowUpFromLine}
-            color="rose"
-            onClick={() => navigate('/almacen/salida')}
-          />
-          <QuickAction
-            label="Ver Inventario"
-            description="Consultar items y stock"
-            icon={Package}
-            color="gray"
-            onClick={() => navigate('/almacen/inventario')}
-          />
-        </div>
-      </div>
+          {canAssign && summary?.pending_location_count > 0 && (
+            <Banner tone="amber">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <p>
+                  Sin ubicación exacta: {formatQty(summary.pending_location_count)}. Asigne pabellón, sección y nivel a cada ítem
+                  para encontrarlos al preparar pedidos.
+                </p>
+                <Link to="/almacen/inventario?pendientes=1&ubicar=1" className={`${btnPrimary} shrink-0`}>
+                  <MapPinOff size={15} aria-hidden="true" /> Empezar a ubicar
+                </Link>
+              </div>
+            </Banner>
+          )}
 
-      {/* ── Low stock alerts ────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-between border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 ring-1 ring-amber-100 dark:ring-amber-500/30 flex items-center justify-center">
-              <AlertTriangle size={17} className="text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <h2 className="text-sm sm:text-base font-semibold text-gray-900 font-display">Alertas de stock bajo</h2>
-              <p className="text-xs text-gray-400 hidden sm:block">Items que necesitan reposicion</p>
-            </div>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <KpiCard label="Ítems" value={summary?.total_items} icon={Boxes} tone="emerald" loading={loading} to="/almacen/inventario" />
+            <KpiCard label="Unidades en stock" value={state.units} icon={Package} tone="blue" loading={loading} to="/almacen/resumen" />
+            <KpiCard label="Pendientes de ubicar" value={summary?.pending_location_count} icon={MapPinOff} tone="amber" loading={loading} to="/almacen/inventario?pendientes=1" />
+            <KpiCard label="Ingresos hoy" value={summary?.today_entries} icon={ArrowDownToLine} tone="emerald" loading={loading} />
+            <KpiCard label="Egresos hoy" value={summary?.today_exits} icon={ArrowUpFromLine} tone="red" loading={loading} />
+            <KpiCard label="Egresos sin vale" hint="Últimos 30 días" value={state.noVoucher} icon={Receipt} tone="violet" loading={loading} to="/almacen/movimientos?sin_vale=1" />
           </div>
-          <button
-            onClick={() => navigate('/almacen/inventario', { state: { lowStock: true } })}
-            className="text-xs text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 font-semibold flex items-center gap-1 transition-all active:scale-95 font-display"
-          >
-            Ver todos
-            <ChevronRight size={14} />
-          </button>
-        </div>
 
-        {loadingAlerts ? (
-          <div className="flex items-center justify-center h-40">
-            <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
-          </div>
-        ) : alerts.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
-              <Package size={22} className="text-emerald-500" />
+          <section aria-labelledby="quick-actions">
+            <h2 id="quick-actions" className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 px-1 font-display">Accesos rápidos</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <QuickAction to="/almacen/entrada" label="Registrar ingreso" description="Recepción de material" icon={ArrowDownToLine} primary />
+              {canCounter && <QuickAction to="/almacen/salida" label="Registrar entrega" description="Entrega de EPP con vale" icon={ArrowUpFromLine} primary />}
+              {canCounter && <QuickAction to="/almacen/transferencia" label="Transferencia interna" description="Entre el 1er y el 2do piso" icon={ArrowRightLeft} />}
+              <QuickAction to="/almacen/resumen" label="Resumen de movimiento" description="Inicial, ingresos, egresos y stock" icon={Scale} />
+              <QuickAction to="/almacen/inventario" label="Ver inventario" description="Consultar ítems y ubicaciones" icon={Package} />
+              {canImport && <QuickAction to="/almacen/importar" label="Importar Excel" description="Cargar el libro de inventario" icon={FileUp} />}
             </div>
-            <p className="text-sm font-medium text-gray-600">Sin alertas</p>
-            <p className="text-xs text-gray-400 mt-1">Todos los items tienen stock suficiente.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50/80">
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Codigo</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Descripcion</th>
-                  <th className="px-5 sm:px-6 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell">Categoria</th>
-                  <th className="px-5 sm:px-6 py-3 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Stock</th>
-                  <th className="px-5 sm:px-6 py-3 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Min.</th>
-                  <th className="px-5 sm:px-6 py-3 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {alerts.slice(0, 8).map((item) => {
-                  const stock  = item.total_stock ?? 0;
-                  const minSt  = item.min_stock ?? 0;
-                  const isCrit = stock === 0;
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-amber-50/40 dark:hover:bg-amber-500/10 cursor-pointer transition-colors group"
-                      onClick={() => navigate(`/almacen/inventario/${item.id}`)}
-                    >
-                      <td className="px-5 sm:px-6 py-3.5 font-mono text-xs text-gray-500 font-medium">
-                        {item.product_code}
-                      </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-gray-800 font-medium">
-                        {item.description}
-                      </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-gray-400 hidden md:table-cell">
-                        {item.category ?? '\u2014'}
-                      </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-right">
-                        <span className={`text-sm font-bold ${isCrit ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                          {fmtNum(stock)}
-                        </span>
-                      </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-right text-gray-400 hidden sm:table-cell">
-                        {fmtNum(minSt)}
-                      </td>
-                      <td className="px-5 sm:px-6 py-3.5 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide ${
-                          isCrit
-                            ? 'bg-red-50 text-red-600 ring-1 ring-red-100 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/30'
-                            : 'bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${isCrit ? 'bg-red-500' : 'bg-amber-500'}`} />
-                          {isCrit ? 'Sin stock' : 'Bajo'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+          </section>
+
+          {state.alerts === null && !loading ? (
+            <Banner tone="red" live>No se pudieron cargar las alertas de stock.</Banner>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <AlertTable
+                title="Bajo mínimo"
+                tone="amber"
+                icon={AlertTriangle}
+                rows={lowStock}
+                loading={loading}
+                to="/almacen/inventario?estado=low"
+                emptyText="Ningún ítem está bajo su stock mínimo."
+              />
+              <AlertTable
+                title="Sin stock"
+                tone="red"
+                icon={PackageX}
+                rows={noStock}
+                loading={loading}
+                to="/almacen/inventario?estado=none"
+                emptyText="Todos los ítems tienen stock."
+              />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

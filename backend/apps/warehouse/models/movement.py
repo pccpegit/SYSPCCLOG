@@ -22,7 +22,7 @@ class MovementGroup(models.Model):
     """
 
     group_number = models.CharField(
-        _('número de vale'),
+        _('N° de vale interno'),
         max_length=30,
         unique=True,
     )
@@ -64,6 +64,34 @@ class MovementGroup(models.Model):
     )
     destination_detail = models.CharField(_('detalle destino'), max_length=200, blank=True)
 
+    # SYSPCC-025 — datos de documento del libro real (todos opcionales).
+    movement_date = models.DateField(
+        _('fecha del movimiento'),
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_('Fecha operativa; distinta de created_at (auditoría). NULL solo en filas importadas sin fecha.'),
+    )
+    voucher_number = models.CharField(
+        _('N° de vale (físico)'),
+        max_length=30,
+        blank=True,
+        db_index=True,
+        help_text=_('Número impreso en el vale firmado. No es único: un vale lleva varias líneas.'),
+    )
+    po_number = models.CharField(_('PO / OC'), max_length=50, blank=True)
+    guide_number = models.CharField(_('guía de remisión'), max_length=50, blank=True)
+    internal_transfer = models.CharField(_('transferencia interna'), max_length=100, blank=True)
+    destination_personal = models.ForeignKey(
+        'core.Personal',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='warehouse_groups',
+        verbose_name=_('trabajador destino'),
+        help_text=_('destination_detail se conserva siempre como texto (instantánea).'),
+    )
+
     notes = models.TextField(_('observaciones'), blank=True)
     document_url = models.URLField(_('URL documento'), max_length=500, blank=True)
     registered_by = models.ForeignKey(
@@ -76,8 +104,8 @@ class MovementGroup(models.Model):
 
     class Meta:
         db_table = 'movement_groups'
-        verbose_name = _('grupo de movimiento')
-        verbose_name_plural = _('grupos de movimiento')
+        verbose_name = _('vale de movimiento')
+        verbose_name_plural = _('vales de movimiento')
         ordering = ['-created_at']
 
     def __str__(self) -> str:
@@ -105,7 +133,7 @@ class InventoryMovement(models.Model):
         'warehouse.Inventory',
         on_delete=models.PROTECT,
         related_name='movements',
-        verbose_name=_('item de inventario'),
+        verbose_name=_('ítem de inventario'),
     )
     quantity = models.DecimalField(
         _('cantidad'),
@@ -176,7 +204,45 @@ class InventoryMovement(models.Model):
         null=True,
         blank=True,
         related_name='movements',
-        verbose_name=_('grupo'),
+        verbose_name=_('vale'),
+    )
+
+    # SYSPCC-025 — datos del libro real (todos opcionales).
+    movement_date = models.DateField(
+        _('fecha del movimiento'),
+        null=True,
+        blank=True,
+        help_text=_('Fecha operativa; distinta de created_at (auditoría). NULL solo en filas importadas sin fecha.'),
+    )
+    voucher_number = models.CharField(_('N° de vale (físico)'), max_length=30, blank=True)
+    po_number = models.CharField(_('PO / OC'), max_length=50, blank=True)
+    guide_number = models.CharField(_('guía de remisión'), max_length=50, blank=True)
+    internal_transfer = models.CharField(_('transferencia interna'), max_length=100, blank=True)
+    tag = models.CharField(_('TAG'), max_length=50, blank=True)
+    destination_personal = models.ForeignKey(
+        'core.Personal',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='warehouse_movements',
+        verbose_name=_('trabajador destino'),
+        help_text=_('destination_detail se conserva siempre como texto (instantánea).'),
+    )
+    source_key = models.CharField(
+        _('clave de origen'),
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        help_text=_('Clave de idempotencia de la importación (huella de la fila).'),
+    )
+    import_batch = models.ForeignKey(
+        'warehouse.InventoryImport',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='movements',
+        verbose_name=_('importación'),
     )
 
     # Common
@@ -204,6 +270,8 @@ class InventoryMovement(models.Model):
             models.Index(fields=['inventory', '-created_at']),
             models.Index(fields=['movement_type', '-created_at']),
             models.Index(fields=['warehouse', '-created_at']),
+            models.Index(fields=['inventory', 'movement_date'], name='invmov_inv_date_idx'),
+            models.Index(fields=['movement_type', 'movement_date'], name='invmov_type_date_idx'),
         ]
 
     def __str__(self) -> str:

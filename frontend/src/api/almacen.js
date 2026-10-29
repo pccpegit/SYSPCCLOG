@@ -18,6 +18,10 @@ export const createInventoryItem = (data) =>
 export const updateInventoryItem = (id, data) =>
   client.put(`/warehouse/inventory/${id}/`, data);
 
+/** PATCH /warehouse/inventory/{id}/ — partial update (SYSPCC-025: observation, OC, packing list...) */
+export const patchInventoryItem = (id, data) =>
+  client.patch(`/warehouse/inventory/${id}/`, data);
+
 /** GET /warehouse/inventory/{id}/kardex/ — movement history for one item */
 export const getKardex = (id, params) =>
   client.get(`/warehouse/inventory/${id}/kardex/`, { params });
@@ -60,30 +64,6 @@ export const registerExitBatch = (data) =>
 export const getVoucher = (id) =>
   client.get(`/warehouse/movements/${id}/voucher/`);
 
-/** GET /warehouse/movements/{id}/pdf/ — download movement PDF */
-export const getMovementPdfUrl = (id) =>
-  `/api/warehouse/movements/${id}/pdf/`;
-
-/**
- * Returns the URL for the inventory Excel export (open directly or use as href).
- * Accepts the same filter params as getInventory.
- * @param {object} params - Optional query params (category, item_type, search, low_stock)
- */
-export const exportInventoryUrl = (params = {}) => {
-  const qs = new URLSearchParams(params).toString();
-  return `/api/warehouse/inventory/export/${qs ? `?${qs}` : ''}`;
-};
-
-/**
- * Returns the URL for the movements Excel export (open directly or use as href).
- * Accepts the same filter params as getMovements.
- * @param {object} params - Optional query params
- */
-export const exportMovementsUrl = (params = {}) => {
-  const qs = new URLSearchParams(params).toString();
-  return `/api/warehouse/movements/export/${qs ? `?${qs}` : ''}`;
-};
-
 /** GET /warehouse/inventory/{id}/recent-movements/ — last 5 movements for an item */
 export const getRecentMovements = (id) =>
   client.get(`/warehouse/inventory/${id}/recent-movements/`);
@@ -115,3 +95,52 @@ export const oneDrivePoll = (deviceCode) =>
 /** POST /warehouse/onedrive/disconnect/ — remove connection */
 export const oneDriveDisconnect = () =>
   client.post('/warehouse/onedrive/disconnect/');
+
+// ── SYSPCC-025: ubicaciones, resumen de movimiento, EPP, exportaciones ─────────
+
+/** GET /warehouse/inventory/location-layout/ — pabellones, secciones y niveles del almacén */
+export const getLocationLayout = () =>
+  client.get('/warehouse/inventory/location-layout/');
+
+/**
+ * POST /warehouse/inventory/assign-locations/ — asigna ubicaciones (todo o nada, máx. 300).
+ * 400 => `errors: [{ index, field, error }]`.
+ */
+export const assignLocations = (assignments) =>
+  client.post('/warehouse/inventory/assign-locations/', { assignments });
+
+/** GET /warehouse/inventory/movement-summary/ — INV. INICIAL / INGRESOS / EGRESOS / STOCK por ítem */
+export const getMovementSummary = (params) =>
+  client.get('/warehouse/inventory/movement-summary/', { params });
+
+/**
+ * POST /warehouse/movements/epp-delivery/ — entrega de EPP con vale (exige N° de vale y fecha).
+ * 409 `voucher_number_exists` se reenvía con `allow_duplicate_voucher: true`.
+ */
+export const registerEppDelivery = (data) =>
+  client.post('/warehouse/movements/epp-delivery/', data);
+
+/** GET /warehouse/personal-lookup/?search= — solo id, nombre, puesto y código de proyecto (mín. 3 letras) */
+export const lookupPersonal = (search) =>
+  client.get('/warehouse/personal-lookup/', { params: { search } });
+
+/** POST /warehouse/movements/link-personal/ — vincula un destino en texto con un trabajador */
+export const linkPersonal = (data) =>
+  client.post('/warehouse/movements/link-personal/', data);
+
+// Descargas: devuelven un Blob (se guardan con utils/download.js).
+const getBlob = (url, params) => client.get(url, { params, responseType: 'blob' });
+
+/** Excel del inventario con los filtros activos. */
+export const exportInventory = (params) => getBlob('/warehouse/inventory/export/', params);
+
+/** Excel del resumen de movimiento (`include_movements: true` agrega INGRESOS y EGRESOS). */
+export const exportMovementSummary = (params) =>
+  getBlob('/warehouse/inventory/movement-summary/export/', params);
+
+/** Excel de movimientos; `layout: 'excel_pcc'` entrega las hojas INGRESOS y EGRESOS de su libro. */
+export const exportMovements = (params) => getBlob('/warehouse/movements/export/', params);
+
+/** PDF del vale de un grupo de movimientos. */
+export const downloadGroupPdf = (groupId) =>
+  getBlob(`/warehouse/movements/groups/${groupId}/pdf/`);

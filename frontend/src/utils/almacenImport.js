@@ -113,7 +113,7 @@ export const PROBLEM_CODE_LABELS = {
   FECHA_INVALIDA: 'Fecha no válida',
   FECHA_FUTURA: 'Fecha posterior a hoy',
   UNIDAD_EN_CONFLICTO: 'Unidad distinta a la del sistema',
-  DESTINO_VACIO: 'Egreso sin destino',
+  DESTINO_VACIO: 'Egreso sin destino (se carga como "Sin destino")',
   ITEM_VACIO: 'Fila sin código de ítem',
   ITEM_OMITIDO: 'Ítem omitido por un error previo',
   FILA_INVALIDA: 'Fila no válida',

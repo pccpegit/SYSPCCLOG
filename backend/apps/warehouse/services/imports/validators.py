@@ -310,10 +310,9 @@ class ExitRowSerializer(serializers.Serializer):
     quantity = QuantityField()
     location = ExcelText(max_length=100, label='La columna LOCACIÓN')
     internal_transfer = ExcelText(max_length=100, label='La transferencia interna')
-    destination = RequiredText(
-        max_length=200, label='El usuario/destino',
-        empty_code='DESTINO_VACIO', empty_message='El egreso no indica usuario/destino.',
-    )
+    # Optional on purpose (SYSPCC-032): the goods did leave, so an exit without USUARIO/DESTINO is
+    # imported as "Sin destino" with a DESTINO_VACIO warning instead of being skipped.
+    destination = ExcelText(max_length=200, label='El usuario/destino')
     observation = ExcelText(max_length=500, label='La observación')
 
 

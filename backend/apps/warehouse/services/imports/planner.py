@@ -39,7 +39,7 @@ from apps.warehouse.services.imports.problems import (
     BLOCKER, ERROR, SEVERITIES, SEVERITY_RANK, WARNING, Problem, make_problem,
 )
 from apps.warehouse.services.personal_matching import (
-    AMBIGUOUS, MATCHED, PersonalIndex, destination_key,
+    AMBIGUOUS, MATCHED, NO_DESTINATION_LABEL, PersonalIndex, destination_key,
 )
 
 MAX_STORED_PROBLEMS = 5000
@@ -116,6 +116,7 @@ class Line:
     voucher: str = ''
     destination: str = ''
     dest_key: str = ''
+    no_destination: bool = False       # exit without USUARIO/DESTINO: imported as "Sin destino"
     already: bool = False
 
 
@@ -131,6 +132,7 @@ class Group:
     destination: str = ''
     dest_key: str = ''
     internal: bool = False
+    no_destination: bool = False
     personal_id: int | None = None
     match_status: str = ''
     lines: list = field(default_factory=list)
@@ -215,7 +217,10 @@ class ImportPlan:
             'initial': sorted(ln.source_key for ln in self.initial_lines if not ln.already),
             'opening_date': str(self.opening_date or ''),
             'entries': [[str(g.key), line_keys(g)] for g in self.entry_groups],
-            'exits': [[str(g.key), g.personal_id or 0, g.internal, line_keys(g)] for g in self.exit_groups],
+            'exits': [
+                [str(g.key), g.personal_id or 0, g.internal, g.no_destination, line_keys(g)]
+                for g in self.exit_groups
+            ],
             'problems': sorted([p.code, p.severity, p.sheet, p.row or 0] for p in self.problems),
             'projects': sorted(self.project_labels),
         }
@@ -475,10 +480,6 @@ class _Planner:
                     self.add_validation_errors(name, rr.row, errors)
                     self.skipped[kind] += 1
                     continue
-                if kind == KIND_EXIT and not destination_key(data['destination']):
-                    self.add('DESTINO_VACIO', name, rr.row)
-                    self.skipped[kind] += 1
-                    continue
                 bucket.append((name, rr.row, data))
                 self.referenced.add(data['product_code'])
         self.referenced.update(self.summary)
@@ -564,6 +565,7 @@ class _Planner:
                 self.skipped[kind] += 1
                 continue
             when = data['date']
+            no_destination = False
             if when is None:
                 self.add('FECHA_VACIA', sheet, row)
             if kind == KIND_ENTRY:
@@ -571,6 +573,12 @@ class _Planner:
             else:
                 voucher, destination = data['voucher'], data['destination']
                 dest_key = destination_key(destination)
+                if not dest_key:
+                    # SYSPCC-032: the goods did leave, so the stock must reflect it. The exit is
+                    # imported as "Sin destino" (no worker invented) and flagged to be reviewed.
+                    no_destination = True
+                    destination = NO_DESTINATION_LABEL
+                    self.add('DESTINO_VACIO', sheet, row)
                 if not voucher:
                     self.add('VALE_VACIO', sheet, row)
             ident = (tag, code, when, data['quantity'], voucher, dest_key, data['tag'] if kind == KIND_ENTRY else '')
@@ -586,6 +594,7 @@ class _Planner:
                 po=data.get('po_number', ''), guide=data.get('guide_number', ''),
                 transfer=data['internal_transfer'],
                 voucher=voucher, destination=destination, dest_key=dest_key,
+                no_destination=no_destination,
             ))
         return lines
 
@@ -669,7 +678,8 @@ class _Planner:
                 group = groups[key] = Group(
                     kind=KIND_EXIT, key=key, date=ln.date, voucher=ln.voucher, transfer=ln.transfer,
                     destination=ln.destination, dest_key=ln.dest_key,
-                    internal=is_internal_destination(ln.destination),
+                    internal=not ln.no_destination and is_internal_destination(ln.destination),
+                    no_destination=ln.no_destination,
                 )
             group.lines.append(ln)
         exit_groups = list(groups.values())
@@ -681,8 +691,8 @@ class _Planner:
         index = None
         per_destination: OrderedDict = OrderedDict()
         for group in groups:
-            if group.internal:
-                continue
+            if group.internal or group.no_destination:
+                continue                       # not a person: nothing to match
             if index is None:
                 index = PersonalIndex()
             result = index.match(group.destination)
@@ -703,6 +713,17 @@ class _Planner:
                 'rows': info['rows'], 'candidates': info['candidates'],
             })
 
+    @staticmethod
+    def _first_divergent_row(items) -> int:
+        """Row of the first group that differs from the first one in date or (known) destination."""
+        head = items[0]
+        for group in items[1:]:
+            if group.date != head.date or (
+                not group.no_destination and not head.no_destination and group.dest_key != head.dest_key
+            ):
+                return group.first_row
+        return items[1].first_row
+
     def _check_vouchers(self, groups):
         by_voucher: dict = defaultdict(list)
         for group in groups:
@@ -710,11 +731,12 @@ class _Planner:
                 by_voucher[group.voucher].append(group)
         flagged = set()
         for voucher, items in by_voucher.items():
-            first = (items[0].date, items[0].dest_key)
-            for group in items[1:]:
-                if (group.date, group.dest_key) != first and voucher not in flagged:
-                    self.add('VALE_REUTILIZADO', parser.SHEET_EXITS, group.first_row)
-                    flagged.add(voucher)
+            # A group without destination is the same vale with a blank cell: only its date counts.
+            dates = {group.date for group in items}
+            destinations = {group.dest_key for group in items if not group.no_destination}
+            if len(items) > 1 and (len(dates) > 1 or len(destinations) > 1):
+                self.add('VALE_REUTILIZADO', parser.SHEET_EXITS, self._first_divergent_row(items))
+                flagged.add(voucher)
         # Vouchers already used by a manual delivery in the system (not by an earlier import).
         known: set = set()
         for chunk in _chunks(by_voucher):

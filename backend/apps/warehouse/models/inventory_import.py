@@ -53,6 +53,15 @@ class InventoryImport(models.Model):
         choices=InventoryImportStatus.choices,
         default=InventoryImportStatus.PREVIEWED,
     )
+    is_reimport = models.BooleanField(
+        _('reimportación'),
+        default=False,
+        help_text=_(
+            'SYSPCC-032: el mismo libro ya confirmado se vuelve a procesar a propósito (comando con '
+            '--reimport) para agregar solo las filas que antes se omitieron. Las filas ya importadas '
+            'se reconocen por su source_key y no se duplican.'
+        ),
+    )
     options = models.JSONField(_('opciones'), default=dict, blank=True)
     summary = models.JSONField(_('resumen'), default=dict, blank=True)
     problems = models.JSONField(_('problemas'), default=dict, blank=True)
@@ -68,10 +77,11 @@ class InventoryImport(models.Model):
         verbose_name_plural = _('importaciones de inventario')
         ordering = ['-created_at']
         constraints = [
-            # The same workbook cannot be confirmed twice for the same warehouse.
+            # The same workbook cannot be confirmed twice for the same warehouse, except through an
+            # explicit re-import (SYSPCC-032), which only adds rows that were never imported.
             models.UniqueConstraint(
                 fields=['file_sha256', 'warehouse'],
-                condition=models.Q(status='CONFIRMED'),
+                condition=models.Q(status='CONFIRMED', is_reimport=False),
                 name='inventory_import_confirmed_file_unique',
             ),
         ]

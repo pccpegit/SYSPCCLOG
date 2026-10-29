@@ -91,8 +91,17 @@ def dry_run(uploaded_file, *, warehouse='CENTRAL', update_existing=False):
     return build_plan_from_bytes(data, warehouse=warehouse, update_existing=update_existing, file_sha256=sha), sha
 
 
-def create_preview(*, uploaded_file, user, warehouse='CENTRAL', update_existing=False) -> InventoryImport:
-    """Step 1: validate the upload, compute the plan and store a PREVIEWED import."""
+def create_preview(
+    *, uploaded_file, user, warehouse='CENTRAL', update_existing=False, reimport=False,
+) -> InventoryImport:
+    """
+    Step 1: validate the upload, compute the plan and store a PREVIEWED import.
+
+    ``reimport`` (SYSPCC-032, management command only, never the REST API) lets a workbook that was
+    already confirmed be processed again. Nothing already imported is touched or duplicated (each row
+    has a ``source_key``): only rows never imported before are added, e.g. the exits that used to be
+    skipped for having no USUARIO/DESTINO.
+    """
     ensure_supported_warehouse(warehouse)
     purge_opportunistically()
     try:
@@ -101,7 +110,7 @@ def create_preview(*, uploaded_file, user, warehouse='CENTRAL', update_existing=
         previous = InventoryImport.objects.filter(
             file_sha256=sha, warehouse=warehouse, status=InventoryImportStatus.CONFIRMED,
         ).values_list('pk', flat=True).first()
-        if previous is not None:
+        if previous is not None and not reimport:
             raise ImportConflict(
                 'file_already_imported',
                 'Este libro ya fue importado. Si agregó filas nuevas, suba la versión actualizada.',
@@ -123,6 +132,7 @@ def create_preview(*, uploaded_file, user, warehouse='CENTRAL', update_existing=
         file_sha256=sha,
         file_bytes=data,
         status=InventoryImportStatus.PREVIEWED,
+        is_reimport=previous is not None,
         options={'update_existing': bool(update_existing)},
         summary=plan.summary(),
         problems=plan.problems_payload(),

@@ -13,7 +13,7 @@ from apps.warehouse.models import Inventory, InventoryStock, InventoryMovement, 
 from apps.warehouse.services import catalog as catalog_svc
 from apps.warehouse.services import locations as locations_svc
 from apps.warehouse.services.epp import requires_integer_quantity
-from apps.warehouse.services.personal_matching import destination_key
+from apps.warehouse.services.personal_matching import NO_DESTINATION_LABEL, destination_key
 from apps.core.enums import WarehouseOriginChoices, MovementSourceChoices, MovementDestinationChoices
 
 
@@ -293,6 +293,8 @@ class MovementListSerializer(serializers.ModelSerializer):
         """Normalized key to link an unlinked destination to a worker (link-personal)."""
         if obj.destination_personal_id or not obj.destination_detail:
             return ''
+        if obj.destination_detail.strip().upper() == NO_DESTINATION_LABEL:
+            return ''                   # "Sin destino" (SYSPCC-032) is not a person to link
         return destination_key(obj.destination_detail)
 
     def get_requested_by_name(self, obj):

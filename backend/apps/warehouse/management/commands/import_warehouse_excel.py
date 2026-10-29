@@ -8,6 +8,13 @@ problem CODES only: never worker names, destinations or cell values.
     python manage.py import_warehouse_excel libro.xlsx --dry-run
     python manage.py import_warehouse_excel libro.xlsx --user almacen@pcc.com.pe \
         --project-map "ON PLANT=ON-PLANT" --accept-warnings --accept-skipped-rows
+
+Un libro ya importado se rechaza (misma huella). Para agregar solo las filas que antes se omitieron
+(SYSPCC-032: egresos sin usuario/destino, ahora cargados como "Sin destino"), el MISMO libro se
+procesa con --reimport (primero con --dry-run --reimport para verlas):
+
+    python manage.py import_warehouse_excel libro.xlsx --user almacen@pcc.com.pe \
+        --skip-projects --accept-warnings --reimport
 """
 import re
 from collections import defaultdict
@@ -41,6 +48,11 @@ class Command(BaseCommand):
         arg_parser.add_argument('--dry-run', action='store_true', help='Solo previsualiza; no escribe nada.')
         arg_parser.add_argument('--accept-warnings', action='store_true')
         arg_parser.add_argument('--accept-skipped-rows', action='store_true')
+        arg_parser.add_argument(
+            '--reimport', action='store_true',
+            help='Procesa otra vez un libro ya importado: agrega SOLO las filas que antes se omitieron '
+                 '(p.ej. egresos sin destino); las ya importadas no se tocan ni se duplican.',
+        )
 
     # -- entry ---------------------------------------------------------------------
 
@@ -88,7 +100,7 @@ class Command(BaseCommand):
         user = self._user(options['user'])
         imp = service.create_preview(
             uploaded_file=upload, user=user, warehouse=options['warehouse'],
-            update_existing=options['update_existing'],
+            update_existing=options['update_existing'], reimport=options['reimport'],
         )
         try:
             plan = service.build_plan_from_bytes(
@@ -98,6 +110,10 @@ class Command(BaseCommand):
             self._report(plan, imp.file_sha256)
             if not plan.can_confirm:
                 raise CommandError('El libro tiene problemas bloqueantes; no se importó nada.')
+            if imp.is_reimport and not self._has_new_rows(plan):
+                service.cancel_import(imp.pk)
+                self.stdout.write('Reimportación: el libro no tiene filas nuevas; no se importó nada.')
+                return
             project_map = self._project_map(plan, options)
         except (CommandError, ImportRejected):
             service.cancel_import(imp.pk)
@@ -119,6 +135,12 @@ class Command(BaseCommand):
             f"carga inicial={result['movements']['initial']}; stock total={result['stock_total']}; "
             f"conciliado={result['reconciled']}"
         ))
+
+    @staticmethod
+    def _has_new_rows(plan) -> bool:
+        return bool(
+            plan.entry_groups or plan.exit_groups or any(not ln.already for ln in plan.initial_lines)
+        )
 
     def _project_map(self, plan, options) -> dict:
         explicit = {}

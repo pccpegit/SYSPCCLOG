@@ -34,6 +34,10 @@ def normalize_name(name) -> str:
 # Public alias: the "destination key" used by the link-personal endpoint.
 destination_key = normalize_name
 
+# SYSPCC-032: label of the exits the inventory workbook carries without USUARIO/DESTINO. The goods
+# did leave, so they are imported under this label (to be reviewed) instead of being skipped.
+NO_DESTINATION_LABEL = 'SIN DESTINO'
+
 
 @dataclass(frozen=True)
 class MatchResult:

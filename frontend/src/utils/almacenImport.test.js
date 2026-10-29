@@ -99,6 +99,10 @@ describe('problemCodeLabel', () => {
     expect(problemCodeLabel('UBICACION_PISO_SIN_PABELLON')).toBe('Ubicación incompleta (solo el piso)');
   });
 
+  it('el egreso sin destino se rotula como carga "Sin destino" (SYSPCC-032), ya no como fila omitida', () => {
+    expect(problemCodeLabel('DESTINO_VACIO')).toBe('Egreso sin destino (se carga como "Sin destino")');
+  });
+
   it('un código desconocido se muestra tal cual', () => {
     expect(problemCodeLabel('CODIGO_NUEVO')).toBe('CODIGO_NUEVO');
   });

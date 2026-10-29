@@ -61,7 +61,7 @@ from apps.warehouse.services import exports as exports_svc
 from apps.warehouse.services import kardex as kardex_svc
 from apps.warehouse.services import locations as locations_svc
 from apps.warehouse.services import movements as warehouse_svc
-from apps.warehouse.services.personal_matching import destination_key
+from apps.warehouse.services.personal_matching import NO_DESTINATION_LABEL, destination_key
 from apps.warehouse.services.onedrive import OneDriveService
 from apps.warehouse.services.pdf_generator import generate_movement_pdf, generate_group_pdf
 from apps.core.enums import WarehouseOriginChoices
@@ -868,7 +868,13 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
         elif has_date == 'true':
             qs = qs.filter(movement_date__isnull=False)
         if params.get('unlinked_destination') == 'true':
-            qs = qs.filter(destination_personal__isnull=True).exclude(destination_detail='')
+            # "Sin destino" (SYSPCC-032) is not a name to link to a worker: it is found with no_destination.
+            qs = (
+                qs.filter(destination_personal__isnull=True)
+                .exclude(destination_detail='').exclude(destination_detail__iexact=NO_DESTINATION_LABEL)
+            )
+        if params.get('no_destination') == 'true':
+            qs = qs.filter(movement_type='EXIT', destination_detail__iexact=NO_DESTINATION_LABEL)
         if import_batch:
             try:
                 qs = qs.filter(import_batch_id=import_batch)
@@ -1179,6 +1185,7 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
                 candidates = (
                     model.objects.filter(destination_personal__isnull=True)
                     .exclude(destination_detail='')
+                    .exclude(destination_detail__iexact=NO_DESTINATION_LABEL)
                     .values_list('destination_detail', flat=True)
                     .distinct()
                 )

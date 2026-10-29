@@ -29,6 +29,7 @@ from apps.warehouse.services.imports.planner import ACTION_CREATE, ACTION_SKIP, 
 
 GROUP_NOTE = 'Importado desde libro de Excel'
 INITIAL_NOTE = 'Carga inicial desde libro de Excel'
+NO_DESTINATION_NOTE = 'Importado desde libro de Excel: el egreso no indicaba usuario/destino; revisar'
 CHUNK = 500
 ZERO = Decimal('0')
 
@@ -158,13 +159,20 @@ class _Writer:
         )
 
     def add_exit_group(self, group, destination_map):
-        destination_type = 'TRANSFER_OUT' if group.internal else 'EMPLOYEE'
-        personal_id = None if group.internal else destination_map.get(group.dest_key, group.personal_id)
+        if group.no_destination:
+            # SYSPCC-032: "Sin destino" for review. ADJUSTMENT is the manual exit's way to say "this
+            # is not a delivery to a person/project" (same value the Salida screen offers), so no
+            # worker, project or transfer is invented. Findable by destination_detail.
+            destination_type, personal_id, notes = 'ADJUSTMENT', None, NO_DESTINATION_NOTE
+        else:
+            destination_type = 'TRANSFER_OUT' if group.internal else 'EMPLOYEE'
+            personal_id = None if group.internal else destination_map.get(group.dest_key, group.personal_id)
+            notes = GROUP_NOTE
         header = {**self._header(group), 'destination_personal_id': personal_id}
         detail = {'destination_type': destination_type, 'destination_detail': group.destination}
         self._add(
             movement_type='EXIT', number=self.exit_numbers.take(), lines=group.lines, header=header,
-            group_kwargs={**detail, 'notes': GROUP_NOTE}, line_kwargs=detail, sign=-1,
+            group_kwargs={**detail, 'notes': notes}, line_kwargs=detail, sign=-1,
         )
 
     # -- persistence -------------------------------------------------------------------

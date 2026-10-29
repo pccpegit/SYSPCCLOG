@@ -230,9 +230,11 @@ class TestExits:
         ))
         assert one(plan, 'VALE_REUTILIZADO').severity == 'warning'
 
-    def test_empty_destination_is_a_skipped_row(self):
+    def test_empty_destination_is_imported_as_sin_destino_with_a_warning(self):
+        # SYSPCC-032: the goods did leave; the row is no longer skipped (see test_import_no_destination)
         plan = make_plan(small(entries=[entry_row('EPP000001', 5)], exits=[exit_row('EPP000001', 1, None, voucher=1)]))
-        assert one(plan, 'DESTINO_VACIO').severity == 'error' and plan.exit_groups == []
+        assert one(plan, 'DESTINO_VACIO').severity == 'warning'
+        assert len(plan.exit_groups) == 1 and plan.exit_groups[0].no_destination and plan.skipped_rows == 0
 
     def test_destination_of_only_punctuation_is_empty(self):
         plan = make_plan(small(entries=[entry_row('EPP000001', 5)], exits=[exit_row('EPP000001', 1, '--', voucher=1)]))

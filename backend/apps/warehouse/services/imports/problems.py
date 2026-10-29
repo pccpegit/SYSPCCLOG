@@ -50,12 +50,14 @@ CATALOG: dict[str, tuple[str, str]] = {
     'FECHA_INVALIDA': (ERROR, 'La fecha no es válida.'),
     'FECHA_FUTURA': (ERROR, 'La fecha es posterior a hoy.'),
     'UNIDAD_EN_CONFLICTO': (ERROR, 'La unidad {file_unit} no coincide con la del sistema ({db_unit}) para {code}.'),
-    'DESTINO_VACIO': (ERROR, 'El egreso no indica usuario/destino.'),
     'ITEM_VACIO': (ERROR, 'La fila no tiene código de ítem.'),
     'ITEM_OMITIDO': (ERROR, 'El ítem {code} se omitió por un error en su fila del catálogo.'),
     'FILA_INVALIDA': (ERROR, '{detail}'),
     # --- warnings (row imported) ------------------------------------------
     'FECHA_VACIA': (WARNING, 'La fila no tiene fecha; se importa sin fecha.'),
+    'DESTINO_VACIO': (
+        WARNING, "El egreso no indica usuario/destino; se cargará como 'Sin destino' para revisar.",
+    ),
     'VALE_VACIO': (WARNING, 'El egreso no tiene N° de vale.'),
     'VALE_REUTILIZADO': (WARNING, 'El N° de vale se repite con otra fecha o destino, o ya existe en el sistema.'),
     'UBICACION_PISO_SIN_PABELLON': (
@@ -113,7 +115,7 @@ CODE_LABELS: dict[str, str] = {
     'FECHA_INVALIDA': 'Fecha no válida',
     'FECHA_FUTURA': 'Fecha posterior a hoy',
     'UNIDAD_EN_CONFLICTO': 'Unidad distinta a la del sistema',
-    'DESTINO_VACIO': 'Egreso sin destino',
+    'DESTINO_VACIO': 'Egreso sin destino (se carga como "Sin destino")',
     'ITEM_VACIO': 'Fila sin código de ítem',
     'ITEM_OMITIDO': 'Ítem omitido por un error previo',
     'FILA_INVALIDA': 'Fila no válida',

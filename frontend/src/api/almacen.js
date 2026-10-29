@@ -87,6 +87,30 @@ export const getPendingRequests = (params) =>
 export const getPendingCount = (params) =>
   client.get('/warehouse/pending-requests/count/', { params });
 
+// ── Picking y entregas parciales de un RQ (SYSPCC-029) ─────────────────────
+
+/**
+ * GET /warehouse/pending-requests/{rqId}/picking/ — lista de picking, resumen e historial de
+ * entregas. 409 INVALID_STATE si el RQ ya no está en la etapa de almacén.
+ */
+export const getRqPicking = (rqId) =>
+  client.get(`/warehouse/pending-requests/${rqId}/picking/`);
+
+/**
+ * POST /warehouse/pending-requests/{rqId}/deliver/ — registra una entrega parcial.
+ * `{ lines: [{ request_item_id, quantity }], dispatch_guide_number, movement_date?, notes? }`.
+ * 201 `{ delivery, picking }`. No cambia el estado del RQ.
+ */
+export const deliverRqItems = (rqId, data) =>
+  client.post(`/warehouse/pending-requests/${rqId}/deliver/`, data);
+
+/**
+ * POST /warehouse/pending-requests/{rqId}/deliveries/{dispatchId}/reverse/ — anula una entrega.
+ * `{ reason, movement_date? }`. 201 `{ delivery, picking }`.
+ */
+export const reverseRqDelivery = (rqId, dispatchId, data) =>
+  client.post(`/warehouse/pending-requests/${rqId}/deliveries/${dispatchId}/reverse/`, data);
+
 // ── OneDrive ─────────────────────────────────────────────────────────────────
 
 /** GET /warehouse/onedrive/status/ — check connection */

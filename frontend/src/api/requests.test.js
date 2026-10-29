@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import client from './client';
 import {
+  getAvailableActions,
   getStockAvailability,
   searchRequestCatalog,
   STOCK_AVAILABILITY_TIMEOUT_MS,
@@ -67,5 +68,14 @@ describe('updateRequestItems', () => {
     updateRequestItems(42, items);
 
     expect(client.patch).toHaveBeenCalledWith('/requests/42/update-items/', { items });
+  });
+});
+
+describe('getAvailableActions (SYSPCC-029)', () => {
+  it('sin rol no manda parámetros; con rol manda ?role=', () => {
+    getAvailableActions(7);
+    expect(client.get).toHaveBeenLastCalledWith('/requests/7/available-actions/', undefined);
+    getAvailableActions(7, 'CENTRAL_WAREHOUSE');
+    expect(client.get).toHaveBeenLastCalledWith('/requests/7/available-actions/', { params: { role: 'CENTRAL_WAREHOUSE' } });
   });
 });

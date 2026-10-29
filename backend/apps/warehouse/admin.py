@@ -60,6 +60,8 @@ class WarehouseDispatchAdmin(admin.ModelAdmin):
     list_display = ['dispatch_number', 'request', 'origin', 'dispatched_by', 'dispatched_at', 'delivered_at']
     list_filter = ['origin']
     search_fields = ['request__rq_number', 'dispatch_number']
+    # SYSPCC-029: the link to the annulled delivery is written by the reversal service only.
+    readonly_fields = ['reverses']
 
 
 @admin.register(InventoryMovement)

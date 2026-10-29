@@ -14,8 +14,9 @@ transaction under a lock on the request, with a state guard:
   it is back in an editable state (QUALITY_APPROVED after a claim): the dispatch
   history is the evidence, because a dispatch that failed to write its
   WarehouseDispatchItem rows would otherwise go unnoticed;
-* a line that already has warehouse dispatches cannot be edited (re-linking it
-  would detach the movement history from the product that really moved);
+* a line that still has goods out (warehouse dispatches minus their reversals > 0) cannot be
+  edited (re-linking it would detach the movement history from the product that really
+  moved); once a delivery is fully annulled the line can be re-linked (SYSPCC-029);
 * a line that already has warehouse receipts (the purchase entered the pool as a
   specific product) cannot change its catalog link: neither the product nor the
   off-catalog mark. Its `supply_source` / `item_source` stay editable, and
@@ -38,7 +39,8 @@ from django.utils import timezone
 from apps.core.enums import ApprovalActionChoices, ItemSourceChoices, RQStatusChoices
 from apps.core.exceptions import RequestItemConflict
 from apps.rq.models import ActivityLog, Approval, Request, RequestItem
-from apps.warehouse.models import WarehouseDispatchItem, WarehouseReceiptItem
+from apps.warehouse.models import WarehouseReceiptItem
+from apps.warehouse.services.dispatch_totals import net_dispatched_by_item
 
 logger = logging.getLogger(__name__)
 
@@ -265,11 +267,13 @@ def update_request_items(request_obj: Request, items_data: list, user) -> Update
         }
         result.ignored_item_ids = [item_id for item_id in requested_ids if item_id not in items]
 
-        dispatched_ids = sorted(set(
-            WarehouseDispatchItem.objects
-            .filter(request_item_id__in=items.keys())
-            .values_list('request_item_id', flat=True)
-        ))
+        # SYSPCC-029: only what is still out (entregas − reversas) blocks the edit; a line whose
+        # delivery was fully annulled can be re-linked.
+        dispatched_ids = sorted(
+            item_id
+            for item_id, net in net_dispatched_by_item(list(items.keys())).items()
+            if net > 0
+        )
         if dispatched_ids:
             raise RequestItemConflict(
                 'Algunos ítems ya tienen despachos de almacén y no se pueden modificar.',

@@ -14,3 +14,19 @@ class WarehouseImportThrottle(ThrottleCacheMixin, UserRateThrottle):
     """Workbook upload (preview) of the inventory importer (scope ``warehouse_import``)."""
 
     scope = 'warehouse_import'
+
+
+class WarehouseDeliveryThrottle(ThrottleCacheMixin, UserRateThrottle):
+    """
+    Partial deliveries and reversals against an RQ (SYSPCC-029, scope ``warehouse_delivery``).
+
+    Each call writes stock movements and documents under row locks, so it gets its own, tighter
+    bucket on top of the global per-user limit. Falls back to ``DEFAULT_RATE`` when a deployment
+    (or a test that replaces ``THROTTLE_RATES``) does not define the scope.
+    """
+
+    scope = 'warehouse_delivery'
+    DEFAULT_RATE = '60/min'
+
+    def get_rate(self):
+        return self.THROTTLE_RATES.get(self.scope) or self.DEFAULT_RATE

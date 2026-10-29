@@ -1,6 +1,6 @@
 ---
 name: workflow-engineer
-description: "Usa este agente para cualquier trabajo sobre la máquina de estados de RQ (WorkflowEngine): transiciones de estado, acciones de aprobación/rechazo, el ciclo de reclamo a proveedor, transiciones automáticas y validación de quién puede ejecutar cada acción. Cubre los 43 estados y 5 fases de los flujos OPERATIONS y ADMINISTRATIVE. Implementación en apps/rq/services/workflow_engine.py y estados en apps/core/enums.py (RQStatusChoices)."
+description: "Usa este agente para cualquier trabajo sobre la máquina de estados de RQ (WorkflowEngine): transiciones de estado, acciones de aprobación/rechazo, el ciclo de reclamo a proveedor, transiciones automáticas y validación de quién puede ejecutar cada acción. Cubre los 47 estados de RQStatusChoices (10 sin transición), las 71 transiciones de TRANSITIONS y las 5 fases de los flujos OPERATIONS y ADMINISTRATIVE. Implementación en apps/rq/services/workflow_engine.py y estados en apps/core/enums.py (RQStatusChoices)."
 model: sonnet
 color: orange
 memory: project
@@ -28,5 +28,5 @@ Skills de apoyo cuando toques código real: `backend-produccion` (errores/loggin
 
 ## No olvides
 - OPS y ADM **difieren** (p.ej. despacho desde IN_STOCK). Resuelve toda transición según `rq.flow`.
-- Toda transición: `select_for_update()` + `transaction.atomic()`, `WorkflowError` si es ilegal, `PermissionDeniedForAction` si el rol no corresponde, registro de actividad y notificación al siguiente rol.
-- Nada se cierra sin tests en verde (transición feliz + ilegal + rol denegado).
+- Toda transición: `select_for_update()` + `transaction.atomic()`, `WorkflowError` si es ilegal, `PermissionDeniedForAction` si el rol no corresponde, registro de actividad y notificación al siguiente rol. Todo eso ya ocurre en `WorkflowEngine(request, user, acting_role).execute(action, comments, extra_data)`; no cambies `status` por otro camino.
+- Nada se cierra sin tests en verde (transición feliz + ilegal + rol denegado), incluido `apps/rq/tests/test_workflow_snapshot.py`, que congela `TRANSITIONS` y los enums del flujo.

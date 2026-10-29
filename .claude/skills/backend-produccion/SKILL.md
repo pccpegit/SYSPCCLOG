@@ -8,8 +8,8 @@ description: Estándares obligatorios para código backend Django/DRF que va a p
 Reglas no negociables para código backend que sale a producción. Aplícalas al escribir services (`apps/*/services/`), views/viewsets, serializers y tasks de Celery. Si un requisito no aplica al caso concreto, dilo explícitamente en vez de omitirlo en silencio.
 
 Convenciones del repo que DEBES respetar:
-- Lógica de negocio en `apps/<app>/services/`, no en views.
-- Excepciones custom en `apps/core/exceptions.py` (`WorkflowError`, `BudgetValidationError`, `PermissionDeniedForAction`). Crea nuevas ahí si hace falta; nunca lances `Exception` pelado.
+- Lógica de negocio en `apps/<app>/services/` (`services.py` en `administracion` y `support`), no en views.
+- Excepciones de dominio compartidas en `apps/core/exceptions.py` (`WorkflowError`, `BudgetValidationError`, `PermissionDeniedForAction`, `RequestItemConflict`); las propias de un módulo viven en ese módulo (p.ej. `apps/hr/exceptions.py`, `apps/warehouse/services/imports/errors.py`). Nunca lances `Exception` pelado.
 - Logger por módulo: `logger = logging.getLogger(__name__)` (namespace `apps` ya está configurado en `LOGGING`).
 
 ---

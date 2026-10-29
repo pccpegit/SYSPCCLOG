@@ -10,7 +10,7 @@ Dev usa SQLite, prod usa PostgreSQL. Lo que funciona en SQLite puede bloquear o 
 ## Flujo
 ```bash
 python manage.py makemigrations          # genera
-python manage.py makemigrations --check --dry-run   # CI: falla si faltan migraciones
+python manage.py makemigrations --check --dry-run   # falla si faltan migraciones (el repo no tiene CI: córrelo a mano)
 python manage.py migrate                 # aplica
 python manage.py sqlmigrate app 0007     # inspecciona el SQL antes de aplicar en prod
 ```

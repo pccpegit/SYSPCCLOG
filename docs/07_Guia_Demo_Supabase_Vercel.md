@@ -53,7 +53,7 @@ El truco central: **el navegador solo ve el dominio de Vercel**. Los rewrites de
    - `ALLOWED_HOSTS` → pon de momento `syspcc-demo-backend.onrender.com`; **después del primer deploy verifica la URL real** del servicio (Render puede añadir un sufijo, p. ej. `syspcc-demo-backend-x7k2.onrender.com`) y corrígela en **Environment** si difiere. Sin protocolo, solo el host.
    - `CSRF_TRUSTED_ORIGINS` → déjalo con un valor temporal cualquiera (p. ej. `https://localhost`); se completa en el Paso 3 cuando exista el proyecto de Vercel.
    - `SECRET_KEY` se genera sola (`generateValue: true`) — no la toques.
-3. Lanza el deploy. El `dockerCommand` del blueprint ejecuta `migrate` + `collectstatic` + gunicorn en cada arranque, así que las migraciones contra Supabase se aplican solas.
+3. Lanza el deploy. El `dockerCommand` del blueprint (`sh scripts/render-start.sh`) ejecuta `migrate` + `collectstatic` + gunicorn en cada arranque, así que las migraciones contra Supabase se aplican solas.
 4. Verifica: `https://<tu-servicio>.onrender.com/api/v1/` debe responder (un 401/403 JSON es señal de vida correcta; lo importante es que no sea un error de Render).
 
 ---
@@ -88,6 +88,7 @@ Render free no tiene shell, así que `seed_demo` se corre **localmente contra Su
 docker compose exec \
   -e DJANGO_SETTINGS_MODULE=config.settings.demo \
   -e DEBUG=true \
+  -e HR_CV_PROVIDER=anthropic \
   -e DB_NAME=postgres \
   -e DB_USER=postgres.<ref-del-proyecto> \
   -e DB_PASSWORD='<contraseña-de-supabase>' \
@@ -97,7 +98,9 @@ docker compose exec \
   backend python manage.py seed_demo
 ```
 
-Con eso quedan creados los usuarios demo (uno por rol del flujo) compartiendo la contraseña que definiste en `SEED_DEMO_PASSWORD`.
+`-e HR_CV_PROVIDER=anthropic` evita que el contenedor herede `HR_CV_PROVIDER=fake` si lo tienes en `.env.docker` (modo de prueba de CVs): `config.settings.demo` carga `production.py`, que con `fake` se niega a arrancar (`config/settings/guards.py`) aunque pases `DEBUG=true`.
+
+Con eso quedan creados los 14 usuarios demo (cubren los 13 roles) compartiendo la contraseña que definiste en `SEED_DEMO_PASSWORD`.
 
 ---
 
@@ -140,8 +143,8 @@ La demo es **pública** y sirve los archivos de `/media/` (firmas, adjuntos) **s
 
 - **Cold start:** el backend duerme tras 15 min sin tráfico; la primera petición tarda ~50 s.
 - **Supabase pausa la BD tras 7 días sin uso.** Se reactiva con un clic en su dashboard.
-- **Archivos subidos (media) son efímeros:** adjuntos y firmas se pierden en cada redespliegue o hibernación del servicio (el disco de Render free no persiste).
-- **Sin tareas programadas:** no corre Celery beat, así que no hay recordatorios de SLA, alertas de stock bajo ni invalidación periódica de caché. Las tareas disparadas por acciones del usuario sí corren (en modo síncrono).
+- **Archivos subidos (media) son efímeros:** adjuntos y firmas se pierden en cada redespliegue o hibernación del servicio (el disco de Render free no persiste). Lo mismo pasa con los archivos privados de RR. HH. (plantillas, contratos, CVs).
+- **Sin tareas programadas:** no corre Celery beat, así que no hay recordatorios de SLA, alertas de stock bajo ni invalidación periódica de caché. Las tareas disparadas por acciones del usuario sí corren (en modo síncrono, `CELERY_TASK_ALWAYS_EAGER`), salvo el análisis de CVs, que corre en hilos del propio proceso (`HR_CV_DISPATCH=thread`, máx. 30 CVs por análisis y 5 MB por archivo en `config/settings/demo.py`).
 - **Límites de peticiones compartidos:** detrás del proxy de Vercel, el backend ve una sola IP de origen, así que los límites por IP (login 5/min, anónimos 30/min) se comparten entre **todos** los visitantes de la demo. Si dos personas fallan el login varias veces en el mismo minuto, el límite salta para ambas.
 - **Emails:** no se envían; se imprimen en los logs del servicio en Render.
 
@@ -154,7 +157,8 @@ La demo es **pública** y sirve los archivos de `/media/` (firmas, adjuntos) **s
 | `Bad Request (400)` en `/api/*` | `ALLOWED_HOSTS` no coincide con el host real de Render | Corrige la variable en Render → Environment con la URL exacta del servicio |
 | `403 CSRF` al hacer login o guardar | `CSRF_TRUSTED_ORIGINS` no tiene el dominio de Vercel (o tiene barra final / le falta `https://`) | Formato exacto: `https://<proyecto>.vercel.app` |
 | El backend no conecta a la BD (`could not translate host name` o timeout) | Estás usando el host directo `db.<ref>.supabase.co` (IPv6) | Cambia a los datos del **Session Pooler** (Paso 1.2) |
-| Bucle infinito de redirects | Falta `SECURE_PROXY_SSL_HEADER` (solo si cambiaste el módulo de settings) | Confirma `DJANGO_SETTINGS_MODULE=config.settings.demo` en Render |
+| Bucle infinito de redirects | Falta `SECURE_PROXY_SSL_HEADER` (lo fijan `production.py` y `demo.py`; solo pasaría con un módulo de settings distinto) | Confirma `DJANGO_SETTINGS_MODULE=config.settings.demo` en Render |
+| `ImproperlyConfigured: HR_CV_PROVIDER=fake ...` al correr `seed_demo` | El contenedor heredó `HR_CV_PROVIDER=fake` de `.env.docker` | Agrega `-e HR_CV_PROVIDER=anthropic` (ya está en el comando del Paso 4) |
 | La página carga pero toda llamada a la API va a `localhost:8000` | `VITE_API_URL`/`VITE_BACKEND_URL` mal configuradas en Vercel | Revisa el Paso 3.2 y redespliega el frontend (las env de Vite se fijan en build) |
 | `/api/*` devuelve el HTML de la SPA | El rewrite del proxy no aplicó (placeholder sin reemplazar en `vercel.json`) | Paso 3.1: la URL de Render real debe estar commiteada en `frontend/vercel.json` |
 | `seed_demo` aborta con error de producción | Falta `DEBUG=true` en el comando, o `DJANGO_ENV=production` en el entorno | Copia el comando del Paso 4 tal cual |

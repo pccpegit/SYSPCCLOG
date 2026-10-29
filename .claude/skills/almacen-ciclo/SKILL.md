@@ -20,17 +20,20 @@ Definido por gerencia (fuente: `CLAUDE.md`, "Ciclo Operativo del Almacen — DO 
 ## Formato de ubicación — validar SIEMPRE
 `{Pabellón}{Sección}-{Nivel}` — ej. `B3-2` = Pabellón B, Sección 3, Nivel 2.
 - **Pabellones**: A–K (1er piso A–E, 2do piso F–K).
-- **Secciones**: 4–6 por pabellón (varía; B tiene además "Contenedor").
+- **Secciones** (`LAYOUT_SECTIONS` en `apps/warehouse/services/locations.py`): A=7, B=7, C=4, D=4, E=6, según el layout de `CLAUDE.md`. F–K no tienen conteo documentado: se usa 6 como tope, pendiente de confirmar con el almacén. El "Contenedor" del pabellón B no forma parte del formato y no se admite como ubicación.
 - **Niveles**: 1–5.
 
-Al aceptar/guardar una ubicación, valida el patrón y los rangos por pabellón. No aceptes ubicaciones inexistentes en el layout.
+Al aceptar/guardar una ubicación, valida con `validate_location()` / `parse_location()` de ese módulo (única fuente de verdad; también genera el regex para filtrar en BD). No aceptes ubicaciones inexistentes en el layout. Un ítem puede tener solo el **piso** mientras su ubicación exacta está pendiente: `location_status()` devuelve `EXACT`, `FLOOR_ONLY` o `NONE`. Asignar ubicaciones (`POST /api/v1/warehouse/inventory/assign-locations/`) requiere `CanAssignLocations` (CENTRAL_WAREHOUSE o LOGISTICS_CHIEF).
 
 ## Reglas de implementación
-- **Stock consistente**: todo movimiento (ingreso, picking, despacho) ajusta stock dentro de `transaction.atomic()` con lock (`select_for_update`) para evitar sobre-despacho por concurrencia. Ver `backend-produccion`.
+- **Stock consistente**: todo movimiento (ingreso, picking, despacho) ajusta stock dentro de `transaction.atomic()` con lock (`select_for_update`) para evitar sobre-despacho por concurrencia; ya lo hacen `register_entry_batch` / `register_exit_batch` de `apps/warehouse/services/movements.py`, reutilízalos. Ver `backend-produccion`.
 - **Tipos de movimiento** en `MovementTypeChoices` / `MovementSourceChoices` / `MovementDestinationChoices` (`apps/core/enums.py`) — úsalos, no strings sueltos.
 - **Trazabilidad**: cada movimiento registra quién, cuándo, cantidad, origen, destino, RQ asociado.
 - **Enlace con el workflow de RQ**: picking/despacho del almacén corresponden a transiciones de RQ (`IN_STOCK → DISPATCHED_TO_SITE/DELIVERED`). Coordina con el skill `workflow-engine`; recuerda que OPS y ADM difieren en el despacho.
-- **Permisos**: `CENTRAL_WAREHOUSE` y `SITE_WAREHOUSE` (ver `roles-y-permisos`).
+- **Entrega de EPP con vale** (SYSPCC-025, `services/epp.py`, `POST /api/v1/warehouse/movements/epp-delivery/`): egreso de mostrador a un trabajador contra un vale físico (Fase 4, paso 5). Es una capa sobre `register_exit_batch` y **no toca el WorkflowEngine ni el estado de ningún RQ**.
+- **Resumen de movimiento / kardex**: `GET /api/v1/warehouse/inventory/movement-summary/` (semántica en `services/kardex.py`).
+- **Importación del libro Excel** (`services/imports/`): previsualizar → confirmar, atómica; la previsualización vence a las 24 h y la tarea `warehouse.purge_stale_imports` (3 AM) borra los libros guardados. Ver `excel-processing`.
+- **Permisos** (`apps/warehouse/permissions.py`, sin bypass por `is_staff`/`is_superuser`): acceso al módulo con `IsWarehouseRole` (CENTRAL_WAREHOUSE, SITE_WAREHOUSE, LOGISTICS_COORDINATOR, LOGISTICS_SUPERVISOR, LOGISTICS_CHIEF); acciones acotadas con `CanImportInventory`, `CanAssignLocations`, `CanLinkPersonal`, `CanDeliverEPP`, `CanLookupPersonal`. Ver `roles-y-permisos`.
 - **Rechazo en fase 2** dispara el ciclo de reclamo a proveedor del workflow de RQ, no un flujo paralelo.
 
 ## Checklist

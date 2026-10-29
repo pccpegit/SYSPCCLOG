@@ -1,7 +1,7 @@
 # SYSPCC — Arquitectura de Bajo Nivel
 
 **Sistema de Gestión de Requerimientos de Abastecimiento**
-**Versión:** 1.0 | **Fecha:** Abril 2026 | **Empresa:** PCC Ingeniería y Construcción
+**Versión:** 1.1 | **Fecha:** Octubre 2026 | **Empresa:** PCC Ingeniería y Construcción
 
 ---
 
@@ -13,21 +13,24 @@
 graph TB
     REQ["🌐 HTTP Request<br/>GET /api/v1/requests/?status=SUBMITTED"]
 
-    subgraph "Nginx"
-        NG["Reverse Proxy<br/>SSL Termination<br/>Static Files"]
+    subgraph "Entrada"
+        NG["Proxy inverso o plataforma<br/>TLS"]
     end
 
     subgraph "Gunicorn"
-        GU["WSGI Server<br/>4 workers × 2 threads"]
+        GU["WSGI Server"]
     end
 
-    subgraph "Django Middleware Stack"
+    subgraph "Django Middleware Stack (config/settings/base.py)"
+        MW0["HealthCheckMiddleware<br/>responde /healthz/ antes que nada"]
         MW1["SecurityMiddleware<br/>HSTS, X-Content-Type"]
-        MW2["SessionMiddleware<br/>Redis-backed sessions"]
+        MWW["WhiteNoiseMiddleware<br/>estáticos (solo producción)"]
+        MWH["HRNoStoreMiddleware<br/>no-store en /api/v1/hr/*"]
         MW3["CorsMiddleware<br/>CORS headers"]
+        MW2["SessionMiddleware<br/>sesiones en caché (panel de Django)"]
         MW4["CommonMiddleware<br/>URL normalization"]
         MW5["CsrfViewMiddleware<br/>CSRF protection"]
-        MW6["AuthenticationMiddleware<br/>User resolution"]
+        MW6["AuthenticationMiddleware<br/>MessageMiddleware<br/>XFrameOptionsMiddleware"]
     end
 
     subgraph "URL Router"
@@ -37,41 +40,41 @@ graph TB
     end
 
     subgraph "DRF View Layer"
-        PERM["Permission Check<br/>IsAuthenticated<br/>HasRole(REQUESTER)"]
-        THROT["Throttle Check<br/>200 req/min (auth)"]
-        AUTH["CookieJWTAuthentication<br/>Lee JWT de cookie"]
+        AUTH["CookieJWTAuthentication<br/>Lee el JWT de la cookie, exige CSRF<br/>en métodos de escritura y bloquea<br/>must_change_password"]
+        PERM["Permission Check<br/>IsAuthenticated + permisos del ViewSet<br/>(CanPerformWorkflowAction, IsLogisticsStaff, ...)"]
+        THROT["Throttle Check<br/>200 req/min (usuario)"]
         VIEW["RequestViewSet<br/>.list() / .retrieve() / .create()"]
         FILT["FilterBackend<br/>DjangoFilterBackend<br/>SearchFilter<br/>OrderingFilter"]
         PAG["Pagination<br/>PageNumberPagination<br/>page_size=20"]
     end
 
     subgraph "Serializer Layer"
-        SER["RequestSerializer<br/>ModelSerializer"]
+        SER["RequestListSerializer<br/>RequestDetailSerializer<br/>RequestCreateSerializer"]
         VAL["Validation<br/>validate_*() methods<br/>Field-level + Object-level"]
-        NEST["Nested Serializers<br/>RequestItemSerializer<br/>UserSerializer (read_only)"]
+        NEST["Nested Serializers<br/>RequestItemSerializer"]
     end
 
     subgraph "Service Layer"
         WF["WorkflowEngine<br/>State machine"]
         BV["BudgetValidator<br/>Budget checks"]
-        SLA["SLACalculator<br/>Deadline calc"]
-        NS["NotificationService<br/>Alerts"]
-        NG2["NumberGenerator<br/>RQ/OC numbers"]
+        SLA["SLACalculator<br/>Fecha estimada"]
+        NS["NotificationService<br/>Notificaciones en la app"]
+        NG2["RQNumberGenerator<br/>PONumberGenerator"]
+        RQS["request_items · stock_availability<br/>request_catalog"]
     end
 
     subgraph "Model Layer (ORM)"
-        MOD["Request.objects<br/>.select_related('project','requested_by')<br/>.prefetch_related('items','approvals')<br/>.filter(status='SUBMITTED')"]
+        MOD["get_accessible_requests_queryset(user)<br/>.select_related('project','department','requested_by','current_step',...)<br/>.prefetch_related('items__inventory_item')"]
     end
 
     subgraph "Database"
-        PG["PostgreSQL 15<br/>Queries SQL"]
-        CACHE["Redis DB0<br/>Cache Layer"]
+        PG["PostgreSQL 16 (producción)<br/>SQLite (desarrollo)"]
     end
 
     RESP["📤 JSON Response<br/>{count: 5, results: [...]}"]
 
     REQ --> NG --> GU
-    GU --> MW1 --> MW2 --> MW3 --> MW4 --> MW5 --> MW6
+    GU --> MW0 --> MW1 --> MWW --> MWH --> MW3 --> MW2 --> MW4 --> MW5 --> MW6
     MW6 --> URL1 --> URL2 --> URL3
     URL3 --> AUTH --> PERM --> THROT --> VIEW
     VIEW --> FILT --> PAG
@@ -83,8 +86,8 @@ graph TB
     VIEW --> SLA
     VIEW --> NS
     VIEW --> NG2
-    SER --> MOD
-    MOD --> CACHE
+    VIEW --> RQS
+    VIEW --> MOD
     MOD --> PG
     PG --> RESP
 ```
@@ -94,7 +97,7 @@ graph TB
 ```mermaid
 graph LR
     subgraph "URLs"
-        U["Routing<br/>• Mapea URL → ViewSet<br/>• DRF Router auto-genera<br/>  list/detail/actions<br/>• Namespaced por app"]
+        U["Routing<br/>• Mapea URL → ViewSet<br/>• DRF Router auto-genera<br/>  list/detail/actions<br/>• Todo bajo /api/v1/"]
     end
 
     subgraph "Views"
@@ -106,7 +109,7 @@ graph LR
     end
 
     subgraph "Services"
-        SV["Lógica de Negocio<br/>• WorkflowEngine (estados)<br/>• BudgetValidator (presup.)<br/>• SLACalculator (plazos)<br/>• NumberGenerator (secuencias)<br/>• NotificationService (alertas)"]
+        SV["Lógica de Negocio<br/>• WorkflowEngine (estados)<br/>• BudgetValidator (presup.)<br/>• SLACalculator (plazos)<br/>• RQNumberGenerator / PONumberGenerator<br/>• NotificationService (avisos)<br/>• movements, kardex, epp, imports (almacén)<br/>• document_service, cv_* (RR. HH.)"]
     end
 
     subgraph "Models"
@@ -120,27 +123,95 @@ graph LR
 
 ## 2. Estructura de Archivos del Backend
 
-```mermaid
-graph TB
-    subgraph "backend/"
-        CFG["config/<br/>├── settings/<br/>│   ├── base.py<br/>│   ├── development.py<br/>│   └── production.py<br/>├── urls.py<br/>├── wsgi.py<br/>├── asgi.py<br/>└── celery.py"]
-
-        subgraph "apps/"
-            CORE["core/<br/>├── models/<br/>│   ├── __init__.py<br/>│   ├── user.py<br/>│   ├── project.py<br/>│   ├── department.py<br/>│   └── personal.py<br/>├── serializers/<br/>│   ├── auth.py<br/>│   └── user.py<br/>├── views/<br/>│   └── user.py<br/>├── services/<br/>├── authentication.py<br/>├── permissions.py<br/>├── enums.py<br/>├── admin.py<br/>└── urls.py"]
-
-            RQ["rq/<br/>├── models/<br/>│   ├── __init__.py<br/>│   ├── request.py<br/>│   ├── approval.py<br/>│   ├── supplier.py<br/>│   ├── quotation.py<br/>│   ├── purchase_order.py<br/>│   ├── claim.py<br/>│   └── workflow.py<br/>├── serializers/<br/>│   ├── request.py<br/>│   ├── approval.py<br/>│   ├── quotation.py<br/>│   └── purchase_order.py<br/>├── views/<br/>│   ├── request.py<br/>│   └── supplier.py<br/>├── services/<br/>│   ├── workflow_engine.py<br/>│   ├── budget_validator.py<br/>│   ├── sla_calculator.py<br/>│   └── number_generator.py<br/>├── tasks.py<br/>├── filters.py<br/>└── urls.py"]
-
-            WH["warehouse/<br/>├── models/<br/>│   ├── __init__.py<br/>│   └── inventory.py<br/>├── serializers/<br/>├── views/<br/>├── admin.py<br/>└── urls.py"]
-
-            ADM["administracion/<br/>├── models/<br/>├── serializers/<br/>├── views/<br/>└── urls.py"]
-
-            SUP["support/<br/>├── models/<br/>├── serializers/<br/>├── views/<br/>└── urls.py"]
-        end
-
-        REQ_TXT["requirements.txt"]
-        MANAGE["manage.py"]
-        DOCKER["Dockerfile"]
-    end
+```text
+backend/
+├── config/
+│   ├── settings/
+│   │   ├── base.py              # configuración común
+│   │   ├── development.py       # DEBUG, SQLite, CORS abierto
+│   │   ├── production.py        # PostgreSQL con SSL, HSTS, WhiteNoise
+│   │   ├── demo.py              # hereda de production (sin Redis ni worker)
+│   │   └── guards.py            # validaciones de arranque (proveedor de CVs)
+│   ├── urls.py                  # /api/v1/, /mgmt-panel/, /api/docs/
+│   ├── urls_demo.py
+│   ├── celery.py
+│   ├── wsgi.py
+│   └── asgi.py
+├── apps/
+│   ├── core/
+│   │   ├── models/              # base, user, project, department, personal
+│   │   ├── serializers/         # auth, user, project, department, personal
+│   │   ├── views/               # auth, user, project, department, personal
+│   │   ├── urls/                # auth, users, projects, departments, personal
+│   │   ├── services/            # user_admin.py, signature.py
+│   │   ├── utils/excel.py       # saneamiento de exportaciones a Excel
+│   │   ├── authentication.py    # CookieJWTAuthentication (JWT + CSRF + cambio forzado)
+│   │   ├── permissions.py
+│   │   ├── throttling.py
+│   │   ├── middleware.py        # /healthz/ e IP real del cliente
+│   │   ├── enums.py             # roles, estados, acciones, prioridades, ...
+│   │   ├── exceptions.py
+│   │   ├── fields.py            # campo cifrado (tokens de OneDrive)
+│   │   └── management/commands/ # seed_data, seed_demo, seed_demo_extra, seed_screenshots
+│   ├── rq/
+│   │   ├── models/              # request, approval, workflow, supplier, quotation,
+│   │   │                        #   purchase_order, claim, attachment, notification, activity_log
+│   │   ├── serializers/         # request, approval, quotation, purchase_order, supplier,
+│   │   │                        #   claim, attachment, notification, activity_log, catalog, workflow
+│   │   ├── views/               # request, catalog, supplier, claim, workflow
+│   │   ├── services/
+│   │   │   ├── workflow_engine.py      # TRANSITIONS + WorkflowEngine
+│   │   │   ├── budget_validator.py
+│   │   │   ├── sla_calculator.py
+│   │   │   ├── number_generator.py     # RQ-AAAA-NNNN y OC-AAAA-NNNN
+│   │   │   ├── notification_service.py
+│   │   │   ├── request_items.py        # confirmación de vínculos (update-items)
+│   │   │   ├── request_catalog.py      # búsqueda en el catálogo del almacén
+│   │   │   ├── stock_availability.py   # solicitado vs. stock CENTRAL
+│   │   │   ├── units.py
+│   │   │   ├── link_suggestions.py     # sugerencias de vínculo (solo lectura)
+│   │   │   └── stock_diagnostics.py    # diagnósticos (solo lectura)
+│   │   ├── management/commands/ # check_central_project_stock, report_rq_stock_gaps,
+│   │   │                        #   suggest_inventory_links
+│   │   ├── tasks.py             # SLA, recordatorios, invalidación de caché
+│   │   ├── cache.py
+│   │   ├── filters.py
+│   │   ├── permissions.py       # alcance de visibilidad y CanPerformWorkflowAction
+│   │   ├── throttling.py
+│   │   └── urls.py
+│   ├── warehouse/
+│   │   ├── models/              # inventory, movement, receipt, dispatch,
+│   │   │                        #   onedrive_token, inventory_import
+│   │   ├── services/            # catalog, movements, kardex, locations, epp, exports,
+│   │   │                        #   onedrive, pdf_generator, personal_matching, dates,
+│   │   │                        #   imports/ (parser, validators, planner, applier, ...)
+│   │   ├── views.py             # inventario, movimientos, OneDrive, RQ pendientes
+│   │   ├── views_imports.py     # importación del libro de inventario
+│   │   ├── views_personal.py    # búsqueda de trabajadores
+│   │   ├── permissions.py       # IsWarehouseRole y permisos por acción
+│   │   ├── query_guard.py
+│   │   ├── serializers.py
+│   │   ├── serializers_imports.py
+│   │   ├── tasks.py             # PDF a OneDrive, stock bajo, purga de importaciones
+│   │   ├── throttling.py
+│   │   └── urls.py
+│   ├── administracion/         # models.py, serializers.py, services.py, views.py, urls.py
+│   ├── support/                # models.py, serializers.py, services.py, views.py, urls.py
+│   └── hr/
+│       ├── models/             # document_template, generated_document, document_event,
+│       │                       #   cv_analysis, cv_analysis_item
+│       ├── documents/          # registry, contract, formatters
+│       ├── services/           # document_service, template_service, docx_renderer,
+│       │                       #   pdf_converter, assistant_*, cv_* (análisis de CVs)
+│       ├── views/              # template, document, cv, assistant, meta, common
+│       ├── serializers/
+│       ├── tasks.py            # cola hr_cv
+│       ├── storage.py          # almacenamiento privado
+│       ├── middleware.py       # no-store
+│       └── urls.py
+├── requirements.txt
+├── manage.py
+└── Dockerfile
 ```
 
 ---
@@ -152,43 +223,46 @@ graph TB
 ```mermaid
 graph TB
     subgraph "App.jsx — Raíz"
-        AP["AuthProvider<br/>(AuthContext)"]
+        TH["ThemeProvider<br/>(ThemeContext)"]
         TP["ToastProvider<br/>(ToastContext)"]
+        AP["AuthProvider<br/>(AuthContext)"]
         BR["BrowserRouter<br/>(React Router v7)"]
     end
 
-    subgraph "Rutas Públicas"
+    subgraph "Rutas públicas y de acceso"
         LOGIN["LoginPage<br/>/login"]
+        CHPW["ChangePasswordRequiredPage<br/>/cambiar-password"]
+        RPC["RequirePasswordChangeLayout<br/>envuelve todas las rutas autenticadas"]
         SYSSEL["SystemSelectPage<br/>/"]
     end
 
     subgraph "Shell RQ — /rq/*"
         APPSH["AppShell"]
-        HEADER["Header"]
+        HEADER["Header (tema, notificaciones, usuario)"]
         SIDEBAR["Sidebar"]
 
         subgraph "Páginas RQ"
             DASH["DashboardPage"]
             RLIST["RequestListPage"]
-            RCREATE["RequestCreatePage<br/>(46KB — formulario complejo)"]
-            RDETAIL["RequestDetailPage<br/>(45KB — detalle + approvals)"]
+            RCREATE["RequestCreatePage<br/>(formulario con catálogo)"]
+            RDETAIL["RequestDetailPage"]
         end
 
         subgraph "Páginas Aprobaciones"
             APPROV["ApprovalsPage"]
             TECH["TechReviewPage<br/>(PROJECT_RESIDENT)"]
-            BUDG["BudgetReviewPage<br/>(PROJECT_CONTROL)"]
-            QCR["QuoteCostReviewPage<br/>(PROJECT_CONTROL)"]
+            BUDG["BudgetReviewPage<br/>(PROJECT_CONTROL, ADMIN_MANAGER)"]
+            QCR["QuoteCostReviewPage<br/>(PROJECT_CONTROL, ADMIN_MANAGER)"]
             MGR["ManagerApprovalPage<br/>(GENERAL_MANAGER)"]
             COST["CostOverrunReviewPage<br/>(GENERAL_MANAGER)"]
         end
 
         subgraph "Páginas Operaciones"
             LOGP["LogisticsPage"]
-            LOGA["LogisticsActionPage<br/>(113KB — más grande)"]
+            LOGA["LogisticsActionPage<br/>(verificación de stock, cotizaciones,<br/>recepción, reclamos y cierre)"]
         end
 
-        REPOR["ReportsPage<br/>(36KB — gráficos)"]
+        REPOR["ReportsPage<br/>(GENERAL_MANAGER)"]
     end
 
     subgraph "Shell Almacén — /almacen/*"
@@ -196,23 +270,51 @@ graph TB
         WHSB["WarehouseSidebar"]
 
         WHDASH["AlmacenDashboardPage"]
-        INV["InventarioPage<br/>(27KB)"]
+        INV["InventarioPage"]
         KAR["KardexPage"]
-        ENT["EntradaPage<br/>(21KB)"]
-        SAL["SalidaPage<br/>(23KB)"]
+        RES["ResumenPage"]
+        PEN["PendientesPage"]
+        ENT["EntradaPage"]
+        SAL["SalidaPage"]
         VOUCH["VoucherPrint"]
         MOV["MovimientosPage"]
+        TRA["TransferenciaPage"]
+        IMP["ImportarPage"]
     end
 
     subgraph "Shell Admin — /admin/*"
         ADMSH["AdminShell"]
         ADMSB["AdminSidebar"]
 
+        ADMMENU["AdminMenuPage<br/>(selector, sin sidebar)"]
         ADMDASH["AdminDashboardPage"]
-        PAS["PasajesPage<br/>(46KB)"]
+        PAS["PasajesPage"]
         PAG["PagosPage"]
         POL["PoliticasPage"]
         PROV["ProveedoresPage"]
+    end
+
+    subgraph "Shell RR. HH. — /rrhh/*"
+        HRSH["HRShell"]
+        HRSB["HRSidebar"]
+
+        HRDL["HRDocumentsListPage"]
+        HRDC["HRDocumentCreatePage"]
+        HRDD["HRDocumentDetailPage"]
+        HRTP["HRTemplatesPage"]
+        HRCL["HRCVAnalysesListPage"]
+        HRCW["HRCVWizardPage"]
+        HRCA["HRCVAnalysisPage"]
+    end
+
+    subgraph "Shell Sistema — /sistema/* (solo superusuario)"
+        SYSH["SystemAdminShell"]
+        SYSB["SystemSidebar"]
+
+        USRP["UsersPage"]
+        USRF["UserFormPage"]
+        PRJP["ProjectsPage"]
+        PRJF["ProjectFormPage"]
     end
 
     subgraph "Shell Soporte — /soporte/*"
@@ -227,14 +329,18 @@ graph TB
 
     SETT["SettingsPage<br/>/settings"]
 
-    AP --> TP --> BR
+    TH --> TP --> AP --> BR
     BR --> LOGIN
-    BR --> SYSSEL
-    BR --> APPSH
-    BR --> WHSH
-    BR --> ADMSH
-    BR --> SUPSH
-    BR --> SETT
+    BR --> CHPW
+    BR --> RPC
+    RPC --> SYSSEL
+    RPC --> APPSH
+    RPC --> WHSH
+    RPC --> ADMSH
+    RPC --> HRSH
+    RPC --> SYSH
+    RPC --> SUPSH
+    RPC --> SETT
 
     APPSH --> HEADER
     APPSH --> SIDEBAR
@@ -257,10 +363,14 @@ graph TB
     WHSH --> WHDASH
     WHSH --> INV
     WHSH --> KAR
+    WHSH --> RES
+    WHSH --> PEN
     WHSH --> ENT
     WHSH --> SAL
     WHSH --> VOUCH
     WHSH --> MOV
+    WHSH --> TRA
+    WHSH --> IMP
 
     ADMSH --> HEADER
     ADMSH --> ADMSB
@@ -269,6 +379,24 @@ graph TB
     ADMSH --> PAG
     ADMSH --> POL
     ADMSH --> PROV
+    RPC --> ADMMENU
+
+    HRSH --> HEADER
+    HRSH --> HRSB
+    HRSH --> HRDL
+    HRSH --> HRDC
+    HRSH --> HRDD
+    HRSH --> HRTP
+    HRSH --> HRCL
+    HRSH --> HRCW
+    HRSH --> HRCA
+
+    SYSH --> HEADER
+    SYSH --> SYSB
+    SYSH --> USRP
+    SYSH --> USRF
+    SYSH --> PRJP
+    SYSH --> PRJF
 
     SUPSH --> HEADER
     SUPSH --> SUPSB
@@ -278,98 +406,108 @@ graph TB
     SUPSH --> TIKD
 ```
 
+Los archivos `pages/operations/WarehousePage.jsx` y `WarehouseActionPage.jsx` existen pero no están enrutados en `App.jsx`.
+
 ### 3.2 Componentes Reutilizables
 
 ```mermaid
 graph TB
     subgraph "components/layout/"
-        HL["Header<br/>• Logo, nombre de usuario<br/>• Notificaciones (bell icon)<br/>• Menú de usuario<br/>• Tema por módulo"]
-        SBR["Sidebar / WarehouseSidebar /<br/>AdminSidebar / SupportSidebar<br/>• Navegación por módulo<br/>• Íconos Lucide<br/>• Rol-based items"]
-        RR["RoleRoute<br/>• Wrapper de autorización<br/>• Verifica userRoles<br/>• Redirect si no autorizado"]
+        HL["Header<br/>• Nombre y rol del usuario<br/>• Notificaciones (bell icon)<br/>• Botón de tema claro/oscuro<br/>• Menú de usuario"]
+        SBR["Sidebar / WarehouseSidebar / AdminSidebar /<br/>SupportSidebar / HRSidebar / SystemSidebar<br/>• Navegación por módulo<br/>• Íconos Lucide<br/>• Ítems según rol"]
+    end
+
+    subgraph "components/auth/"
+        RR["RoleRoute<br/>• Acceso si el usuario tiene ALGUNO de requiredRoles<br/>• Redirect (por defecto a /rq) si no"]
+        SUR["SuperUserRoute<br/>• Exige is_superuser<br/>• Solo UX: el backend valida IsSuperUser"]
+        RPCL["RequirePasswordChangeLayout<br/>• Lleva a /cambiar-password si<br/>  must_change_password está activo"]
     end
 
     subgraph "components/ui/"
-        SB["StatusBadge<br/>• Color por estado<br/>• 43 estados mapeados<br/>• Pill con texto"]
-        PB["PriorityBadge<br/>• LOW/MEDIUM/HIGH/URGENT<br/>• Colores diferenciados"]
-        CM["ConfirmModal<br/>• Diálogo de confirmación<br/>• onConfirm / onCancel<br/>• Título + mensaje"]
+        SB["StatusBadge<br/>• Color y etiqueta por estado (STATUS_CONFIG)"]
+        PB["PriorityBadge<br/>• URGENT/HIGH/NORMAL/LOW<br/>• Colores diferenciados"]
+        CM["ConfirmModal<br/>• Diálogo de confirmación"]
         NI["NumberInput<br/>• Input numérico<br/>• Validación client-side"]
-        SC["SummaryCard<br/>• Tarjeta de métricas<br/>• Ícono + valor + label"]
+        SC["SummaryCard<br/>• Tarjeta de métricas"]
+        TT["ThemeToggleButton<br/>• Alterna claro/oscuro"]
     end
 
     subgraph "components/requests/"
-        AL["ActivityLog<br/>• Timeline vertical<br/>• Acciones cronológicas<br/>• Actor + timestamp"]
-        AC["ApprovalChain<br/>• Cadena de aprobaciones<br/>• Estado por paso<br/>• Roles responsables"]
-        LB["LifecycleBar<br/>• Barra horizontal<br/>• 5 fases con progreso<br/>• Fase actual resaltada"]
+        AL["ActivityLog<br/>• Timeline de acciones"]
+        AC["ApprovalChain<br/>• Cadena de aprobaciones"]
+        LB["LifecycleBar<br/>• Barra de 5 fases (LIFECYCLE_PHASES)"]
+        CC["CatalogCombobox · ItemProductCell<br/>• Búsqueda de productos del catálogo<br/>• Marca fuera de catálogo"]
+        SCP["StockCheckPanel · CoverageBadge<br/>• Solicitado vs. disponible por ítem"]
+    end
+
+    subgraph "components/almacen/ y components/rrhh/"
+        ALM["ItemCombobox · WorkerCombobox · LocationPicker<br/>AssignLocationModal · importer/*"]
+        RRH["ContractForm · AssistantPanel · WorkerPicker<br/>cv/* (wizard, tabla de candidatos, progreso)"]
     end
 ```
 
 ### 3.3 Estructura de Archivos del Frontend
 
-```mermaid
-graph TB
-    subgraph "frontend/src/"
-        APP["App.jsx — Router principal"]
-        IDX["index.css — Estilos globales + animaciones"]
-        MAIN["main.jsx — Entry point"]
-
-        subgraph "api/ — 14 módulos"
-            CLI["client.js — Axios instance + interceptors"]
-            CFG["config.js — API_BASE_URL, BACKEND_URL"]
-            AA["auth.js — login, logout, me, password, signature"]
-            AC2["core.js — projects, departments, budgets"]
-            AR["requests.js — CRUD + actions + approvals"]
-            AS["suppliers.js — suppliers + quotations + POs"]
-            AW["almacen.js — inventory + movements + OneDrive"]
-            AAD["administracion.js — pasajes + políticas"]
-            ASU["support.js — tickets + comments"]
-            AN["notifications.js — list + mark-read"]
-            AWF["workflow.js — configs + steps"]
-            ACL["claims.js — claims CRUD"]
-            AIN["index.js — barrel export"]
-        end
-
-        subgraph "context/"
-            ACTX["AuthContext.jsx<br/>currentUser, login, logout,<br/>hasRole, userRoles"]
-            TCTX["ToastContext.jsx<br/>showToast, auto-dismiss"]
-        end
-
-        subgraph "hooks/"
-            UAPI["useApi.js<br/>data, loading, error,<br/>execute, reset"]
-        end
-
-        subgraph "data/"
-            CONST["constants.js — ROLES, STATUS, PRIORITY, FLOW"]
-            ALMC["almacenConstants.js — ITEM_TYPES, MOVEMENTS"]
-            SUPC["supportConstants.js — TICKET_STATUS"]
-            MOCK["mockData.js — datos de desarrollo"]
-        end
-
-        subgraph "utils/"
-            FMT["format.js — formateo de fechas/montos"]
-            EXP["exportRQ.js — exportación Excel"]
-        end
-
-        subgraph "pages/ — 34 páginas"
-            P_AUTH["auth/ — LoginPage, SystemSelectPage"]
-            P_DASH["dashboard/ — DashboardPage"]
-            P_REQ["requests/ — List, Create, Detail"]
-            P_APP["approvals/ — 5 páginas de aprobación"]
-            P_OPS["operations/ — Logistics, Warehouse"]
-            P_ALM["almacen/ — 7 páginas de almacén"]
-            P_ADM["admin/ — 5 páginas administrativas"]
-            P_SUP["support/ — 4 páginas de soporte"]
-            P_REP["reports/ — ReportsPage"]
-            P_SET["settings/ — SettingsPage"]
-        end
-
-        subgraph "components/ — 19 componentes"
-            C_LAY["layout/ — 9 shells + sidebars + header"]
-            C_AUTH["auth/ — RoleRoute"]
-            C_UI["ui/ — 5 componentes UI"]
-            C_REQ["requests/ — 3 componentes RQ"]
-        end
-    end
+```text
+frontend/src/
+├── App.jsx                 # Router principal
+├── main.jsx                # Entry point
+├── index.css               # Estilos globales, tokens y capa de compatibilidad del tema oscuro
+├── api/                    # 18 archivos
+│   ├── client.js           # instancia Axios, CSRF e interceptor 401
+│   ├── config.js           # API_BASE_URL, BACKEND_URL
+│   ├── index.js            # exporta auth, requests, core, suppliers, notifications,
+│   │                       #   claims, workflow y hr; el resto se importa directo
+│   ├── auth.js · users.js · projects.js · core.js
+│   ├── requests.js · suppliers.js · claims.js · notifications.js · workflow.js
+│   ├── almacen.js · almacenImport.js · warehouse.js
+│   ├── administracion.js · support.js · hr.js
+├── context/
+│   ├── AuthContext.jsx     # currentUser, login, logout, userRoles, hasRole, isSuperUser
+│   ├── ToastContext.jsx    # showToast
+│   └── ThemeContext.jsx    # mode (claro/oscuro/auto), autoRange, resolvedTheme
+├── hooks/                  # useApi, useFileDownload, useFileDrop, useFocusFirstInvalid,
+│                           #   useCVAnalysis/Config/Progress/Upload, useMediaQuery, ...
+├── data/                   # constants.js, almacenConstants.js, almacenRoles.js,
+│                           #   requestCapture.js, supportConstants.js, mockData.js
+├── utils/                  # format, exportRQ (ExcelJS), theme, quantity, stockCheck,
+│                           #   requestCapture, almacen*, apiErrors, cv*, hrErrors, download
+├── pages/                  # 51 páginas
+│   ├── auth/               # LoginPage, SystemSelectPage, ChangePasswordRequiredPage
+│   ├── dashboard/          # DashboardPage
+│   ├── requests/           # lista, creación y detalle
+│   ├── approvals/          # ApprovalsPage y 5 pantallas de revisión
+│   ├── operations/         # LogisticsPage, LogisticsActionPage
+│   ├── almacen/            # 11 páginas de almacén
+│   ├── admin/              # menú, dashboard, pasajes, pagos, políticas, proveedores
+│   ├── rrhh/               # documentos, plantillas, análisis de CVs
+│   ├── sistema/            # usuarios y proyectos
+│   ├── support/            # 4 páginas de soporte
+│   ├── reports/            # ReportsPage
+│   └── settings/           # SettingsPage
+├── components/             # 79 archivos
+│   ├── layout/ · auth/ · ui/ · requests/
+│   ├── almacen/ (incluye importer/) · rrhh/ (incluye cv/) · sistema/
+└── test/                   # utilidades de Vitest (se prueban 157 archivos *.test.*)
 ```
+
+### 3.4 Tema Claro/Oscuro
+
+```mermaid
+graph LR
+    HTML["index.html<br/>script anti-parpadeo<br/>aplica la clase .dark antes de React"]
+    UTH["utils/theme.js<br/>resolveTheme(mode, autoRange)<br/>localStorage 'syspcc.theme.v1'"]
+    CTX["ThemeContext<br/>mode: light, dark o auto<br/>rango auto por defecto 19:00 a 07:00"]
+    CSS["index.css<br/>@custom-variant dark (.dark)<br/>tokens + capa de compatibilidad<br/>para las utilidades neutras de Tailwind"]
+    UI["ThemeToggleButton (Header)<br/>SettingsPage → Apariencia"]
+
+    HTML --> CTX
+    UTH --> CTX
+    CTX -->|clase .dark en html| CSS
+    UI --> CTX
+```
+
+La resolución del tema vive en `utils/theme.js` y se replica en el script de `index.html`; ambos deben mantenerse iguales. En modo automático se programa un único temporizador hasta el siguiente límite del rango y se reevalúa al volver a la pestaña.
 
 ---
 
@@ -382,7 +520,6 @@ sequenceDiagram
     participant PG as Página React
     participant HOOK as useApi Hook
     participant AX as Axios Client
-    participant INT as Interceptor 401
     participant API as Django API
     participant JWT as CookieJWTAuth
 
@@ -390,13 +527,14 @@ sequenceDiagram
     PG->>HOOK: execute(getRequests, {status: 'SUBMITTED'})
     HOOK->>HOOK: setLoading(true)
     HOOK->>AX: api.get('/requests/', {params})
-    Note over AX: withCredentials: true<br/>Cookie access_token enviada auto
+    Note over AX: withCredentials: true<br/>Cookie access_token enviada auto<br/>X-CSRFToken en POST/PUT/PATCH/DELETE
     AX->>API: GET /api/v1/requests/?status=SUBMITTED
     API->>JWT: authenticate(request)
-    JWT->>JWT: Lee cookie 'access_token'
-    JWT->>JWT: Decodifica JWT (HS256)
+    JWT->>JWT: Lee la cookie 'access_token'
+    JWT->>JWT: Decodifica el JWT (HS256)
+    JWT->>JWT: Rechaza si must_change_password y la ruta no está permitida
     JWT-->>API: user object
-    API->>API: Permission check (IsAuthenticated)
+    API->>API: Permission check (IsAuthenticated + ViewSet)
     API->>API: Throttle check (200/min)
     API->>API: Filter + Search + Order
     API->>API: Paginate (page_size=20)
@@ -407,7 +545,7 @@ sequenceDiagram
     HOOK-->>PG: {data, loading: false, error: null}
 ```
 
-### 4.2 Flujo de Refresh Token (401)
+### 4.2 Flujo ante un 401 (token expirado)
 
 ```mermaid
 sequenceDiagram
@@ -417,13 +555,12 @@ sequenceDiagram
     participant AX as Axios Interceptor
     participant API as Django Auth
 
-    Note over R1,API: Múltiples requests con token expirado
+    Note over R1,API: Múltiples requests con el token expirado
 
     R1->>AX: GET /requests/
     AX->>API: Request (cookie expirada)
     API-->>AX: 401 Unauthorized
     AX->>AX: isRefreshing = true
-    AX->>AX: Crear refreshPromise
 
     R2->>AX: GET /notifications/
     AX->>AX: isRefreshing? → Sí
@@ -433,40 +570,37 @@ sequenceDiagram
     AX->>AX: isRefreshing? → Sí
     AX->>AX: Encolar R3 en failedQueue
 
-    AX->>API: POST /auth/token/refresh/
-    Note over AX,API: Cookie refresh_token<br/>enviada automáticamente
-    API->>API: Validar refresh token
-    API->>API: Rotar tokens
-    API->>API: Blacklist token anterior
-    API-->>AX: Set-Cookie: new access + new refresh
+    AX->>API: POST /auth/token/refresh/ (cuerpo vacío + X-CSRFToken)
+    Note over AX,API: Axios "limpio" (sin pasar por el interceptor)<br/>para no entrar en recursión
 
-    AX->>AX: isRefreshing = false
-    AX->>AX: Resolver refreshPromise
-
-    Note over AX: Reintenta todos los requests encolados
-    AX->>API: RETRY GET /requests/ (new cookie)
-    API-->>AX: 200 OK
-    AX-->>R1: datos
-
-    AX->>API: RETRY GET /notifications/ (new cookie)
-    API-->>AX: 200 OK
-    AX-->>R2: datos
-
-    AX->>API: RETRY GET /projects/ (new cookie)
-    API-->>AX: 200 OK
-    AX-->>R3: datos
+    alt El backend acepta la renovación
+        API-->>AX: Tokens nuevos
+        AX->>AX: processQueue(null)
+        AX->>API: Reintenta R1, R2 y R3
+    else El backend rechaza la renovación
+        API-->>AX: Error
+        AX->>AX: processQueue(error)
+        AX-->>R1: Rechaza la petición (AuthContext maneja la sesión)
+    end
 ```
+
+Brecha conocida: la vista `/auth/token/refresh/` es el `TokenRefreshView` estándar de SimpleJWT, que lee `refresh` del cuerpo de la petición. El interceptor la llama con el cuerpo vacío (el refresh vive en una cookie `httpOnly` que el navegador no puede leer), por lo que la renovación depende de ese comportamiento del servidor. El código de pruebas de `apps/core` la reconoce como una brecha preexistente (`test_must_change_password_gate.py`).
+
+Además, el interceptor redirige a `/cambiar-password` cuando recibe un 403 con `code: "must_change_password"`.
 
 ### 4.3 Estructura del Axios Client
 
 ```mermaid
 graph TB
     subgraph "api/client.js"
-        CREATE["axios.create({<br/>  baseURL: VITE_API_URL,<br/>  withCredentials: true,<br/>  headers: {Content-Type: 'application/json'}<br/>})"]
+        CREATE["axios.create({<br/>  baseURL: API_BASE_URL (VITE_API_URL),<br/>  withCredentials: true,<br/>  headers: {Content-Type: 'application/json'}<br/>})"]
+
+        REQI["Request Interceptor<br/>attachCsrfToken: copia la cookie csrftoken<br/>al header X-CSRFToken en POST/PUT/PATCH/DELETE"]
 
         subgraph "Response Interceptor"
+            PW["¿403 must_change_password?<br/>→ /cambiar-password"]
             CHK["¿Status === 401?"]
-            SKP["¿Es endpoint de auth?<br/>/login, /refresh, /logout"]
+            SKP["¿Es endpoint de auth?<br/>/token/refresh/, /login/, /users/me/"]
             REF["Refresh Token Flow"]
             QUE["Cola de requests<br/>failedQueue[]"]
             RET["Retry all queued"]
@@ -474,7 +608,9 @@ graph TB
         end
     end
 
-    CREATE --> CHK
+    CREATE --> REQI
+    CREATE --> PW
+    PW --> CHK
     CHK -->|No| ERR
     CHK -->|Sí| SKP
     SKP -->|Sí| ERR
@@ -487,6 +623,8 @@ graph TB
 
 ## 5. Motor de Workflow — Máquina de Estados Detallada
 
+El motor (`apps/rq/services/workflow_engine.py`) define 71 transiciones en la lista `TRANSITIONS` y valida cada acción contra el flujo del RQ, su estado actual y el rol del usuario. `RQStatusChoices` define 47 estados; 37 de ellos intervienen en las transiciones. Los flujos los define gerencia y no se modifican; los diagramas siguientes solo los describen con los nombres reales de las acciones (`ApprovalActionChoices`).
+
 ### 5.1 Flujo OPERATIONS — Diagrama Completo
 
 ```mermaid
@@ -494,78 +632,78 @@ stateDiagram-v2
     [*] --> DRAFT
 
     state "FASE 1 — Solicitud" as F1 {
-        DRAFT --> SUBMITTED: submit<br/>[REQUESTER]
+        DRAFT --> SUBMITTED: SUBMITTED<br/>[REQUESTER]
     }
 
     state "FASE 2 — Validación Técnica y Presupuestal" as F2 {
-        SUBMITTED --> TECHNICAL_APPROVED: approve<br/>[PROJECT_RESIDENT]
-        SUBMITTED --> TECHNICAL_REJECTED: reject<br/>[PROJECT_RESIDENT]
+        SUBMITTED --> TECHNICAL_APPROVED: TECHNICAL_APPROVED<br/>[PROJECT_RESIDENT]
+        SUBMITTED --> TECHNICAL_REJECTED: TECHNICAL_REJECTED<br/>[PROJECT_RESIDENT]
 
-        TECHNICAL_APPROVED --> WITHIN_PROPOSAL: classify_within<br/>[PROJECT_CONTROL]
-        TECHNICAL_APPROVED --> ADDITIONAL_REQ: classify_additional<br/>[PROJECT_CONTROL]
-        TECHNICAL_APPROVED --> TECHNICAL_REJECTED: reject<br/>[PROJECT_CONTROL]
+        TECHNICAL_APPROVED --> WITHIN_PROPOSAL: BUDGET_CLASSIFIED (BC_WITHIN_PROPOSAL)<br/>[PROJECT_CONTROL]
+        TECHNICAL_APPROVED --> ADDITIONAL_REQ: BUDGET_CLASSIFIED (BC_ADDITIONAL)<br/>[PROJECT_CONTROL]
+        TECHNICAL_APPROVED --> TECHNICAL_REJECTED: BUDGET_REJECTED<br/>[PROJECT_CONTROL]
 
-        WITHIN_PROPOSAL --> VALIDATED: auto_transition
+        WITHIN_PROPOSAL --> VALIDATED: VALIDATED (sistema)
 
-        ADDITIONAL_REQ --> GM_REVIEW: approve<br/>[PROJECT_RESIDENT]
-        ADDITIONAL_REQ --> TECHNICAL_REJECTED: reject<br/>[PROJECT_RESIDENT]
+        ADDITIONAL_REQ --> GM_REVIEW: TECHNICAL_APPROVED<br/>[PROJECT_RESIDENT]
+        ADDITIONAL_REQ --> TECHNICAL_REJECTED: TECHNICAL_REJECTED<br/>[PROJECT_RESIDENT]
 
-        GM_REVIEW --> GM_APPROVED: approve<br/>[GENERAL_MANAGER]
-        GM_REVIEW --> GM_REJECTED: reject<br/>[GENERAL_MANAGER]
+        GM_REVIEW --> GM_APPROVED: GM_APPROVED<br/>[GENERAL_MANAGER]
+        GM_REVIEW --> GM_REJECTED: GM_REJECTED<br/>[GENERAL_MANAGER]
 
-        GM_APPROVED --> VALIDATED: auto_transition
+        GM_APPROVED --> VALIDATED: VALIDATED (sistema)
     }
 
     state "FASE 3 — Logística y Compras" as F3 {
-        VALIDATED --> IN_STOCK: mark_in_stock<br/>[LOGISTICS_COORDINATOR]
-        VALIDATED --> REQUIRES_PURCHASE: mark_requires_purchase<br/>[LOGISTICS_COORDINATOR]
+        VALIDATED --> IN_STOCK: STOCK_CHECKED (has_stock=true)<br/>[LOGISTICS_COORDINATOR]
+        VALIDATED --> REQUIRES_PURCHASE: STOCK_CHECKED (has_stock=false)<br/>[LOGISTICS_COORDINATOR]
 
-        REQUIRES_PURCHASE --> QUOTING: start_quoting<br/>[LOGISTICS_COORDINATOR]
-        QUOTING --> QUOTE_COMPARISON: compare_quotes<br/>[LOGISTICS_COORDINATOR]
-        QUOTE_COMPARISON --> QUOTE_SELECTED: select_quote<br/>[LOGISTICS_COORDINATOR]
+        REQUIRES_PURCHASE --> QUOTING: QUOTE_REQUESTED<br/>[LOGISTICS_COORDINATOR]
+        QUOTING --> QUOTE_COMPARISON: QUOTE_COMPARED<br/>[LOGISTICS_COORDINATOR]
+        QUOTE_COMPARISON --> QUOTE_SELECTED: QUOTE_SELECTED<br/>[LOGISTICS_COORDINATOR]
 
-        QUOTE_SELECTED --> QUOTE_COST_APPROVED: approve_cost<br/>[PROJECT_CONTROL]
-        QUOTE_SELECTED --> COST_OVERRUN_REVIEW: reject_cost<br/>[PROJECT_CONTROL]
+        QUOTE_SELECTED --> QUOTE_COST_APPROVED: QUOTE_COST_APPROVED<br/>[PROJECT_CONTROL]
+        QUOTE_SELECTED --> COST_OVERRUN_REVIEW: QUOTE_COST_REJECTED<br/>[PROJECT_CONTROL]
 
-        COST_OVERRUN_REVIEW --> COST_OVERRUN_APPROVED: approve<br/>[GENERAL_MANAGER]
-        COST_OVERRUN_REVIEW --> COST_OVERRUN_REJECTED: reject<br/>[GENERAL_MANAGER]
+        COST_OVERRUN_REVIEW --> COST_OVERRUN_APPROVED: COST_OVERRUN_APPROVED<br/>[GENERAL_MANAGER]
+        COST_OVERRUN_REVIEW --> COST_OVERRUN_REJECTED: COST_OVERRUN_REJECTED<br/>[GENERAL_MANAGER]
 
-        QUOTE_COST_APPROVED --> PO_GENERATED: generate_po<br/>[LOGISTICS_COORDINATOR]
-        COST_OVERRUN_APPROVED --> PO_GENERATED: generate_po<br/>[LOGISTICS_COORDINATOR]
+        QUOTE_COST_APPROVED --> PO_GENERATED: PO_GENERATED<br/>[LOGISTICS_COORDINATOR]
+        COST_OVERRUN_APPROVED --> PO_GENERATED: PO_GENERATED<br/>[LOGISTICS_COORDINATOR]
     }
 
     state "FASE 4 — Recepción y Entrega" as F4 {
-        PO_GENERATED --> RECEIVING: receive<br/>[LOGISTICS_COORDINATOR]
+        PO_GENERATED --> RECEIVING: RECEIVED<br/>[LOGISTICS_COORDINATOR]
 
-        IN_STOCK --> DISPATCHED_TO_SITE: dispatch<br/>[CENTRAL_WAREHOUSE]
+        IN_STOCK --> DISPATCHED_TO_SITE: DISPATCHED<br/>[CENTRAL_WAREHOUSE]
 
-        RECEIVING --> QUALITY_APPROVED: approve_quality<br/>[LOGISTICS_COORDINATOR]
-        RECEIVING --> QUALITY_REJECTED: reject_quality<br/>[LOGISTICS_COORDINATOR]
+        RECEIVING --> QUALITY_APPROVED: QUALITY_APPROVED<br/>[LOGISTICS_COORDINATOR]
+        RECEIVING --> QUALITY_REJECTED: QUALITY_REJECTED<br/>[LOGISTICS_COORDINATOR]
 
-        QUALITY_APPROVED --> DISPATCHED_TO_SITE: dispatch<br/>[LOGISTICS_COORDINATOR]
-        DISPATCHED_TO_SITE --> DELIVERED: confirm_delivery<br/>[SITE_WAREHOUSE]
+        QUALITY_APPROVED --> DISPATCHED_TO_SITE: DISPATCHED<br/>[LOGISTICS_COORDINATOR]
+        DISPATCHED_TO_SITE --> DELIVERED: WAREHOUSE_RECORDS_UPDATED<br/>[SITE_WAREHOUSE]
 
         state "Ciclo de Reclamo" as CLAIM_CYCLE {
-            QUALITY_REJECTED --> SUPPLIER_CLAIM_SENT: send_claim<br/>[LOGISTICS_COORDINATOR]
-            SUPPLIER_CLAIM_SENT --> SUPPLIER_CLAIM_PENDING: pending<br/>[LOGISTICS_COORDINATOR]
-            SUPPLIER_CLAIM_PENDING --> SUPPLIER_REPLACEMENT_RECEIVED: replacement<br/>[LOGISTICS_COORDINATOR]
-            SUPPLIER_CLAIM_SENT --> SUPPLIER_REPLACEMENT_RECEIVED: direct_replacement
-            SUPPLIER_REPLACEMENT_RECEIVED --> QUALITY_APPROVED: approve_quality
-            SUPPLIER_REPLACEMENT_RECEIVED --> QUALITY_REJECTED: reject_quality
+            QUALITY_REJECTED --> SUPPLIER_CLAIM_SENT: SUPPLIER_CLAIM_SENT<br/>[LOGISTICS_COORDINATOR]
+            SUPPLIER_CLAIM_SENT --> SUPPLIER_CLAIM_PENDING: SUPPLIER_CLAIM_UPDATED<br/>[LOGISTICS_COORDINATOR]
+            SUPPLIER_CLAIM_PENDING --> SUPPLIER_REPLACEMENT_RECEIVED: SUPPLIER_REPLACEMENT_RECEIVED<br/>[LOGISTICS_COORDINATOR]
+            SUPPLIER_CLAIM_SENT --> SUPPLIER_REPLACEMENT_RECEIVED: SUPPLIER_REPLACEMENT_RECEIVED (directo)
+            SUPPLIER_REPLACEMENT_RECEIVED --> QUALITY_APPROVED: QUALITY_APPROVED
+            SUPPLIER_REPLACEMENT_RECEIVED --> QUALITY_REJECTED: QUALITY_REJECTED
         }
     }
 
     state "FASE 5 — Conformidad y Cierre" as F5 {
-        DELIVERED --> USER_CONFORMITY: confirm<br/>[REQUESTER]
-        DELIVERED --> CLAIM_IN_REVIEW: claim<br/>[REQUESTER]
+        DELIVERED --> USER_CONFORMITY: USER_CONFIRMED<br/>[REQUESTER]
+        DELIVERED --> CLAIM_IN_REVIEW: USER_CLAIMED<br/>[REQUESTER]
 
-        CLAIM_IN_REVIEW --> SUPPLIER_CLAIM_SENT: send_claim<br/>[LOGISTICS_COORDINATOR]
+        CLAIM_IN_REVIEW --> SUPPLIER_CLAIM_SENT: SUPPLIER_CLAIM_SENT<br/>[LOGISTICS_COORDINATOR]
 
-        USER_CONFORMITY --> CLOSED: close<br/>[LOGISTICS_COORDINATOR]
+        USER_CONFORMITY --> CLOSED: CLOSED<br/>[LOGISTICS_COORDINATOR]
     }
 
     state "Cancelación Universal" as CANCEL {
-        note right of CANCELLED: Cualquier estado no-terminal<br/>puede ser cancelado por<br/>roles autorizados
+        note right of CANCELLED: Cualquier estado no-terminal<br/>puede pasar a CANCELLED (acción CANCELLED).<br/>La tabla no exige un rol concreto
     }
 
     TECHNICAL_REJECTED --> [*]
@@ -580,90 +718,137 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT
+    DRAFT --> SUBMITTED: SUBMITTED<br/>[REQUESTER]
 
-    state "FASE 1 — Solicitud" as F1A {
-        DRAFT --> SUBMITTED: submit<br/>[REQUESTER]
-    }
+    note right of SUBMITTED: FASE 2 — Validación Administrativa
 
-    state "FASE 2 — Validación Administrativa" as F2A {
-        SUBMITTED --> SUPERVISOR_APPROVED: approve<br/>[DIRECT_SUPERVISOR]
-        SUBMITTED --> SUPERVISOR_REJECTED: reject<br/>[DIRECT_SUPERVISOR]
+    SUBMITTED --> SUPERVISOR_APPROVED: SUPERVISOR_APPROVED<br/>[DIRECT_SUPERVISOR]
+    SUBMITTED --> SUPERVISOR_REJECTED: SUPERVISOR_REJECTED<br/>[DIRECT_SUPERVISOR]
 
-        SUPERVISOR_APPROVED --> WITHIN_ANNUAL_PLAN: classify_within_plan<br/>[ADMIN_MANAGER]
-        SUPERVISOR_APPROVED --> OUT_OF_ANNUAL_PLAN: classify_out_of_plan<br/>[ADMIN_MANAGER]
-        SUPERVISOR_APPROVED --> SUPERVISOR_REJECTED: reject<br/>[ADMIN_MANAGER]
+    SUPERVISOR_APPROVED --> WITHIN_ANNUAL_PLAN: ADMIN_BUDGET_REVIEWED (within_plan=true)<br/>[ADMIN_MANAGER]
+    SUPERVISOR_APPROVED --> OUT_OF_ANNUAL_PLAN: ADMIN_BUDGET_REVIEWED (within_plan=false)<br/>[ADMIN_MANAGER]
+    SUPERVISOR_APPROVED --> SUPERVISOR_REJECTED: ADMIN_BUDGET_REJECTED<br/>[ADMIN_MANAGER]
 
-        WITHIN_ANNUAL_PLAN --> VALIDATED: auto_transition
+    WITHIN_ANNUAL_PLAN --> VALIDATED: VALIDATED (sistema)
 
-        OUT_OF_ANNUAL_PLAN --> GM_REVIEW: approve<br/>[DIRECT_SUPERVISOR]
-        OUT_OF_ANNUAL_PLAN --> SUPERVISOR_REJECTED: reject<br/>[DIRECT_SUPERVISOR]
+    OUT_OF_ANNUAL_PLAN --> GM_REVIEW: SUPERVISOR_APPROVED<br/>[DIRECT_SUPERVISOR]
+    OUT_OF_ANNUAL_PLAN --> SUPERVISOR_REJECTED: SUPERVISOR_REJECTED<br/>[DIRECT_SUPERVISOR]
 
-        GM_REVIEW --> GM_APPROVED: approve<br/>[GENERAL_MANAGER]
-        GM_REVIEW --> GM_REJECTED: reject<br/>[GENERAL_MANAGER]
+    GM_REVIEW --> GM_APPROVED: GM_APPROVED<br/>[GENERAL_MANAGER]
+    GM_REVIEW --> GM_REJECTED: GM_REJECTED<br/>[GENERAL_MANAGER]
+    GM_APPROVED --> VALIDATED: VALIDATED (sistema)
 
-        GM_APPROVED --> VALIDATED: auto_transition
-    }
+    note right of VALIDATED
+        FASE 3 — roles de Logística distintos
+        stock, solicitud de cotización y OC → LOGISTICS_SUPERVISOR
+        comparación y selección → LOGISTICS_CHIEF
+        costo de la cotización → ADMIN_MANAGER
+    end note
 
-    state "FASE 3 — Logística" as F3A {
-        note right of F3A: Roles diferentes:<br/>LOGISTICS_SUPERVISOR<br/>LOGISTICS_CHIEF<br/>Costo aprobado por ADMIN_MANAGER
-        VALIDATED --> IN_STOCK: [LOGISTICS_SUPERVISOR]
-        VALIDATED --> REQUIRES_PURCHASE: [LOGISTICS_SUPERVISOR]
-    }
+    VALIDATED --> IN_STOCK: STOCK_CHECKED<br/>[LOGISTICS_SUPERVISOR]
+    VALIDATED --> REQUIRES_PURCHASE: STOCK_CHECKED<br/>[LOGISTICS_SUPERVISOR]
 
-    state "FASE 4 — Recepción" as F4A {
-        note right of F4A: Diferencia clave:<br/>IN_STOCK → DELIVERED (directo)<br/>DISPATCHED_TO_SITE → DELIVERED<br/>DELIVERED → WAREHOUSE_UPDATED
-        IN_STOCK_ADM --> DELIVERED_ADM: dispatch directo
-        DELIVERED_ADM --> WAREHOUSE_UPDATED: update_records<br/>[CENTRAL_WAREHOUSE]
-    }
+    note right of IN_STOCK: FASE 4 — IN_STOCK pasa directo a DELIVERED
 
-    state "FASE 5 — Conformidad" as F5A {
-        note right of F5A: Conformidad parte de<br/>WAREHOUSE_UPDATED<br/>(no de DELIVERED)
-        WAREHOUSE_UPDATED --> USER_CONFORMITY_ADM: confirm<br/>[REQUESTER]
-        USER_CONFORMITY_ADM --> CLOSED_ADM: close<br/>[LOGISTICS_SUPERVISOR]
-    }
+    IN_STOCK --> DELIVERED: DISPATCHED<br/>[CENTRAL_WAREHOUSE]
+    DISPATCHED_TO_SITE --> DELIVERED: WAREHOUSE_RECORDS_UPDATED<br/>[CENTRAL_WAREHOUSE]
+    DELIVERED --> WAREHOUSE_UPDATED: WAREHOUSE_RECORDS_UPDATED<br/>[CENTRAL_WAREHOUSE]
+
+    note right of WAREHOUSE_UPDATED: FASE 5 — la conformidad parte de WAREHOUSE_UPDATED<br/>(no de DELIVERED)
+
+    WAREHOUSE_UPDATED --> USER_CONFORMITY: USER_CONFIRMED<br/>[REQUESTER]
+    WAREHOUSE_UPDATED --> CLAIM_IN_REVIEW: USER_CLAIMED<br/>[REQUESTER]
+    USER_CONFORMITY --> CLOSED: CLOSED<br/>[LOGISTICS_SUPERVISOR]
 ```
+
+En este flujo también cambia el reclamo al proveedor: `QUALITY_REJECTED → SUPPLIER_CLAIM_SENT → SUPPLIER_REPLACEMENT_RECEIVED` (sin el paso intermedio `SUPPLIER_CLAIM_PENDING`), ejecutado por el Supervisor Logístico.
 
 ### 5.3 Componentes Internos del WorkflowEngine
 
 ```mermaid
 graph TB
-    subgraph "WorkflowEngine"
-        ENTRY["transition(request, action, user, comments)"]
+    subgraph "WorkflowEngine(request, user, acting_role)"
+        ENTRY["execute(action, comments, extra_data)<br/>@transaction.atomic"]
 
         subgraph "Paso 1: Validación"
-            V1["_check_role_permission()<br/>• Verifica que user.role<br/>  coincida con responsible_role<br/>  del WorkflowStep actual"]
-            V2["validate_transition()<br/>• Verifica que from_status<br/>  sea el status actual<br/>• Verifica que action sea válida"]
+            V0["_validate_acting_role()<br/>• El usuario debe tener asignado en BD<br/>  el acting_role declarado"]
+            V1["select_for_update() sobre el Request<br/>• Relee el estado bajo bloqueo<br/>• Rechaza acciones sobre RQ terminales<br/>  (salvo CANCELLED)"]
+            V2["_find_transition(action)<br/>• Busca en TRANSITIONS por flujo,<br/>  estado actual y acción"]
+            V3["_check_role_permission()<br/>• El usuario debe tener el required_role en BD<br/>• CANCELLED y acciones de sistema<br/>  no exigen un rol concreto"]
         end
 
         subgraph "Paso 2: Ejecución"
-            E1["_execute_transition()<br/>• Actualiza request.status<br/>• Actualiza request.current_step"]
-            E2["_handle_conditional_transitions()<br/>• Evalúa condiciones<br/>  (WITHIN_PROPOSAL vs ADDITIONAL)<br/>  (WITHIN_PLAN vs OUT_OF_PLAN)"]
+            E1["Handler condicional (si existe)<br/>• handle_ops_budget_classification (classification)<br/>• handle_adm_budget_review (within_plan)<br/>• handle_stock_check (has_stock)<br/>• handle_cancellation"]
+            E2["Actualiza request.status y current_step<br/>(_get_workflow_step)"]
         end
 
-        subgraph "Paso 3: Auto-transición"
-            A1["_auto_transition()<br/>• WITHIN_PROPOSAL → VALIDATED<br/>• GM_APPROVED → VALIDATED<br/>• Transiciones sin intervención"]
+        subgraph "Paso 3: Efectos laterales"
+            B1["_on_validated()<br/>• SLACalculator.calculate_estimated_delivery<br/>• BudgetValidator.commit_budget"]
+            B2["_on_terminal_rejection()<br/>• BudgetValidator.release_budget<br/>• Rechazos y CANCELLED"]
+            B3["_on_material_received() · _on_dispatched()<br/>• Lote de ingreso o egreso en almacén CENTRAL<br/>• WarehouseReceipt / WarehouseDispatch<br/>• Best-effort: un fallo no revierte el flujo"]
         end
 
         subgraph "Paso 4: Registro"
-            R1["_create_approval_record()<br/>• INSERT Approval inmutable<br/>• previous_status, new_status<br/>• performed_by, role, comments"]
-            R2["NotificationService<br/>• Notifica al siguiente rol<br/>• Alerta al solicitante"]
+            R1["Approval (inmutable)<br/>• previous_status, new_status<br/>• performed_by, role, comments"]
+            R2["_log_activity()<br/>• ActivityLog"]
+            R3["_send_notifications()<br/>• NotificationService.notify_on_transition"]
         end
 
-        subgraph "Paso 5: Budget (si aplica)"
-            B1["BudgetValidator.commit_budget()<br/>• Al pasar a VALIDATED"]
-            B2["BudgetValidator.release_budget()<br/>• Al CANCELAR o RECHAZAR"]
+        subgraph "Paso 5: Cadena de sistema"
+            A1["_execute_system_chain()<br/>• WITHIN_PROPOSAL → VALIDATED<br/>• WITHIN_ANNUAL_PLAN → VALIDATED<br/>• GM_APPROVED → VALIDATED<br/>• Approval con rol SYSTEM"]
         end
 
-        subgraph "Paso 6: SLA (si aplica)"
-            S1["SLACalculator.calculate_deadline()<br/>• Al pasar a VALIDATED<br/>• Calcula fecha_estimada_entrega"]
-        end
+        AV["get_available_actions()<br/>• Acciones que el usuario puede ejecutar<br/>  sobre el RQ en su estado actual"]
     end
 
-    ENTRY --> V1 --> V2 --> E1 --> E2 --> A1 --> R1 --> R2
-    E1 --> B1
-    E1 --> B2
-    E1 --> S1
+    ENTRY --> V0 --> V1 --> V2 --> V3 --> E1 --> E2 --> B1
+    E2 --> B2
+    E2 --> B3
+    B1 --> R1
+    B2 --> R1
+    B3 --> R1
+    R1 --> R2 --> R3 --> A1
 ```
+
+### 5.4 Captura de Ítems y Vínculo con el Catálogo del Almacén (SYSPCC-026)
+
+```mermaid
+sequenceDiagram
+    actor REQ as Solicitante
+    actor LG as Logística
+    participant API as API de RQ
+    participant CAT as request_catalog
+    participant IT as request_items
+    participant SA as stock_availability
+    participant WF as WorkflowEngine
+    participant WH as Almacén
+
+    REQ->>API: GET /request-catalog/?search=
+    API->>CAT: search_catalog()
+    CAT-->>REQ: Código, descripción, unidad, categoría y disponible (pool CENTRAL)
+    REQ->>API: POST /requests/ con ítems (producto propuesto o fuera de catálogo)
+
+    LG->>API: GET /requests/{id}/stock-availability/
+    API->>SA: build_stock_availability()
+    SA-->>LG: Por ítem: solicitado, disponible neto y cobertura
+    LG->>API: PATCH /requests/{id}/update-items/
+    API->>IT: update_request_items() bajo bloqueo
+    IT-->>LG: Vínculo confirmado (inventory_item_confirmed_at/by) o 409 con code
+    LG->>API: POST /requests/{id}/action/ STOCK_CHECKED
+
+    Note over WF,WH: Más adelante, en RECEIVED y DISPATCHED
+    WF->>WF: _resolve_inventory_item(item)
+    WF->>WH: register_entry_batch / register_exit_batch
+```
+
+Reglas relevantes:
+
+- **Búsqueda del catálogo** (`GET /request-catalog/`): abierta a todo usuario autenticado, mínimo 2 caracteres, 20 filas por página; no expone costos, ubicación exacta ni proveedores.
+- **Propuesta vs. confirmación**: lo que elige el solicitante es una propuesta. Solo `update-items` (roles de logística) sella `inventory_item_confirmed_at` y `inventory_item_confirmed_by`.
+- **Ventana editable de `update-items`**: desde VALIDATED hasta antes del despacho (`EDITABLE_STATUSES`). Responde 409 con `code` (`REQUEST_TERMINAL`, `REQUEST_STATE_NOT_EDITABLE`, `ITEMS_ALREADY_DISPATCHED`, `ITEMS_ALREADY_RECEIVED`, `INTEGRITY_ERROR`) y no escribe nada. Este guard vive solo en ese endpoint: nunca bloquea una transición del flujo.
+- **Disponibilidad**: informativa, solo para logística. Resta lo comprometido con otros RQ (los que están en IN_STOCK y las compras ya recibidas pendientes de despacho) y lo que toman las líneas previas del mismo RQ. Si la unidad del ítem y la del producto difieren, la cobertura es `NOT_COMPARABLE`.
+- **Resolución del producto en el motor** (`_resolve_inventory_item`): un ítem marcado fuera de catálogo nunca mueve stock; si hay vínculo directo se usa; si no, el motor conserva un respaldo por coincidencia de texto y deja una advertencia en el log.
+- **Comandos de apoyo** (solo lectura): `check_central_project_stock`, `report_rq_stock_gaps` y `suggest_inventory_links`.
 
 ---
 
@@ -676,79 +861,71 @@ sequenceDiagram
     participant B as Browser
     participant R as React App
     participant AX as Axios
-    participant N as Nginx
     participant DJ as Django
     participant JWT as SimpleJWT
-    participant DB as PostgreSQL
-    participant RD as Redis
+    participant DB as Base de datos
 
-    Note over B,RD: === PASO 1: LOGIN ===
+    Note over B,DB: === PASO 0: COOKIE CSRF ===
+    R->>AX: authApi.bootstrapCsrf() al montar la app
+    AX->>DJ: GET /api/v1/auth/csrf/
+    DJ-->>AX: Set-Cookie: csrftoken (legible por JS)
+
+    Note over B,DB: === PASO 1: LOGIN ===
     B->>R: Ingresa usuario + contraseña
-    R->>AX: authApi.login({username, password})
-    AX->>N: POST /api/v1/auth/login/
-    N->>DJ: proxy_pass
-    DJ->>DJ: ThrottleCheck (5/min login)
+    R->>AX: authApi.login(username, password)
+    AX->>DJ: POST /api/v1/auth/login/ + X-CSRFToken
+    DJ->>DJ: Throttle por IP (5/min) y por usuario (10/min)
     DJ->>JWT: CustomTokenObtainPairView
-    JWT->>DB: SELECT * FROM core_user WHERE username=?
+    JWT->>DB: SELECT * FROM users WHERE username=?
     DB-->>JWT: User record
-    JWT->>JWT: Verificar contraseña (bcrypt)
-    JWT->>JWT: Generar access_token (HS256, 15min)
-    JWT->>JWT: Generar refresh_token (HS256, 1d)
+    JWT->>JWT: Verificar la contraseña (hasher por defecto de Django)
+    JWT->>JWT: Generar access_token (HS256, 15 min)
+    JWT->>JWT: Generar refresh_token (HS256, 1 día)
     JWT-->>DJ: TokenPair
 
-    DJ-->>N: 200 OK + Set-Cookie headers
-    Note over DJ,N: Set-Cookie: access_token=eyJ...<br/>  HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=900<br/>Set-Cookie: refresh_token=eyJ...<br/>  HttpOnly; Secure; SameSite=Lax; Path=/auth/; Max-Age=86400
-    N-->>AX: Response + Cookies
-    AX-->>R: Login exitoso
+    DJ-->>AX: 200 OK + Set-Cookie headers (cuerpo: solo el perfil)
+    Note over DJ,AX: Set-Cookie: access_token=eyJ...<br/>  HttpOnly, SameSite=Lax, Path=/, Max-Age=900<br/>Set-Cookie: refresh_token=eyJ...<br/>  HttpOnly, SameSite=Lax, Path=/, Max-Age=86400<br/>Secure cuando DEBUG es falso
 
-    Note over B,RD: === PASO 2: CARGAR USUARIO ===
+    Note over B,DB: === PASO 2: CARGAR USUARIO ===
     R->>AX: authApi.getMe()
-    AX->>N: GET /api/v1/users/me/
+    AX->>DJ: GET /api/v1/users/me/
     Note over AX: Cookie access_token<br/>enviada automáticamente
-    N->>DJ: Request
-    DJ->>DJ: CookieJWTAuthentication
-    DJ->>DJ: Lee cookie 'access_token'
+    DJ->>DJ: CookieJWTAuthentication lee la cookie
     DJ->>JWT: Decodificar token
     JWT-->>DJ: payload {user_id, exp, ...}
     DJ->>DB: SELECT user + roles
     DB-->>DJ: User + UserRoles
-    DJ-->>AX: {id, username, email, roles: [...]}
+    DJ-->>AX: {id, username, email, roles, is_superuser, must_change_password, ...}
     AX-->>R: User data
 
     R->>R: AuthContext.setCurrentUser(user)
-    R->>R: Redirect → SystemSelectPage
+    alt must_change_password
+        R->>R: Redirect → /cambiar-password
+    else
+        R->>R: Redirect → SystemSelectPage
+    end
 
-    Note over B,RD: === PASO 3: REQUESTS AUTENTICADOS ===
+    Note over B,DB: === PASO 3: REQUESTS AUTENTICADOS ===
     R->>AX: requestsApi.getRequests()
-    AX->>N: GET /api/v1/requests/
-    Note over AX: Cookie enviada automáticamente
-    N->>DJ: Request
-    DJ->>DJ: CookieJWTAuthentication
-    DJ->>DJ: IsAuthenticated ✓
-    DJ->>RD: Check cache
-    DJ->>DB: Query (si no cached)
+    AX->>DJ: GET /api/v1/requests/
+    DJ->>DJ: CookieJWTAuthentication + IsAuthenticated
+    DJ->>DB: Query con alcance según el rol
     DJ-->>AX: 200 JSON data
     AX-->>R: Datos
 
-    Note over B,RD: === PASO 4: TOKEN EXPIRA ===
+    Note over B,DB: === PASO 4: TOKEN EXPIRA ===
     R->>AX: Cualquier API call
-    AX->>N: GET /api/v1/...
+    AX->>DJ: GET /api/v1/...
     DJ-->>AX: 401 Unauthorized
-    AX->>AX: Interceptor detecta 401
-    AX->>N: POST /api/v1/auth/token/refresh/
-    Note over AX: Cookie refresh_token<br/>enviada automáticamente
-    DJ->>JWT: Validar refresh_token
-    JWT->>JWT: Rotar: nuevo access + nuevo refresh
-    JWT->>DB: Blacklist refresh anterior
-    DJ-->>AX: Set-Cookie: nuevos tokens
-    AX->>N: RETRY request original
-    DJ-->>AX: 200 OK
+    AX->>DJ: POST /api/v1/auth/token/refresh/ (cuerpo vacío)
+    Note over AX,DJ: Vista estándar de SimpleJWT:<br/>ver la brecha conocida en 4.2
 
-    Note over B,RD: === PASO 5: LOGOUT ===
+    Note over B,DB: === PASO 5: LOGOUT ===
     R->>AX: authApi.logout()
-    AX->>N: POST /api/v1/auth/logout/
-    DJ->>DB: Blacklist refresh_token
-    DJ-->>AX: Set-Cookie: clear tokens (Max-Age=0)
+    AX->>DJ: POST /api/v1/auth/logout/
+    DJ->>DJ: Lee refresh_token de la cookie
+    DJ->>DB: Lista negra del refresh token
+    DJ-->>AX: Set-Cookie: borra access_token y refresh_token
     AX-->>R: Logout OK
     R->>R: AuthContext.setCurrentUser(null)
     R->>R: Redirect → LoginPage
@@ -760,54 +937,72 @@ sequenceDiagram
 graph TB
     subgraph "Permission Classes (apps/core/permissions.py)"
         IA["IsAuthenticated<br/>(DRF built-in)<br/>Token JWT válido"]
-        HR["HasRole<br/>Verifica que user<br/>tenga rol específico"]
-        IGM["IsGeneralManager<br/>Solo GENERAL_MANAGER"]
+        HR["HasRole<br/>Roles en view.role_required<br/>(definida, sin uso en vistas hoy)"]
+        IGM["IsGeneralManager<br/>Solo GENERAL_MANAGER<br/>(definida, sin uso en vistas hoy)"]
         ILS["IsLogisticsStaff<br/>LOGISTICS_COORDINATOR<br/>LOGISTICS_SUPERVISOR<br/>LOGISTICS_CHIEF"]
-        IWS["IsWarehouseStaff<br/>CENTRAL_WAREHOUSE<br/>SITE_WAREHOUSE"]
-        IOA["IsOwnerOrAdmin<br/>Dueño del recurso<br/>o superuser"]
-        IAR["IsAdminOrReadOnly<br/>Auth: read<br/>Staff: write"]
+        IWS["IsWarehouseStaff<br/>CENTRAL_WAREHOUSE · SITE_WAREHOUSE<br/>(definida, sin uso en vistas hoy)"]
+        IHR["IsHRManager<br/>ADMIN_MANAGER · PASAJES_MANAGER<br/>GENERAL_MANAGER · staff<br/>(leer Personal completo)"]
+        IPS["IsPasajesStaff<br/>PASAJES_MANAGER · ADMIN_MANAGER · staff<br/>(búsqueda por DNI)"]
+        IHD["IsHRDocumentsManager<br/>HR_MANAGER (sin bypass de staff)<br/>IsHRDocumentsReader: + GENERAL_MANAGER"]
+        ISU["IsSuperUser<br/>is_superuser<br/>(usuarios, roles y proyectos)"]
+        IAR["IsAdminOrReadOnly<br/>Auth: lectura<br/>Staff: escritura"]
+    end
+
+    subgraph "Permisos propios por app"
+        RQP["rq/permissions.py<br/>get_accessible_requests_queryset<br/>CanPerformWorkflowAction"]
+        WHP["warehouse/permissions.py<br/>IsWarehouseRole, CanImportInventory,<br/>CanAssignLocations, CanLinkPersonal,<br/>CanDeliverEPP, CanLookupPersonal"]
+        ADP["administracion/views.py<br/>IsAdminOrAdminManager<br/>ADMIN_MANAGER · GENERAL_MANAGER<br/>PASAJES_MANAGER · staff"]
     end
 
     subgraph "Aplicación en ViewSets"
-        RV["RequestViewSet<br/>permission_classes =<br/>[IsAuthenticated]"]
-        SV["SupplierViewSet<br/>permission_classes =<br/>[IsAuthenticated, IsLogisticsStaff]"]
-        UV["UserViewSet<br/>permission_classes =<br/>[IsAuthenticated, IsAdminOrReadOnly]"]
+        RV["RequestViewSet<br/>IsAuthenticated + alcance del queryset<br/>update-items y stock-availability: IsLogisticsStaff<br/>action: CanPerformWorkflowAction"]
+        SV["QuotationViewSet · PurchaseOrderViewSet<br/>lectura: IsAuthenticated con alcance<br/>escritura: IsLogisticsStaff"]
+        UV["UserViewSet · ProjectViewSet<br/>lectura: IsAuthenticated<br/>escritura: IsSuperUser"]
+        WV["Warehouse ViewSets<br/>IsWarehouseRole y permisos por acción"]
+        AV["Administración ViewSets<br/>IsAdminOrAdminManager"]
+        HV["HR ViewSets<br/>IsHRDocumentsReader (lectura)<br/>IsHRDocumentsManager (escritura)"]
+        PV["PersonalViewSet<br/>lectura completa: IsHRManager<br/>búsqueda por DNI: IsPasajesStaff<br/>escritura: staff"]
+        SUP["SupplierViewSet · DepartmentViewSet<br/>lectura: IsAuthenticated<br/>escritura: IsAdminOrReadOnly (staff)"]
     end
 
     subgraph "Verificación en WorkflowEngine"
-        WFP["WorkflowStep.responsible_role<br/>→ user.has_role(required_role)<br/>→ Si no tiene rol: PermissionDenied"]
+        WFP["TRANSITIONS[..].required_role<br/>→ el usuario debe tener ese rol (BD)<br/>→ además debe tener el acting_role declarado<br/>→ si no: PermissionDeniedForAction (403)"]
     end
 
-    subgraph "Frontend — RoleRoute"
-        FRR["RoleRoute component<br/>requiredRoles={['PROJECT_RESIDENT']}<br/>→ useAuth().hasRole(role)<br/>→ Si no tiene rol: redirect /"]
+    subgraph "Frontend"
+        FRR["RoleRoute · SuperUserRoute<br/>requiredRoles={['PROJECT_RESIDENT']}<br/>→ useAuth().userRoles<br/>→ si no tiene rol: redirect<br/>(solo UX; el backend valida)"]
     end
 
     IA --> RV
-    IA --> SV
+    ILS --> RV
     ILS --> SV
-    IA --> UV
-    IAR --> UV
-    HR --> WFP
-    HR --> FRR
+    ISU --> UV
+    RQP --> RV
+    WHP --> WV
+    ADP --> AV
+    IHD --> HV
+    IHR --> PV
+    IPS --> PV
+    IAR --> SUP
+    RV --> WFP
 ```
 
-### 6.3 Matriz de Roles y Permisos por Endpoint
+### 6.3 Roles Requeridos por Endpoint
 
-```mermaid
-graph TB
-    subgraph "Endpoints y Roles Requeridos"
-        E1["POST /requests/<br/>→ REQUESTER"]
-        E2["POST /requests/{id}/action/ (submit)<br/>→ REQUESTER"]
-        E3["POST /requests/{id}/action/ (approve tech)<br/>→ PROJECT_RESIDENT"]
-        E4["POST /requests/{id}/action/ (classify budget)<br/>→ PROJECT_CONTROL"]
-        E5["POST /requests/{id}/action/ (approve GM)<br/>→ GENERAL_MANAGER"]
-        E6["POST /requests/{id}/action/ (supervisor approve)<br/>→ DIRECT_SUPERVISOR"]
-        E7["POST /requests/{id}/action/ (admin classify)<br/>→ ADMIN_MANAGER"]
-        E8["POST /quotations/<br/>→ LOGISTICS_COORDINATOR | LOGISTICS_SUPERVISOR"]
-        E9["POST /purchase-orders/<br/>→ LOGISTICS_COORDINATOR | LOGISTICS_SUPERVISOR"]
-        E10["POST /warehouse/movements/<br/>→ CENTRAL_WAREHOUSE | SITE_WAREHOUSE"]
-    end
-```
+| Endpoint | Roles requeridos |
+|----------|------------------|
+| `POST /requests/` | Cualquier usuario autenticado (la UI está pensada para el Solicitante) |
+| `GET /requests/` y detalle | Alcance por rol: roles amplios (`GENERAL_MANAGER`, logística, `CENTRAL_WAREHOUSE`) ven todo; Residente, Control y Almacén de Obra ven su proyecto; Jefe Directo y Gerente Administrativo ven su departamento; el resto, solo lo propio |
+| `POST /requests/{id}/action/` | El rol `required_role` de la transición y que el usuario posea el `acting_role` enviado |
+| `PATCH /requests/{id}/update-items/`, `GET /requests/{id}/stock-availability/` | `LOGISTICS_COORDINATOR`, `LOGISTICS_SUPERVISOR` o `LOGISTICS_CHIEF` |
+| `GET /request-catalog/` | Cualquier usuario autenticado |
+| `POST /quotations/`, `POST /quotations/{id}/select/`, `POST /purchase-orders/` | Roles de logística |
+| `POST /suppliers/` (escrituras) | Usuario staff (`IsAdminOrReadOnly`); lectura para cualquier usuario autenticado |
+| `/warehouse/*` | `CENTRAL_WAREHOUSE`, `SITE_WAREHOUSE` o roles de logística; asignar ubicaciones, importar y vincular destinos: `CENTRAL_WAREHOUSE` y `LOGISTICS_CHIEF`; entrega de EPP: `CENTRAL_WAREHOUSE` y `SITE_WAREHOUSE`; sin bypass por superusuario |
+| `/administracion/*` | `ADMIN_MANAGER`, `GENERAL_MANAGER`, `PASAJES_MANAGER` o staff (el tipo de cambio, `/administracion/tipo-cambio/`, solo pide estar autenticado) |
+| `/hr/*` | `HR_MANAGER` (escritura); `HR_MANAGER` y `GENERAL_MANAGER` (lectura); sin bypass de staff |
+| `POST/PUT/PATCH /users/`, `/user-roles/`, `/projects/` | `is_superuser` |
+| `/support/tickets/` | Cualquier usuario autenticado; cada uno ve sus tickets y el staff ve todos |
 
 ---
 
@@ -823,55 +1018,73 @@ graph TB
     end
 
     subgraph "Redis (DB1 — Broker)"
-        Q["Cola de tareas<br/>Formato JSON<br/>FIFO"]
+        Q["Colas de tareas<br/>Formato JSON<br/>celery (por defecto) y hr_cv"]
     end
 
-    subgraph "Celery Worker"
-        W["Worker Process<br/>concurrency=2<br/>prefork pool"]
+    subgraph "Celery Worker (cola por defecto)"
+        W["Worker Process"]
 
         subgraph "Tareas Registradas"
-            T_SLA["check_sla_deadlines()<br/>• Query RQ con fecha_estimada < hoy<br/>• Envía notificación a requester<br/>• Alerta a logistics"]
-            T_REM["send_pending_approval_reminders()<br/>• Query Approvals pendientes >24h<br/>• Envía recordatorio al aprobador<br/>• Email si configurado"]
-            T_CACHE["invalidate_dashboard_caches()<br/>• cache.delete_pattern('dashboard_*')<br/>• Fuerza recálculo en próximo request"]
-            T_STOCK["warehouse_low_stock_check()<br/>• Query InventoryStock < min_stock<br/>• Envía alerta a CENTRAL_WAREHOUSE<br/>• Email a warehouse_alert_recipients"]
+            T_SLA["rq.check_sla_deadlines<br/>• RQ activos vencidos o por vencer (3 días)<br/>• Notificación en la app al solicitante<br/>• dedup_key diaria"]
+            T_REM["rq.send_pending_approval_reminders<br/>• RQ en revisión humana por más de 24 h<br/>• Notificación en la app al aprobador<br/>• dedup_key"]
+            T_CACHE["rq.invalidate_dashboard_caches<br/>• Borra las claves dashboard_stats:*"]
+            T_STOCK["warehouse.check_low_stock<br/>• Productos con stock total ≤ stock mínimo<br/>• Correo a WAREHOUSE_ALERT_RECIPIENTS"]
+            T_IMP["warehouse.purge_stale_imports<br/>• Vence previsualizaciones<br/>• Borra los libros guardados"]
+            T_PDF["warehouse.upload_group_pdf<br/>• Genera el PDF del vale y lo sube a OneDrive<br/>• Reintentos con backoff"]
         end
     end
 
+    subgraph "Celery Worker RR. HH. (cola hr_cv)"
+        WHR["Worker Process"]
+        T_CV["hr.process_cv_item<br/>• Un CV = una tarea (idempotente)<br/>• Lee el CV con el agente y genera el reporte"]
+        T_REQ["hr.cv_requeue_stale<br/>• Reencola CVs atascados"]
+    end
+
     subgraph "Redis (DB2 — Results)"
-        RES["Resultados de tareas<br/>task_id → result<br/>TTL configurable"]
+        RES["Resultados de tareas<br/>task_id → result"]
     end
 
     subgraph "Celery Beat"
         SCHED["DatabaseScheduler<br/>(django_celery_beat)"]
 
-        subgraph "Schedule"
-            S1["check-sla-deadlines<br/>crontab(hour=8, minute=0)<br/>8:00 AM Lima diario"]
-            S2["send-pending-approval-reminders<br/>crontab(hour='9,14', minute=0)<br/>9:00 AM y 2:00 PM"]
-            S3["invalidate-dashboard-caches<br/>crontab(minute='*/15')<br/>Cada 15 minutos"]
-            S4["warehouse-low-stock-check<br/>crontab(hour=7, minute=30)<br/>7:30 AM Lima diario"]
+        subgraph "Schedule (America/Lima)"
+            S1["check-sla-deadlines<br/>crontab(hour=8, minute=0)"]
+            S2["send-pending-approval-reminders<br/>crontab(hour='9,14', minute=0)"]
+            S3["invalidate-dashboard-caches<br/>crontab(minute='*/15')"]
+            S4["warehouse-low-stock-check<br/>crontab(hour=7, minute=30)"]
+            S5["warehouse-purge-stale-imports<br/>crontab(hour=3, minute=0)"]
+            S6["hr-cv-requeue-stale<br/>crontab(minute='*/5')"]
         end
     end
 
     subgraph "External"
-        DB["PostgreSQL<br/>(ORM queries)"]
-        EMAIL["Office 365<br/>(SMTP notifications)"]
+        DB["Base de datos<br/>(ORM queries)"]
+        EMAIL["Servidor SMTP<br/>(alertas de stock bajo)"]
+        OD["OneDrive (Graph API)"]
+        AI["API de Anthropic"]
     end
 
-    T1 -->|.delay()| Q
+    T1 -->|".delay()"| Q
     T2 --> SCHED
-    SCHED --> S1 & S2 & S3 & S4
-    S1 & S2 & S3 & S4 -->|schedule| Q
+    SCHED --> S1 & S2 & S3 & S4 & S5 & S6
+    S1 & S2 & S3 & S4 & S5 -->|schedule| Q
+    S6 -->|schedule| Q
     Q --> W
-    W --> T_SLA & T_REM & T_CACHE & T_STOCK
+    Q --> WHR
+    W --> T_SLA & T_REM & T_CACHE & T_STOCK & T_IMP & T_PDF
+    WHR --> T_CV & T_REQ
     T_SLA --> DB
-    T_SLA --> EMAIL
     T_REM --> DB
-    T_REM --> EMAIL
-    T_CACHE --> RES
     T_STOCK --> DB
     T_STOCK --> EMAIL
+    T_IMP --> DB
+    T_PDF --> OD
+    T_CV --> DB
+    T_CV --> AI
     W --> RES
 ```
+
+Las notificaciones de las transiciones del RQ, de SLA y de recordatorios son notificaciones dentro de la aplicación (modelo `Notification`); el único correo que envía el sistema es la alerta de stock bajo. En el entorno `demo` no hay worker ni Beat: Celery corre en modo eager y las tareas programadas no se ejecutan.
 
 ### 7.2 Configuración de Celery
 
@@ -882,71 +1095,55 @@ graph LR
     end
 
     subgraph "config/settings/base.py"
-        CELCFG["CELERY_BROKER_URL = redis://.../1<br/>CELERY_RESULT_BACKEND = redis://.../2<br/>CELERY_TIMEZONE = 'America/Lima'<br/>CELERY_TASK_SERIALIZER = 'json'<br/>CELERY_TASK_TIME_LIMIT = 300<br/>CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True"]
+        CELCFG["CELERY_BROKER_URL = redis://.../1<br/>CELERY_RESULT_BACKEND = redis://.../2<br/>CELERY_TIMEZONE = 'America/Lima'<br/>CELERY_TASK_SERIALIZER = 'json'<br/>CELERY_TASK_TIME_LIMIT = 300<br/>CELERY_TASK_ROUTES: hr.* → cola hr_cv<br/>CELERY_BEAT_SCHEDULE (6 entradas)"]
     end
 
-    subgraph "apps/rq/tasks.py"
-        TASKS["@shared_task<br/>def check_sla_deadlines():<br/>    ...<br/><br/>@shared_task<br/>def send_pending_approval_reminders():<br/>    ...<br/><br/>@shared_task<br/>def invalidate_dashboard_caches():<br/>    ..."]
+    subgraph "Tareas (@shared_task)"
+        TASKS["apps/rq/tasks.py<br/>apps/warehouse/tasks.py<br/>apps/hr/tasks.py"]
     end
 
     CELAPP --> CELCFG
     CELAPP --> TASKS
 ```
 
+Procesos en Docker Compose local: `celery_worker` (`celery -A config worker`), `celery_worker_hr` (`celery -A config worker -Q hr_cv -c 3`) y `celery_beat` (`--scheduler django_celery_beat.schedulers:DatabaseScheduler`).
+
 ---
 
-## 8. Arquitectura de Cache y Sesiones
+## 8. Arquitectura de Caché y Sesiones
 
 ### 8.1 Distribución de Redis
 
 ```mermaid
 graph TB
     subgraph "Redis Server (:6379)"
-        subgraph "DB 0 — Cache"
-            C1["django-redis<br/>TTL: 300s (5 min)<br/>Key prefix: 'syspcclog'<br/>Max connections: 50"]
-            C2["Datos cacheados:<br/>• Dashboard KPIs<br/>• Listas de proyectos<br/>• Conteo de notificaciones<br/>• Queries frecuentes"]
+        subgraph "DB 0 — Caché (alias default)"
+            C1["django-redis<br/>TTL por defecto: 300 s<br/>Key prefix: 'syspcclog'<br/>Max connections: 50"]
+            C2["Usos verificados:<br/>• Contadores de rate limiting (DRF)<br/>• Sesiones de Django (panel /mgmt-panel/)<br/>• Tipo de cambio SUNAT (4 h)<br/>• Cuotas diarias del asistente de RR. HH."]
         end
 
         subgraph "DB 1 — Celery Broker"
-            B1["Cola de mensajes<br/>• Tareas pendientes<br/>• Formato JSON<br/>• FIFO ordering"]
+            B1["Cola de mensajes<br/>• Tareas pendientes<br/>• Formato JSON"]
         end
 
         subgraph "DB 2 — Celery Results"
-            R1["Resultados de tareas<br/>• task_id → result<br/>• Estado de ejecución<br/>• TTL automático"]
+            R1["Resultados de tareas<br/>• task_id → result<br/>• Estado de ejecución"]
         end
 
-        subgraph "Sessions"
-            SS["Django Sessions<br/>• SESSION_ENGINE = cache<br/>• Redis-backed<br/>• SESSION_COOKIE_AGE = 3600<br/>  (1 hora en producción)"]
+        subgraph "Sesiones"
+            SS["SESSION_ENGINE = cache<br/>Redis-backed<br/>SESSION_COOKIE_AGE = 3600 (producción)<br/>La API usa JWT en cookies, no sesiones"]
         end
     end
 ```
 
-### 8.2 Estrategia de Cache
+### 8.2 Uso de la caché en el código
 
-```mermaid
-sequenceDiagram
-    participant V as ViewSet
-    participant C as Redis Cache
-    participant DB as PostgreSQL
+La API no cachea listados ni consultas generales. Lo que existe es:
 
-    Note over V,DB: Patrón Cache-Aside
-
-    V->>C: cache.get('dashboard_kpi_project_42')
-
-    alt Cache HIT
-        C-->>V: Datos cacheados
-        Note over V: Retorna sin query a DB
-    else Cache MISS
-        C-->>V: None
-        V->>DB: SELECT count(*), sum(*) FROM ...
-        DB-->>V: Datos frescos
-        V->>C: cache.set('dashboard_kpi_project_42', data, timeout=300)
-        Note over V: Retorna datos frescos
-    end
-
-    Note over V,DB: Invalidación cada 15 min (Celery Beat)
-    Note over C: invalidate_dashboard_caches()<br/>cache.delete_pattern('dashboard_*')
-```
+- **Rate limiting**: los contadores de DRF viven en la caché indicada por `THROTTLE_CACHE_ALIAS`. Si se activa `DJANGO_REDIS_IGNORE_EXCEPTIONS`, producción los mueve a una caché local de proceso para que los límites no desaparezcan con una caída de Redis.
+- **Tipo de cambio**: `GET /administracion/tipo-cambio/` guarda la respuesta del servicio externo por 4 horas.
+- **Ayudantes de `apps/rq/cache.py`**: funciones para cachear los pasos del workflow y la configuración de tipos de adquisición (TTL de 1 hora) y para invalidar las claves `dashboard_stats:*`. Hoy solo se usa `safe_delete_pattern`, desde la tarea `rq.invalidate_dashboard_caches`; no hay llamadores de lectura/escritura de esas claves en vistas o servicios.
+- **Entorno demo**: la caché es `LocMemCache` (por proceso), sin Redis.
 
 ---
 
@@ -957,26 +1154,28 @@ sequenceDiagram
 ```mermaid
 erDiagram
     User ||--o{ UserRole : "has"
-    User ||--o| Personal : "linked_to"
+    User |o--o| Personal : "linked_to"
     User ||--o{ Request : "requested_by"
     User ||--o{ Approval : "performed_by"
     User ||--o{ PurchaseOrder : "generated_by"
     User ||--o{ InventoryMovement : "registered_by"
     User ||--o{ Ticket : "created_by"
-    User ||--o{ Pasaje : "creado_por"
+    User |o--o{ Pasaje : "creado_por"
+    User ||--o{ InventoryImport : "uploaded_by"
 
-    UserRole }o--|| Project : "scoped_to"
-    UserRole }o--|| Department : "scoped_to"
+    UserRole }o--o| Project : "scoped_to"
+    UserRole }o--o| Department : "scoped_to"
 
     Project ||--o{ ProjectBudgetLine : "has"
-    Project ||--o{ Request : "belongs_to"
-    Project ||--o{ InventoryStock : "scoped_to"
-    Project ||--o{ MovementGroup : "belongs_to"
-    Project ||--o{ Personal : "assigned_to"
+    Project |o--o{ Request : "belongs_to"
+    Project |o--o{ InventoryStock : "scoped_to"
+    Project |o--o{ MovementGroup : "belongs_to"
+    Project |o--o{ Personal : "assigned_to"
+    Project |o--o{ Inventory : "owner"
 
     Department ||--o{ AnnualPlan : "has"
-    Department ||--o{ Request : "belongs_to"
-    Department }o--|| User : "managed_by"
+    Department |o--o{ Request : "belongs_to"
+    Department }o--o| User : "managed_by"
 
     AnnualPlan ||--o{ AnnualPlanLine : "has"
 
@@ -985,6 +1184,11 @@ erDiagram
     Request ||--o{ Quotation : "has"
     Request ||--o{ PurchaseOrder : "has"
     Request ||--o{ Claim : "has"
+    Request ||--o{ Notification : "has"
+    Request ||--o{ ActivityLog : "has"
+    Request ||--o{ Attachment : "has"
+    Request ||--o{ WarehouseReceipt : "received_in"
+    Request ||--o{ WarehouseDispatch : "dispatched_from"
     Request }o--o| ProjectBudgetLine : "charged_to"
     Request }o--o| AnnualPlanLine : "charged_to"
     Request }o--o| WorkflowStep : "current_step"
@@ -1000,16 +1204,29 @@ erDiagram
     PurchaseOrder ||--o{ PurchaseOrderItem : "contains"
     PurchaseOrderItem }o--|| RequestItem : "for"
 
+    WarehouseReceipt ||--o{ WarehouseReceiptItem : "contains"
+    WarehouseReceipt }o--o| PurchaseOrder : "for"
+    WarehouseReceipt |o--o| MovementGroup : "entry"
+    WarehouseDispatch ||--o{ WarehouseDispatchItem : "contains"
+    WarehouseDispatch |o--o| MovementGroup : "exit"
+
     Inventory ||--o{ InventoryStock : "stocked_at"
     Inventory ||--o{ InventoryMovement : "tracked_by"
 
     InventoryMovement }o--o| MovementGroup : "grouped_in"
+    InventoryMovement }o--o| InventoryImport : "imported_by"
+    InventoryMovement }o--o| Personal : "destination_personal"
 
     Pasaje }o--o| Personal : "for"
-    Pasaje }o--|| ProveedorPasajes : "from"
-    Pasaje }o--|| Project : "charged_to"
+    Pasaje }o--o| ProveedorPasajes : "from"
+    Pasaje }o--o| Project : "charged_to"
 
     Ticket ||--o{ TicketComment : "has"
+
+    DocumentTemplate ||--o{ GeneratedDocument : "used_by"
+    GeneratedDocument }o--o| Personal : "for"
+    GeneratedDocument ||--o{ DocumentEvent : "has"
+    CVAnalysis ||--o{ CVAnalysisItem : "contains"
 
     User {
         int id PK
@@ -1020,6 +1237,7 @@ erDiagram
         string position
         string phone
         image signature
+        bool must_change_password
     }
 
     UserRole {
@@ -1027,7 +1245,7 @@ erDiagram
         int user_id FK
         string role
         int project_id FK
-        int department_id FK
+        int department_obj_id FK
         bool is_primary
     }
 
@@ -1053,6 +1271,7 @@ erDiagram
         int id PK
         string code UK
         string name
+        string frente
         int manager_id FK
     }
 
@@ -1063,6 +1282,7 @@ erDiagram
         int project_id FK
         int department_id FK
         int requested_by_id FK
+        string requesting_area
         string status
         string priority
         decimal estimated_cost
@@ -1078,6 +1298,11 @@ erDiagram
         string unit
         decimal unit_price
         decimal total_price
+        string supply_source
+        string item_source
+        int inventory_item_id FK
+        bool is_off_catalog
+        datetime inventory_item_confirmed_at
     }
 
     Approval {
@@ -1124,6 +1349,8 @@ erDiagram
         string description
         string unit
         string item_type
+        string location
+        int floor
         decimal min_stock
     }
 
@@ -1142,6 +1369,23 @@ erDiagram
         int inventory_id FK
         decimal quantity
         int group_id FK
+        string voucher_number
+        date movement_date
+    }
+
+    MovementGroup {
+        int id PK
+        string group_number UK
+        string movement_type
+        string warehouse
+        string voucher_number
+    }
+
+    InventoryImport {
+        uuid id PK
+        string status
+        string file_sha256
+        int uploaded_by_id FK
     }
 
     Pasaje {
@@ -1161,6 +1405,37 @@ erDiagram
         string priority
         string status
     }
+
+    DocumentTemplate {
+        int id PK
+        string document_type
+        string slug
+        int version
+        bool is_active
+    }
+
+    GeneratedDocument {
+        int id PK
+        int template_id FK
+        int personal_id FK
+        string status
+        string reference_number UK
+    }
+
+    CVAnalysis {
+        int id PK
+        string name
+        int created_by_id FK
+    }
+
+    CVAnalysisItem {
+        int id PK
+        int analysis_id FK
+        string status
+        string sha256
+        int score
+        string recommendation
+    }
 ```
 
 ---
@@ -1170,23 +1445,24 @@ erDiagram
 ```mermaid
 graph TB
     subgraph "Configuración de Throttle"
-        subgraph "Desarrollo"
+        subgraph "Desarrollo (development.py)"
             DEV_ANON["Anónimo: 300/min"]
             DEV_AUTH["Autenticado: 1000/min"]
-            DEV_LOGIN["Login: 30/min"]
+            DEV_LOGIN["Login: 30/min por IP<br/>y 30/min por usuario"]
         end
 
-        subgraph "Producción"
+        subgraph "Producción (base.py)"
             PROD_ANON["Anónimo: 30/min"]
             PROD_AUTH["Autenticado: 200/min"]
-            PROD_LOGIN["Login: 5/min"]
+            PROD_LOGIN["Login: 5/min por IP<br/>y 10/min por usuario"]
+            PROD_MOD["Módulos: hr_assistant 20/min<br/>hr_download 60/min<br/>hr_cv_upload 60/min · hr_cv_progress 90/min<br/>hr_cv_posting 20/min<br/>warehouse_lookup 120/min · warehouse_import 10/hora"]
         end
     end
 
     subgraph "Flujo de Verificación"
         REQ2["Request entrante"]
-        CHECK["DRF Throttle Check<br/>AnonRateThrottle<br/>UserRateThrottle"]
-        CACHE2["Redis Cache<br/>Almacena conteo<br/>por IP/user"]
+        CHECK["DRF Throttle Check<br/>AnonThrottle · UserThrottle<br/>+ throttles propios del módulo"]
+        CACHE2["Caché (THROTTLE_CACHE_ALIAS)<br/>Almacena el conteo por IP/usuario"]
         PASS["✅ Pasa<br/>Continúa a View"]
         BLOCK["❌ 429 Too Many Requests<br/>Retry-After header"]
     end
@@ -1197,7 +1473,9 @@ graph TB
     CACHE2 -->|Sobre límite| BLOCK
 ```
 
+El catálogo de búsqueda de RQ (`/request-catalog/`) tiene su propio throttle (`RequestCatalogThrottle`) además del de usuario.
+
 ---
 
-*Documento generado para SYSPCC v1.0 — PCC Ingeniería y Construcción*
-*Última actualización: Abril 2026*
+*Documento de arquitectura de bajo nivel de SYSPCC — PCC Ingeniería y Construcción*
+*Última actualización: Octubre 2026 (código al día con SYSPCC-026)*

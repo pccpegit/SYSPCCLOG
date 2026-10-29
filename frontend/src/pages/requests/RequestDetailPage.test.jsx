@@ -10,6 +10,10 @@ import * as requestsApi from '../../api/requests';
 // y el vínculo con el catálogo (o "Fuera de catálogo" / "Sin vincular").
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
+// SYSPCC-030: el detalle incluye el seguimiento por ítem; aquí no es el objeto de la prueba.
+vi.mock('../../api/requestMaster', () => ({
+  getRequestMaster: vi.fn(() => new Promise(() => {})),
+}));
 
 function buildRequest(overrides = {}) {
   return {

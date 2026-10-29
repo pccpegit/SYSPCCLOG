@@ -51,6 +51,7 @@ import DashboardPage       from './pages/dashboard/DashboardPage';
 import RequestCreatePage   from './pages/requests/RequestCreatePage';
 import RequestListPage     from './pages/requests/RequestListPage';
 import RequestDetailPage   from './pages/requests/RequestDetailPage';
+import RequestMasterPage   from './pages/requests/RequestMasterPage';
 import ApprovalsPage       from './pages/approvals/ApprovalsPage';
 import TechReviewPage      from './pages/approvals/TechReviewPage';
 import BudgetReviewPage    from './pages/approvals/BudgetReviewPage';
@@ -89,6 +90,7 @@ export default function App() {
             <Route path="requests"     element={<RequestListPage />}   />
             <Route path="requests/new" element={<RequestCreatePage />} />
             <Route path="requests/:id" element={<RequestDetailPage />} />
+            <Route path="master"       element={<RequestMasterPage />} />
             <Route path="approvals"    element={<ApprovalsPage />}     />
 
             <Route

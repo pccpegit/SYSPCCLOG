@@ -24,6 +24,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import LifecycleBar from '../../components/requests/LifecycleBar';
 import ApprovalChain from '../../components/requests/ApprovalChain';
+import ItemTrackingSection from '../../components/requestMaster/ItemTrackingSection';
 import { describeItemLink, itemSourceLabel, requestingAreaLabel } from '../../data/requestCapture';
 
 // ---------------------------------------------------------------------------
@@ -1045,6 +1046,9 @@ export default function RequestDetailPage() {
 
         </div>
       </div>
+
+      {/* SYSPCC-030 — seguimiento por ítem (Master de RQ) */}
+      <ItemTrackingSection requestId={req.id} />
 
       {/* Historial section - full width */}
       <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-6">

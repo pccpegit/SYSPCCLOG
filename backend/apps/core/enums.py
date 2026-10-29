@@ -151,6 +151,17 @@ class RequestingAreaChoices(models.TextChoices):
     ADM = 'ADM', _('Administración (ADM)')
 
 
+class AttentionOverrideChoices(models.TextChoices):
+    """
+    SYSPCC-030: the only manual decision on the attention status of a request line
+    (Master de RQ). Set by logistics with a mandatory reason; it never changes the
+    status of the RQ nor any workflow transition.
+    """
+
+    STAND_BY = 'STAND_BY', _('Stand by')
+    DESESTIMADO = 'DESESTIMADO', _('Desestimado')
+
+
 class ItemSourceChoices(models.TextChoices):
     """
     SYSPCC-026: product family of a request line (the "Fuente" column of the

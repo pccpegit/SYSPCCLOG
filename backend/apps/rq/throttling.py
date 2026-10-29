@@ -23,3 +23,19 @@ class RequestCatalogThrottle(ThrottleCacheMixin, UserRateThrottle):
 
     def get_rate(self):
         return self.THROTTLE_RATES.get(self.scope) or self.DEFAULT_RATE
+
+
+class RequestMasterExportThrottle(ThrottleCacheMixin, UserRateThrottle):
+    """
+    Per-user limit for the Master de RQ Excel export (scope ``rq_master_export``, SYSPCC-030).
+
+    The export recomputes the whole filtered Master in the server, so it gets its own, tighter
+    ceiling on top of the global per-user limit. The default applies when the scope is not
+    configured in the REST_FRAMEWORK settings.
+    """
+
+    scope = 'rq_master_export'
+    DEFAULT_RATE = '10/min'
+
+    def get_rate(self):
+        return self.THROTTLE_RATES.get(self.scope) or self.DEFAULT_RATE

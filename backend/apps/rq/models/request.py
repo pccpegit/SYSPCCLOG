@@ -20,6 +20,7 @@ from apps.core.enums import (
     BudgetClassificationChoices,
     RequestingAreaChoices,
     ItemSourceChoices,
+    AttentionOverrideChoices,
 )
 
 
@@ -367,6 +368,22 @@ class RequestItem(models.Model):
         help_text=_('Familia del ítem (EPP, herramientas, materiales, etc.)'),
     )
     comentarios = models.TextField(_('comentarios'), blank=True)
+    # SYSPCC-030 (Master de RQ): the ONLY manual decision on the attention status of a
+    # line. Everything else in the Master (status, attended quantity, dates) is derived
+    # from the warehouse movements. Who/when is audited in ActivityLog, not here.
+    attention_override = models.CharField(
+        _('seguimiento manual'),
+        max_length=16,
+        choices=AttentionOverrideChoices.choices,
+        blank=True,
+        help_text=_('Stand by o Desestimado, fijado por Logística. Vacío = estado derivado.'),
+    )
+    attention_note = models.CharField(
+        _('motivo del seguimiento manual'),
+        max_length=300,
+        blank=True,
+        help_text=_('Obligatorio mientras haya un seguimiento manual.'),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -382,6 +399,16 @@ class RequestItem(models.Model):
             models.CheckConstraint(
                 condition=~(models.Q(inventory_item__isnull=False) & models.Q(is_off_catalog=True)),
                 name='request_item_not_linked_and_off_catalog',
+            ),
+            # SYSPCC-030: a manual attention status always carries its reason, and only
+            # the two known values are storable.
+            models.CheckConstraint(
+                condition=models.Q(attention_override='') | ~models.Q(attention_note=''),
+                name='request_item_override_requires_note',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(attention_override__in=['', *AttentionOverrideChoices.values]),
+                name='request_item_override_valid_value',
             ),
         ]
 

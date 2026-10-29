@@ -1,458 +1,430 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowDownToLine, Search, CheckCircle, RotateCcw, Plus, Trash2, Download } from 'lucide-react';
-import { getInventory, registerEntryBatch } from '../../api/almacen';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import {
+  ArrowDownToLine, CheckCircle, Download, Loader2, MapPinOff, Plus, RotateCcw, Trash2,
+} from 'lucide-react';
+import { downloadGroupPdf, getInventory, registerEntryBatch } from '../../api/almacen';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import useFileDownload from '../../hooks/useFileDownload';
+import useFocusFirstInvalid from '../../hooks/useFocusFirstInvalid';
 import NumberInput from '../../components/ui/NumberInput';
-import { ucFirst, fmtNum } from '../../utils/format';
-import { WAREHOUSES } from '../../data/almacenConstants';
+import ClearFormDialog from '../../components/almacen/ClearFormDialog';
+import ItemCombobox from '../../components/almacen/ItemCombobox';
+import { Banner, Card, ErrorBlock, Field, FocusHeading, LoadingBlock, PageHeader } from '../../components/almacen/ui';
+import { btnPrimary, btnSecondary, inputCls } from '../../components/almacen/uiStyles';
+import { ENTRY_SOURCES, FLOOR_OPTIONS, WAREHOUSES } from '../../data/almacenConstants';
+import { LOGISTICS_ROLES } from '../../data/almacenRoles';
+import { extractErrorMessage } from '../../utils/apiErrors';
+import {
+  compact, countErrors, formatQty, floorLabel, hasAnyRole, localISODate, nextLineId, validateMovementDate, validateQuantity,
+} from '../../utils/almacen';
 
-const SOURCE_TYPES = [
-  { value: 'PURCHASE',     label: 'Compra'            },
-  { value: 'RETURN',       label: 'Devolucion'        },
-  { value: 'TRANSFER_IN',  label: 'Traslado entrante' },
-  { value: 'INITIAL_LOAD', label: 'Carga inicial'     },
-];
+const newLine = (inventory = '') => ({ id: nextLineId(), inventory, quantity: '', tag: '', notes: '' });
 
-const EMPTY_HEADER = {
-  warehouse: 'CENTRAL',
+const makeHeader = (siteOnly = false) => ({
+  movement_date: localISODate(),
+  warehouse: siteOnly ? 'SITE' : 'CENTRAL',
   source_type: 'PURCHASE',
   supplier_name: '',
+  po_number: '',
+  guide_number: '',
   invoice_number: '',
+  internal: false,
+  origin_floor: '',
   notes: '',
-};
+});
 
-const newItemRow = () => ({ id: crypto.randomUUID(), inventory_item: '', quantity: '' });
+// Origen sin guía de remisión que aplicar (no hay documento de transporte).
+const NO_GUIDE_SOURCES = new Set(['INITIAL_LOAD', 'ADJUSTMENT']);
 
-// ── Item search ──────────────────────────────────────────────────────────────
-
-function ItemSearchSelect({ allItems, value, onChange, loading, accentColor = 'emerald' }) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen]   = useState(false);
-  const selected = allItems.find((i) => String(i.id) === String(value));
-  const filtered = query
-    ? allItems.filter((i) =>
-        (i.product_code ?? '').toLowerCase().includes(query.toLowerCase()) ||
-        (i.description ?? '').toLowerCase().includes(query.toLowerCase()))
-    : allItems;
-
-  const focusCls = accentColor === 'emerald'
-    ? 'focus:ring-emerald-500 focus:border-emerald-500'
-    : 'focus:ring-rose-500 focus:border-rose-500';
-  const hoverCls = accentColor === 'emerald' ? 'hover:border-emerald-400' : 'hover:border-rose-400';
-  const rowHoverCls = accentColor === 'emerald' ? 'hover:bg-emerald-50 dark:hover:bg-emerald-500/10' : 'hover:bg-rose-50 dark:hover:bg-rose-500/10';
-
-  return (
-    <div className="relative">
-      {selected && !open ? (
-        <div
-          className={`flex items-center justify-between w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-white cursor-pointer ${hoverCls} transition-colors`}
-          onClick={() => { setOpen(true); setQuery(''); }}
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-mono text-xs text-gray-400 shrink-0">{selected.product_code}</span>
-            <span className="text-gray-800 font-medium truncate">{selected.description}</span>
-          </div>
-          <span className="text-xs text-gray-400 ml-2 shrink-0">{ucFirst(selected.unit)}</span>
-        </div>
-      ) : (
-        <div className="relative">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-300" />
-          <input
-            autoFocus={open}
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
-            placeholder="Buscar item..."
-            className={`w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 ${focusCls} bg-gray-50/50 focus:bg-white transition-colors`}
-          />
-        </div>
-      )}
-
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-xl shadow-xl shadow-black/8 z-20 max-h-56 overflow-y-auto">
-            {loading ? (
-              <div className="px-4 py-4 text-sm text-gray-400 text-center">Cargando...</div>
-            ) : filtered.length === 0 ? (
-              <div className="px-4 py-4 text-sm text-gray-400 text-center">Sin resultados</div>
-            ) : (
-              filtered.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => { onChange(String(item.id)); setQuery(''); setOpen(false); }}
-                  className={`w-full flex items-center justify-between px-4 py-2.5 text-sm ${rowHoverCls} text-left transition-colors first:rounded-t-xl last:rounded-b-xl`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-mono text-xs text-gray-400 shrink-0">{item.product_code}</span>
-                    <span className="text-gray-800 truncate">{item.description}</span>
-                  </div>
-                  <span className="text-xs text-gray-400 ml-2 shrink-0">
-                    Stock: {item.total_stock ?? 0} {ucFirst(item.unit)}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Shared form helpers ───────────────────────────────────────────────────────
-
-const inputCls = (hasError) =>
-  `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
-    hasError ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400' : 'border-gray-200 focus:ring-emerald-500 focus:border-emerald-500'
-  } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
-
-function Field({ label, required, id, error, hint, children }) {
-  return (
-    <div>
-      <label htmlFor={id} className="block text-xs font-semibold text-gray-600 mb-1.5 font-display">
-        {label}{required && <span className="text-red-400 ml-0.5">*</span>}
-      </label>
-      {children}
-      {hint && !error && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
-      {error && <p className="text-[11px] text-red-500 mt-1 font-medium">{error}</p>}
-    </div>
-  );
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────────
-
+/**
+ * Ingreso de material (fases 1 a 3 del ciclo del almacén): fecha del movimiento,
+ * documentos de recepción (PO/OC, guía de remisión, factura), TAG y observación.
+ * La ubicación exacta se asigna después en Inventario (fase 3).
+ */
 export default function EntradaPage() {
-  const navigate = useNavigate();
   const { showToast } = useToast();
+  const { userRoles } = useAuth();
+  const [searchParams] = useSearchParams();
+  const preselected = searchParams.get('item') ?? '';
+  const download = useFileDownload();
 
-  const [header, setHeader]   = useState(EMPTY_HEADER);
-  const [lineItems, setLineItems] = useState([newItemRow()]);
-  const [allItems, setAllItems]   = useState([]);
-  const [loadingItems, setLoadingItems] = useState(true);
-  const [saving, setSaving]       = useState(false);
-  const [savingStep, setSavingStep] = useState('');
-  const [errors, setErrors]       = useState({});
-  const [success, setSuccess]     = useState(false);
-  const [groupId, setGroupId]     = useState(null);
+  // Only «Almacén de Obra» (no Central role and no logistics role) is bound to the site warehouse:
+  // the server answers 403 for any other warehouse, so don't let the form get filled in first.
+  const siteOnly = userRoles.includes('SITE_WAREHOUSE')
+    && !userRoles.includes('CENTRAL_WAREHOUSE')
+    && !hasAnyRole(userRoles, LOGISTICS_ROLES);
 
-  useEffect(() => {
-    getInventory({ no_page: true })
-      .then((res) => {
-        const data = res.data?.results ?? res.data ?? [];
-        setAllItems(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingItems(false));
+  const [header, setHeader] = useState(() => makeHeader(siteOnly));
+  const [lines, setLines] = useState(() => [newLine(preselected)]);
+  const [catalog, setCatalog] = useState({ status: 'loading', items: [] });
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [result, setResult] = useState(null);
+  const [submitError, setSubmitError] = useState('');
+  const [clearOpen, setClearOpen] = useState(false);
+  const inFlight = useRef(false);
+  const addButtonRef = useRef(null);
+  const { formRef, focusFirstInvalid } = useFocusFirstInvalid();
+
+  const loadCatalog = useCallback(async () => {
+    try {
+      const res = await getInventory({ no_page: true });
+      const data = res.data?.results ?? res.data ?? [];
+      setCatalog({ status: 'ready', items: Array.isArray(data) ? data : [] });
+    } catch {
+      setCatalog({ status: 'error', items: [] });
+    }
   }, []);
 
-  const setH = (field, value) => setHeader((prev) => ({ ...prev, [field]: value }));
+  useEffect(() => {
+    const timer = setTimeout(loadCatalog, 0);
+    return () => clearTimeout(timer);
+  }, [loadCatalog]);
 
-  const addItem = () => setLineItems((prev) => [...prev, newItemRow()]);
-  const removeItem = (id) => setLineItems((prev) => prev.filter((i) => i.id !== id));
-  const updateItem = (id, field, value) =>
-    setLineItems((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
+  const itemById = (id) => catalog.items.find((i) => String(i.id) === String(id));
+  const setH = (field) => (e) => setHeader((prev) => ({ ...prev, [field]: e.target.value }));
+  const updateLine = (id, field, value) =>
+    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: value } : l)));
+
+  const addLine = () => {
+    const line = newLine();
+    setLines((prev) => [...prev, line]);
+    setTimeout(() => document.getElementById(`entry-item-${line.id}`)?.focus(), 0);
+  };
+  // Al quitar una fila el foco pasa a la fila vecina (o a «Agregar ítem»): no se pierde en el body.
+  const removeLine = (id) => {
+    const idx = lines.findIndex((l) => l.id === id);
+    const neighbour = lines[idx - 1] ?? lines[idx + 1];
+    setLines((prev) => prev.filter((l) => l.id !== id));
+    setTimeout(() => {
+      const target = neighbour ? document.getElementById(`entry-item-${neighbour.id}`) : null;
+      (target ?? addButtonRef.current)?.focus();
+    }, 0);
+  };
+  // Ctrl+Enter (o Cmd+Enter) en «Cantidad» agrega otro ítem si el actual está completo.
+  // Enter a secas envía el formulario, igual que en el resto de los campos.
+  const onQuantityKeyDown = (line) => (e) => {
+    if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.target.tagName !== 'INPUT') return;
+    e.preventDefault();
+    if (line.inventory && Number(line.quantity) > 0) addLine();
+  };
+
+  const effectiveSource = header.internal ? 'TRANSFER_IN' : header.source_type;
+  const dateCheck = validateMovementDate(header.movement_date);
+  const showGuideWarning = !header.guide_number.trim() && !NO_GUIDE_SOURCES.has(effectiveSource);
 
   const validate = () => {
-    const errs = {};
-    if (!header.warehouse) errs.warehouse = 'Seleccione almacen.';
-    lineItems.forEach((row, idx) => {
-      if (!row.inventory_item) errs[`item_${idx}_inventory`] = 'Seleccione un item.';
-      if (!row.quantity || Number(row.quantity) <= 0) errs[`item_${idx}_qty`] = 'Cantidad invalida.';
+    const errs = { lines: {} };
+    if (dateCheck.error) errs.movement_date = dateCheck.error;
+    if (header.internal && !header.origin_floor) errs.origin_floor = 'Indique el piso de origen.';
+    lines.forEach((line) => {
+      const item = itemById(line.inventory);
+      const lineErrs = {};
+      if (!line.inventory) lineErrs.item = 'Seleccione un ítem.';
+      else if (!item) lineErrs.item = 'El ítem seleccionado no existe.';
+      const qtyError = validateQuantity(line.quantity, item?.unit);
+      if (qtyError) lineErrs.qty = qtyError;
+      if (Object.keys(lineErrs).length) errs.lines[line.id] = lineErrs;
     });
     return errs;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const hasErrors = (errs) => Boolean(errs.movement_date || errs.origin_floor || Object.keys(errs.lines).length);
+
+  const submit = async (another) => {
+    if (inFlight.current || catalog.status !== 'ready') return;
     const errs = validate();
-    if (Object.keys(errs).length) { setErrors(errs); return; }
-    setErrors({});
+    setErrors(errs);
+    if (hasErrors(errs)) {
+      focusFirstInvalid();
+      return;
+    }
+
+    inFlight.current = true;
     setSaving(true);
-    setSavingStep('registering');
+    setSubmitError('');
+    const touched = lines.map((l) => itemById(l.inventory)).filter(Boolean);
     try {
-      const stepTimer  = setTimeout(() => setSavingStep('generating'), 800);
-      const stepTimer2 = setTimeout(() => setSavingStep('uploading'), 2000);
-
-      const res = await registerEntryBatch({
-        items: lineItems.map((row) => ({
-          inventory: Number(row.inventory_item),
-          quantity:  Number(row.quantity),
+      const { data } = await registerEntryBatch({
+        items: lines.map((l) => compact({
+          inventory: Number(l.inventory),
+          quantity: Number(l.quantity),
+          tag: l.tag.trim(),
+          notes: l.notes.trim(),
         })),
-        warehouse:      header.warehouse,
-        source_type:    header.source_type,
-        supplier_name:  header.supplier_name  || undefined,
-        invoice_number: header.invoice_number || undefined,
-        notes:          header.notes          || undefined,
+        ...compact({
+          warehouse: header.warehouse,
+          source_type: effectiveSource,
+          movement_date: header.movement_date,
+          supplier_name: header.supplier_name,
+          po_number: header.po_number,
+          guide_number: header.guide_number,
+          invoice_number: header.invoice_number,
+          internal_transfer: header.internal ? `Desde ${floorLabel(Number(header.origin_floor))}` : '',
+          notes: header.notes,
+        }),
       });
-
-      clearTimeout(stepTimer);
-      clearTimeout(stepTimer2);
-
-      const gId = res.data?.id;
-      setGroupId(gId);
-
-      // Auto-download PDF
-      if (gId) {
-        try {
-          const pdfUrl = `/api/v1/warehouse/movements/groups/${gId}/pdf/`;
-          const link = document.createElement('a');
-          link.href = pdfUrl;
-          link.download = '';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        } catch { /* silent */ }
+      const pending = new Set(touched.filter((i) => i.location_status !== 'EXACT').map((i) => i.id)).size;
+      const groupNumber = data?.group_number ?? '';
+      // The voucher number is only part of the message when the server returned one.
+      showToast({ type: 'success', message: groupNumber ? `Ingreso registrado. Vale interno ${groupNumber}` : 'Ingreso registrado.' });
+      loadCatalog();
+      if (another) {
+        setLines([newLine()]);
+        setErrors({});
+        setTimeout(() => document.querySelector('[id^="entry-item-"]')?.focus(), 0);
+      } else {
+        setResult({ groupId: data?.id, groupNumber, count: lines.length, pending });
       }
-
-      showToast({ type: 'success', message: 'Entrada registrada correctamente.' });
-      setSuccess(true);
     } catch (err) {
-      showToast({ type: 'error', message: err.response?.data?.detail ?? 'No se pudo registrar la entrada.' });
+      // Además del aviso pasajero, queda un mensaje fijo junto a los botones hasta el próximo intento.
+      const message = extractErrorMessage(err, 'No se pudo registrar el ingreso. Intente nuevamente.');
+      setSubmitError(message);
+      showToast({ type: 'error', message, duration: 8000 });
     } finally {
+      inFlight.current = false;
       setSaving(false);
-      setSavingStep('');
     }
   };
 
-  const handleReset = () => {
-    setHeader(EMPTY_HEADER);
-    setLineItems([newItemRow()]);
+  const reset = () => {
+    setHeader(makeHeader(siteOnly));
+    setLines([newLine()]);
     setErrors({});
-    setSuccess(false);
+    setSubmitError('');
+    setResult(null);
   };
 
-  if (success) {
+  const dirty = lines.some((l) => l.inventory || l.quantity || l.tag.trim() || l.notes.trim())
+    || Boolean(header.supplier_name.trim() || header.po_number.trim() || header.guide_number.trim()
+      || header.invoice_number.trim() || header.notes.trim() || header.internal);
+  // «Limpiar formulario» no es un cancelar: borra lo cargado, así que con datos pide confirmación.
+  const requestClear = () => {
+    if (dirty) setClearOpen(true);
+    else reset();
+  };
+  const errorCount = countErrors(errors);
+
+  if (result) {
     return (
       <div className="max-w-lg mx-auto mt-8 sm:mt-16">
-        <div className="bg-white rounded-2xl border border-gray-100 p-8 sm:p-10 text-center">
+        <Card className="p-8 sm:p-10 text-center">
           <div className="w-16 h-16 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center mx-auto mb-5">
-            <CheckCircle size={32} className="text-emerald-500" />
+            <CheckCircle size={32} className="text-emerald-500" aria-hidden="true" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2 font-display">Entrada registrada</h2>
-          <p className="text-sm text-gray-500 mb-6">
-            {lineItems.length} item{lineItems.length !== 1 ? 's' : ''} registrado{lineItems.length !== 1 ? 's' : ''} correctamente en el sistema.
+          <FocusHeading>Ingreso registrado</FocusHeading>
+          <p className="text-sm text-gray-600 mb-1">
+            {result.count} {result.count === 1 ? 'ítem registrado' : 'ítems registrados'}.
+            {result.groupNumber && <> Vale interno <strong className="font-mono">{result.groupNumber}</strong>.</>}
           </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            {groupId && (
-              <a
-                href={`/api/v1/warehouse/movements/groups/${groupId}/pdf/`}
-                download
-                className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-all duration-150 shadow-lg shadow-emerald-600/20 active:scale-[0.97] active:shadow-md font-display"
+          {result.pending > 0 && (
+            <Banner tone="amber" className="mt-4 text-left">
+              <span>
+                {result.pending} {result.pending === 1 ? 'ítem quedó pendiente' : 'ítems quedaron pendientes'} de ubicar.{' '}
+                <Link to="/almacen/inventario?pendientes=1" className="font-semibold underline">Asignar ubicación en Inventario</Link>
+              </span>
+            </Banner>
+          )}
+          <div className="flex flex-col sm:flex-row gap-3 mt-6">
+            {result.groupId && (
+              <button
+                type="button"
+                onClick={() => download.run(() => downloadGroupPdf(result.groupId), `${result.groupNumber || 'vale'}.pdf`, 'No se pudo descargar el vale. Intente nuevamente.')}
+                aria-disabled={download.busy}
+                className={`${btnPrimary} flex-1`}
               >
-                <Download size={16} /> Descargar vale
-              </a>
+                <Download size={16} aria-hidden="true" /> Descargar vale
+              </button>
             )}
-            <button
-              onClick={handleReset}
-              className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-[0.97] transition-all duration-150 font-display"
-            >
-              <RotateCcw size={16} /> Nueva entrada
+            <button type="button" onClick={reset} className={`${btnSecondary} flex-1`}>
+              <RotateCcw size={16} aria-hidden="true" /> Registrar otro ingreso
             </button>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* ── Header ── */}
-      <div className="flex items-center gap-3">
-        <div className="w-11 h-11 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-100 dark:ring-emerald-500/30 flex items-center justify-center">
-          <ArrowDownToLine size={20} className="text-emerald-600 dark:text-emerald-400" />
-        </div>
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 font-display tracking-tight">Registrar Entrada</h1>
-          <p className="text-sm text-gray-400">Ingreso de materiales al almacen</p>
-        </div>
-      </div>
+      <PageHeader title="Ingreso de material" subtitle="Registre lo recibido en el almacén (recepción, control y almacenamiento)." icon={ArrowDownToLine} />
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* ── Header fields ── */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-7 space-y-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide font-display">Datos generales</p>
+      <form ref={formRef} onSubmit={(e) => { e.preventDefault(); submit(false); }} noValidate className="space-y-5">
+        <Card className="p-5 sm:p-7 space-y-5">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide font-display">Datos generales</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Almacen" required id="warehouse" error={errors.warehouse}>
-              <select id="warehouse" value={header.warehouse} onChange={(e) => setH('warehouse', e.target.value)} className={inputCls(!!errors.warehouse)}>
+            <Field label="Fecha del ingreso" required error={errors.movement_date}>
+              <input type="date" value={header.movement_date} max={localISODate()} onChange={setH('movement_date')} className={inputCls(!!errors.movement_date)} />
+            </Field>
+            <Field label="Almacén" required hint={siteOnly ? 'Su rol solo opera el almacén de obra.' : undefined}>
+              <select value={header.warehouse} onChange={setH('warehouse')} disabled={siteOnly} className={inputCls()}>
                 {WAREHOUSES.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
               </select>
             </Field>
-            <Field label="Tipo de origen" required id="source_type">
-              <div className="grid grid-cols-2 gap-2">
-                {SOURCE_TYPES.map((s) => (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => setH('source_type', s.value)}
-                    className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all duration-150 active:scale-[0.95] font-display ${
-                      header.source_type === s.value
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-300 dark:ring-emerald-500/30'
-                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </Field>
           </div>
+          {dateCheck.warning && <Banner tone="amber" live>{dateCheck.warning}</Banner>}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Proveedor" id="supplier_name">
-              <input id="supplier_name" value={header.supplier_name} onChange={(e) => setH('supplier_name', e.target.value)} className={inputCls(false)} placeholder="Nombre (opcional)" />
+            <Field label="Origen" required>
+              <select value={effectiveSource} disabled={header.internal} onChange={setH('source_type')} className={inputCls()}>
+                {ENTRY_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
             </Field>
-            <Field label="N. Factura / Guia" id="invoice_number">
-              <input id="invoice_number" value={header.invoice_number} onChange={(e) => setH('invoice_number', e.target.value)} className={inputCls(false)} placeholder="F001-000123 (opcional)" />
+            <Field label="Proveedor">
+              <input value={header.supplier_name} onChange={setH('supplier_name')} className={inputCls()} placeholder="Nombre (opcional)" />
             </Field>
           </div>
 
-          <Field label="Notas" id="notes">
-            <textarea id="notes" value={header.notes} onChange={(e) => setH('notes', e.target.value)} rows={2} className={`${inputCls(false)} resize-none`} placeholder="Observaciones adicionales (opcional)" />
-          </Field>
-        </div>
-
-        {/* ── Item list ── */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide font-display">
-              Items a ingresar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 font-bold font-display">{lineItems.length}</span>
-            </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <Field label="PO / OC">
+              <input value={header.po_number} onChange={setH('po_number')} className={inputCls()} placeholder="Opcional" />
+            </Field>
+            <Field label="Guía de remisión">
+              <input value={header.guide_number} onChange={setH('guide_number')} className={inputCls()} placeholder="T001-000123" />
+            </Field>
+            <Field label="Factura">
+              <input value={header.invoice_number} onChange={setH('invoice_number')} className={inputCls()} placeholder="F001-000123" />
+            </Field>
           </div>
+          {showGuideWarning && (
+            <Banner tone="amber">Sin guía de remisión: se registrará, pero la recepción quedará sin documento.</Banner>
+          )}
 
           <div className="space-y-3">
-            {lineItems.map((row, idx) => (
-              <div key={row.id} className="relative rounded-xl border border-gray-100 bg-gray-50/40 p-4">
-                {/* Row number */}
-                <span className="absolute -top-2.5 left-3.5 px-2 py-0.5 rounded-md bg-white border border-gray-200 text-[10px] font-bold text-gray-400">
-                  #{idx + 1}
-                </span>
+            <label className="flex items-center gap-2 min-h-11 cursor-pointer select-none w-fit">
+              <input
+                type="checkbox"
+                checked={header.internal}
+                onChange={(e) => setHeader((prev) => ({ ...prev, internal: e.target.checked, origin_floor: e.target.checked ? prev.origin_floor : '' }))}
+                className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-700">Es transferencia interna</span>
+            </label>
+            {header.internal && (
+              <Field label="Piso de origen" required error={errors.origin_floor} className="max-w-xs">
+                <select value={header.origin_floor} onChange={setH('origin_floor')} className={inputCls(!!errors.origin_floor)}>
+                  <option value="">Seleccione…</option>
+                  {FLOOR_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+              </Field>
+            )}
+          </div>
 
-                <div className="flex gap-3 items-start">
-                  <div className="flex-1 min-w-0 space-y-3">
-                    <div>
-                      {errors[`item_${idx}_inventory`] && (
-                        <p className="text-[11px] text-red-500 mb-1 font-medium">{errors[`item_${idx}_inventory`]}</p>
-                      )}
-                      <ItemSearchSelect
-                        allItems={allItems}
-                        value={row.inventory_item}
-                        onChange={(v) => updateItem(row.id, 'inventory_item', v)}
-                        loading={loadingItems}
-                        accentColor="emerald"
-                      />
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="w-48">
-                        <NumberInput
-                          value={row.quantity}
-                          onChange={(v) => updateItem(row.id, 'quantity', v)}
-                          className={inputCls(!!errors[`item_${idx}_qty`])}
-                          placeholder="Cantidad"
-                        />
-                        {errors[`item_${idx}_qty`] && (
-                          <p className="text-[11px] text-red-500 mt-1 font-medium">{errors[`item_${idx}_qty`]}</p>
+          <Field label="Observación general">
+            <textarea rows={2} value={header.notes} onChange={setH('notes')} className={`${inputCls()} resize-none`} placeholder="Observaciones, diferencias o daños detectados (opcional)" />
+          </Field>
+        </Card>
+
+        <Card className="p-5 sm:p-7 space-y-4">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide font-display">
+            Ítems a ingresar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 font-bold">{lines.length}</span>
+          </h2>
+
+          {catalog.status === 'loading' && <LoadingBlock label="Cargando ítems…" className="h-24" />}
+          {catalog.status === 'error' && <ErrorBlock message="No se pudo cargar el catálogo de ítems." onRetry={loadCatalog} />}
+
+          {catalog.status === 'ready' && (
+            <ul className="space-y-3">
+              {lines.map((line, idx) => {
+                const item = itemById(line.inventory);
+                const lineErr = errors.lines?.[line.id] ?? {};
+                const stock = Number(item?.total_stock ?? 0);
+                const qty = Number(line.quantity) || 0;
+                return (
+                  <li key={line.id} className="relative rounded-xl border border-gray-100 bg-gray-50 p-4">
+                    <div role="group" aria-label={`Ítem ${idx + 1}`} className="flex gap-3 items-start">
+                      <div className="flex-1 min-w-0 space-y-3">
+                        <Field label={`Ítem ${idx + 1}`} id={`entry-item-${line.id}`} required error={lineErr.item}>
+                          <ItemCombobox items={catalog.items} value={line.inventory} onChange={(v) => updateLine(line.id, 'inventory', v)} />
+                        </Field>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div onKeyDown={onQuantityKeyDown(line)}>
+                            <Field label={`Cantidad ingresada${item?.unit ? ` (${item.unit})` : ''}`} id={`entry-qty-${line.id}`} required error={lineErr.qty}>
+                              <NumberInput value={line.quantity} onChange={(v) => updateLine(line.id, 'quantity', v)} className={inputCls(!!lineErr.qty)} placeholder="0" />
+                            </Field>
+                          </div>
+                          <Field label="TAG" id={`entry-tag-${line.id}`}>
+                            <input value={line.tag} onChange={(e) => updateLine(line.id, 'tag', e.target.value)} className={inputCls()} placeholder="Opcional" />
+                          </Field>
+                          <Field label="Observación de línea" id={`entry-note-${line.id}`}>
+                            <input value={line.notes} onChange={(e) => updateLine(line.id, 'notes', e.target.value)} className={inputCls()} placeholder="Opcional" />
+                          </Field>
+                        </div>
+                        {item && (
+                          <p className="text-xs text-gray-600 flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <span>Stock actual: <strong className="tabular-nums">{formatQty(stock)}</strong></span>
+                            {qty > 0 && <span className="text-emerald-700 dark:text-emerald-400">Después del ingreso: <strong className="tabular-nums">{formatQty(stock + qty)}</strong></span>}
+                            {item.location_status !== 'EXACT' && (
+                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300"><MapPinOff size={12} aria-hidden="true" /> Pendiente de ubicar</span>
+                            )}
+                          </p>
                         )}
                       </div>
-                      {(() => {
-                        const inv = allItems.find((i) => String(i.id) === String(row.inventory_item));
-                        if (!inv) return null;
-                        const stock = Number(inv.total_stock ?? 0);
-                        const qty = Number(row.quantity) || 0;
-                        const newStock = stock + qty;
-                        return (
-                          <div className="flex flex-col gap-1 pt-1.5 min-w-[120px]">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="text-gray-400">Stock actual:</span>
-                              <span className="font-bold text-gray-700 tabular-nums">{fmtNum(stock)}</span>
-                            </div>
-                            {qty > 0 && (
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="text-emerald-500">Despues:</span>
-                                <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{fmtNum(newStock)}</span>
-                              </div>
-                            )}
-                            <span className="text-[10px] text-gray-300">{ucFirst(inv.unit)}</span>
-                          </div>
-                        );
-                      })()}
+                      {lines.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLine(line.id)}
+                          aria-label={`Quitar ítem ${idx + 1}`}
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      )}
                     </div>
-                  </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
 
-                  {lineItems.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeItem(row.id)}
-                      className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 active:scale-90 transition-all duration-150 shrink-0 mt-1"
-                      title="Quitar item"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          {catalog.status === 'ready' && (
+            <>
+              <button ref={addButtonRef} type="button" onClick={addLine} className="w-full min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-emerald-300 dark:border-emerald-500/30 text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 font-display">
+                <Plus size={16} aria-hidden="true" /> Agregar ítem
+              </button>
+              <p className="text-xs text-gray-500">Atajo: Ctrl+Enter en «Cantidad ingresada» agrega otro ítem.</p>
+            </>
+          )}
+        </Card>
 
+        {errorCount > 0 && (
+          <Banner tone="red" live="assertive">
+            Revise {errorCount} {errorCount === 1 ? 'campo marcado' : 'campos marcados'} en rojo antes de registrar.
+          </Banner>
+        )}
+        {submitError && (
+          <Banner tone="red" live>
+            <p className="font-medium">No se registró el ingreso.</p>
+            <p>{submitError}</p>
+          </Banner>
+        )}
+
+        <div className="flex flex-col-reverse sm:flex-row gap-3">
+          <button type="button" onClick={requestClear} disabled={saving} className={btnSecondary}>Limpiar formulario</button>
           <button
             type="button"
-            onClick={addItem}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-emerald-300 dark:border-emerald-500/30 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 hover:border-emerald-400 active:scale-[0.98] transition-all duration-150 font-display"
+            onClick={() => submit(true)}
+            aria-disabled={saving || catalog.status !== 'ready'}
+            className={btnSecondary}
           >
-            <Plus size={16} /> Agregar item
+            Registrar y agregar otro
+          </button>
+          <button type="submit" aria-disabled={saving || catalog.status !== 'ready'} className={`${btnPrimary} sm:ml-auto`}>
+            {saving
+              ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Registrando…</>
+              : <><ArrowDownToLine size={16} aria-hidden="true" /> Registrar ingreso</>}
           </button>
         </div>
-
-        {/* ── Progress overlay ── */}
-        {saving && (
-          <div className="rounded-2xl bg-gray-900/95 p-6 text-center space-y-4">
-            <div className="flex items-center justify-center gap-3">
-              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white/20 border-t-emerald-400" />
-              <span className="text-white font-semibold text-sm">
-                {savingStep === 'registering' && 'Registrando movimiento...'}
-                {savingStep === 'generating'  && 'Generando documento PDF...'}
-                {savingStep === 'uploading'   && 'Subiendo a OneDrive...'}
-                {!savingStep                  && 'Procesando...'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 justify-center">
-              {['registering', 'generating', 'uploading'].map((step, i) => (
-                <div key={step} className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full transition-colors duration-300 ${
-                    step === savingStep ? 'bg-emerald-400 animate-pulse' :
-                    ['registering', 'generating', 'uploading'].indexOf(savingStep) > i ? 'bg-emerald-400' : 'bg-white/20'
-                  }`} />
-                  {i < 2 && <div className={`w-6 h-0.5 transition-colors duration-300 ${
-                    ['registering', 'generating', 'uploading'].indexOf(savingStep) > i ? 'bg-emerald-400' : 'bg-white/10'
-                  }`} />}
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] text-white/40">No cierre esta ventana</p>
-          </div>
-        )}
-
-        {!saving && (
-          <div className="flex flex-col sm:flex-row gap-3 pt-1">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-[0.97] transition-all duration-150 font-display"
-            >
-              Limpiar
-            </button>
-            <button
-              type="submit"
-              className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-all duration-150 flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.97] active:shadow-md font-display"
-            >
-              <ArrowDownToLine size={16} /> Registrar entrada
-            </button>
-          </div>
-        )}
       </form>
+
+      <ClearFormDialog
+        open={clearOpen}
+        onKeep={() => setClearOpen(false)}
+        onClear={() => { setClearOpen(false); reset(); }}
+      />
     </div>
   );
 }

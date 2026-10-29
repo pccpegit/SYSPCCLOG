@@ -41,6 +41,9 @@ import SalidaPage           from './pages/almacen/SalidaPage';
 import VoucherPrint         from './pages/almacen/VoucherPrint';
 import MovimientosPage      from './pages/almacen/MovimientosPage';
 import PendientesPage       from './pages/almacen/PendientesPage';
+import ResumenPage          from './pages/almacen/ResumenPage';
+import TransferenciaPage    from './pages/almacen/TransferenciaPage';
+import ImportarPage         from './pages/almacen/ImportarPage';
 import LoginPage           from './pages/auth/LoginPage';
 import SystemSelectPage    from './pages/auth/SystemSelectPage';
 import DashboardPage       from './pages/dashboard/DashboardPage';
@@ -178,6 +181,23 @@ export default function App() {
             <Route path="salida/:id/voucher"  element={<VoucherPrint />}      />
             <Route path="movimientos"         element={<MovimientosPage />}   />
             <Route path="pendientes"          element={<PendientesPage />}    />
+            <Route path="resumen"             element={<ResumenPage />}       />
+            <Route
+              path="transferencia"
+              element={
+                <RoleRoute requiredRoles={['CENTRAL_WAREHOUSE', 'SITE_WAREHOUSE']} redirectTo="/almacen">
+                  <TransferenciaPage />
+                </RoleRoute>
+              }
+            />
+            <Route
+              path="importar"
+              element={
+                <RoleRoute requiredRoles={['CENTRAL_WAREHOUSE', 'LOGISTICS_CHIEF']} redirectTo="/almacen">
+                  <ImportarPage />
+                </RoleRoute>
+              }
+            />
           </Route>
 
           {/* Admin — module selector (full screen, no sidebar, like "/") */}

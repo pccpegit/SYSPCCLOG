@@ -1,474 +1,401 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Search, Plus, Package, ChevronRight, X, AlertTriangle,
-  MapPin, Download,
+  Search, Plus, Package, Download, FileUp, MapPin, ChevronRight, Loader2,
 } from 'lucide-react';
 import {
-  getInventory, getCategories, createInventoryItem,
-  exportInventoryUrl,
+  getInventory, getCategories, getSummary, getMovementSummary, exportInventory,
 } from '../../api/almacen';
-import { useToast } from '../../context/ToastContext';
-
-import { fmtNum, ucFirst } from '../../utils/format';
+import { useAuth } from '../../context/AuthContext';
+import useFileDownload from '../../hooks/useFileDownload';
+import useFilterAnnouncer from '../../hooks/useFilterAnnouncer';
+import { ASSIGN_LOCATION_ROLES, IMPORT_ROLES } from '../../data/almacenRoles';
+import { FLOOR_OPTIONS, ITEM_TYPE_COLORS, ITEM_TYPE_LABELS } from '../../data/almacenConstants';
+import { formatQty, hasAnyRole } from '../../utils/almacen';
+import { ucFirst } from '../../utils/format';
+import AssignLocationModal from '../../components/almacen/AssignLocationModal';
+import ItemFormModal from '../../components/almacen/ItemFormModal';
+import { LocationChip, StockStatusChip } from '../../components/almacen/chips';
 import {
-  ITEM_TYPES, ITEM_TYPE_LABELS, ITEM_TYPE_COLORS, WAREHOUSE_LABELS,
-} from '../../data/almacenConstants';
+  Banner, Card, EmptyBlock, ErrorBlock, LoadingBlock, PageHeader, Pagination,
+} from '../../components/almacen/ui';
+import { btnPrimary, btnSecondary, inputCls, thCls } from '../../components/almacen/uiStyles';
 
-// ── Stock Badge ──────────────────────────────────────────────────────────────
+const PAGE_SIZE = 25;
 
-function StockBadge({ stock, minStock }) {
-  if (stock === 0) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-red-50 text-red-600 ring-1 ring-red-100 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/30">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-        Sin stock
-      </span>
-    );
+const isPending = (item) => item.location_status !== 'EXACT';
+
+const STOCK_STATES = [
+  { value: '', label: 'Todos' },
+  { value: 'has', label: 'Con stock' },
+  { value: 'none', label: 'Sin stock' },
+  { value: 'low', label: 'Bajo mínimo' },
+];
+
+/** Parámetros del backend para los filtros activos (sin paginación). */
+function buildFilterParams({ search, category, stockState, floor, pendingOnly }) {
+  const params = {};
+  if (search) params.search = search;
+  if (category) params.category = category;
+  if (floor) params.floor = floor;
+  if (pendingOnly) params.location_status = 'pending';
+  if (stockState === 'has') params.has_stock = 'true';
+  if (stockState === 'none') params.has_stock = 'false';
+  if (stockState === 'low') {
+    // "Bajo mínimo" = con stock pero en o bajo el mínimo (los agotados son "Sin stock").
+    params.low_stock = 'true';
+    params.has_stock = 'true';
   }
-  if (stock <= minStock) {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-amber-50 text-amber-600 ring-1 ring-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-        Bajo
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/30">
-      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-      OK
-    </span>
-  );
+  return params;
 }
-
-// ── Stock bar visual ─────────────────────────────────────────────────────────
-
-function StockBar({ stock, minStock }) {
-  if (minStock <= 0) return null;
-  const pct = Math.min((stock / minStock) * 100, 200);
-  const ratio = stock / minStock;
-  const color = ratio <= 0
-    ? 'bg-red-500'
-    : ratio <= 1
-      ? 'bg-amber-500'
-      : 'bg-emerald-500';
-  return (
-    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden mt-1">
-      <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${Math.min(pct / 2, 100)}%` }} />
-    </div>
-  );
-}
-
-// ── Warehouse stock pills ────────────────────────────────────────────────────
-
-function StockPills({ stocks }) {
-  if (!stocks || stocks.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
-      {stocks.map((s, i) => {
-        const label = WAREHOUSE_LABELS[s.warehouse_type] ?? s.warehouse_type;
-        const project = s.project_code ? ` (${s.project_code})` : '';
-        return (
-          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-50 text-[10px] text-gray-500 font-medium ring-1 ring-gray-100">
-            {label}{project}: <span className="font-bold text-gray-700">{fmtNum(s.quantity)}</span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── New item modal ───────────────────────────────────────────────────────────
-
-const EMPTY_FORM = {
-  product_code: '', description: '', item_type: 'MATERIAL',
-  unit: '', category: '', brand: '', model_name: '', location: '', min_stock: 0,
-};
-
-function NewItemModal({ onClose, onCreated, categories }) {
-  const { showToast } = useToast();
-  const [form, setForm]     = useState(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState({});
-
-  const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
-
-  const validate = () => {
-    const errs = {};
-    if (!form.product_code.trim()) errs.product_code = 'Requerido';
-    if (!form.description.trim())  errs.description = 'Requerido';
-    if (!form.unit.trim())         errs.unit = 'Requerido';
-    if (!form.category.trim())     errs.category = 'Requerido';
-    return errs;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const errs = validate();
-    if (Object.keys(errs).length) { setErrors(errs); return; }
-    setSaving(true);
-    try {
-      const res = await createInventoryItem(form);
-      showToast({ type: 'success', message: 'Item creado correctamente.' });
-      onCreated(res.data);
-    } catch (err) {
-      const msg = err.response?.data?.detail ?? err.response?.data?.product_code?.[0] ?? 'No se pudo crear el item.';
-      showToast({ type: 'error', message: msg });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inputCls = (field) =>
-    `w-full px-3.5 py-2.5 text-sm rounded-xl border bg-gray-50/50 ${
-      errors[field] ? 'border-red-300 dark:border-red-500/30 focus:ring-red-400 focus:border-red-400' : 'border-gray-200 focus:ring-emerald-500 focus:border-emerald-500'
-    } focus:outline-none focus:ring-2 focus:bg-white transition-colors`;
-
-  const Field = ({ label, id, error, children }) => (
-    <div>
-      <label htmlFor={id} className="block text-xs font-semibold text-gray-600 mb-1.5 font-display">{label}</label>
-      {children}
-      {error && <p className="text-[11px] text-red-500 mt-1 font-medium">{error}</p>}
-    </div>
-  );
-
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-100">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="text-base font-bold text-gray-900 font-display">Nuevo item de inventario</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Complete los campos requeridos para registrar un nuevo item.</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Codigo *" id="product_code" error={errors.product_code}>
-              <input id="product_code" value={form.product_code} onChange={(e) => set('product_code', e.target.value)} className={inputCls('product_code')} placeholder="MAT-CEM-001" />
-            </Field>
-            <Field label="Tipo *" id="item_type">
-              <select id="item_type" value={form.item_type} onChange={(e) => set('item_type', e.target.value)} className={inputCls('item_type')}>
-                {ITEM_TYPES.filter(t => t.value).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-            </Field>
-          </div>
-
-          <Field label="Descripcion *" id="description" error={errors.description}>
-            <input id="description" value={form.description} onChange={(e) => set('description', e.target.value)} className={inputCls('description')} placeholder="Nombre o descripcion del item" />
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Unidad *" id="unit" error={errors.unit}>
-              <input id="unit" value={form.unit} onChange={(e) => set('unit', e.target.value)} className={inputCls('unit')} placeholder="UND, KG, M3, SACO" />
-            </Field>
-            <Field label="Categoria *" id="category" error={errors.category}>
-              <input id="category" value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls('category')} list="cats" placeholder="Ferreteria, Bombas, etc." />
-              <datalist id="cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Field label="Marca" id="brand">
-              <input id="brand" value={form.brand} onChange={(e) => set('brand', e.target.value)} className={inputCls('brand')} placeholder="Opcional" />
-            </Field>
-            <Field label="Modelo" id="model_name">
-              <input id="model_name" value={form.model_name} onChange={(e) => set('model_name', e.target.value)} className={inputCls('model_name')} placeholder="Opcional" />
-            </Field>
-            <Field label="Stock minimo" id="min_stock">
-              <input id="min_stock" type="number" min="0" step="any" value={form.min_stock} onChange={(e) => set('min_stock', Number(e.target.value))} className={inputCls('min_stock')} />
-            </Field>
-          </div>
-
-          <Field label="Ubicacion fisica" id="location">
-            <input id="location" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls('location')} placeholder="Estante A-3, Rack B, Zona 2" />
-          </Field>
-
-          <div className="flex gap-3 pt-3 border-t border-gray-100">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-[0.97] transition-all duration-150 font-display">
-              Cancelar
-            </button>
-            <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.97] active:shadow-md font-display">
-              {saving ? <><span className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white" />Guardando...</> : 'Crear item'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function InventarioPage() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const navigate = useNavigate();
+  const routerLocation = useLocation();
+  const [searchParams] = useSearchParams();
+  const { userRoles } = useAuth();
+  const canAssign = hasAnyRole(userRoles, ASSIGN_LOCATION_ROLES);
+  const canImport = hasAnyRole(userRoles, IMPORT_ROLES);
+  const download = useFileDownload();
 
-  const [items, setItems]           = useState([]);
+  const [list, setList] = useState({ status: 'loading', items: [], total: 0 });
   const [categories, setCategories] = useState([]);
-  const [initialLoad, setInitialLoad] = useState(true);
-  const [searching, setSearching]   = useState(false);
-  const [error, setError]           = useState('');
-  const [showModal, setShowModal]   = useState(false);
-  const searchingTimer = useRef(null);
+  const [kpis, setKpis] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const [search, setSearch]     = useState('');
+  const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
-  const [itemType, setItemType] = useState('');
-  const [lowStock, setLowStock] = useState(location.state?.lowStock ?? false);
-  const [page, setPage]         = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [stockState, setStockState] = useState(
+    routerLocation.state?.lowStock ? 'low' : (searchParams.get('estado') ?? ''),
+  );
+  const [floor, setFloor] = useState(searchParams.get('piso') ?? '');
+  const [pendingOnly, setPendingOnly] = useState(searchParams.get('pendientes') === '1');
+  const [page, setPage] = useState(1);
 
-  const fetchItems = useCallback(async () => {
-    // Only show searching indicator if request takes > 150ms (avoids flicker)
-    searchingTimer.current = setTimeout(() => setSearching(true), 150);
-    setError('');
-    try {
-      const params = { page, page_size: 25 };
-      if (search)   params.search    = search;
-      if (category) params.category  = category;
-      if (itemType) params.item_type = itemType;
-      if (lowStock) params.low_stock = true;
-      const res = await getInventory(params);
-      const data  = res.data?.results ?? res.data ?? [];
-      const count = res.data?.count   ?? (Array.isArray(data) ? data.length : 0);
-      setItems(Array.isArray(data) ? data : []);
-      setTotalCount(count);
-    } catch {
-      setError('No se pudo cargar el inventario.');
-    } finally {
-      clearTimeout(searchingTimer.current);
-      setSearching(false);
-      setInitialLoad(false);
-    }
-  }, [search, category, itemType, lowStock, page]);
+  const [selected, setSelected] = useState(() => new Set());
+  const [assignItems, setAssignItems] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const requestSeq = useRef(0);
+  // «Empezar a ubicar» (y el enlace del Dashboard con ?ubicar=1): al llegar el listado de pendientes
+  // se abre la asignación del primero.
+  const autoStart = useRef(searchParams.get('ubicar') === '1');
 
-  useEffect(() => {
-    getCategories().then((res) => {
-      const cats = res.data?.results ?? res.data ?? [];
-      setCategories(Array.isArray(cats) ? cats : []);
-    }).catch(() => {});
-  }, []);
+  const filters = { search, category, stockState, floor, pendingOnly };
+  const filterKey = JSON.stringify(filters);
 
-  // Reset to page 1 whenever filters change
-  useEffect(() => {
+  const changeFilter = (setter) => (value) => {
+    setter(value);
     setPage(1);
-  }, [search, category, itemType, lowStock]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => fetchItems(), search ? 400 : 0);
-    return () => clearTimeout(timer);
-  }, [fetchItems, search]);
-
-  const handleCreated = (newItem) => {
-    setShowModal(false);
-    setItems((prev) => [newItem, ...prev]);
+    setSelected(new Set());
   };
 
-  // Summary stats (computed from current page)
-  const totalItems    = items.length;
-  const totalStock    = items.reduce((acc, i) => acc + Number(i.total_stock ?? 0), 0);
-  const lowStockCount = items.filter(i => (i.total_stock ?? 0) <= Number(i.min_stock ?? 0)).length;
+  // ── Datos auxiliares (categorías y cifras de cabecera) ────────────────────
+  useEffect(() => {
+    let alive = true;
+    getCategories()
+      .then((res) => {
+        const cats = res.data?.results ?? res.data ?? [];
+        if (alive) setCategories(Array.isArray(cats) ? cats : []);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.allSettled([getSummary(), getMovementSummary({ page_size: 1 })]).then(([summary, units]) => {
+      if (!alive) return;
+      setKpis({
+        totalItems: summary.status === 'fulfilled' ? summary.value.data?.total_items : null,
+        zeroStock: summary.status === 'fulfilled' ? summary.value.data?.zero_stock_count : null,
+        pending: summary.status === 'fulfilled' ? summary.value.data?.pending_location_count : null,
+        units: units.status === 'fulfilled' ? units.value.data?.meta?.totals?.closing : null,
+      });
+    });
+    return () => { alive = false; };
+  }, [reloadKey]);
+
+  // ── Listado ───────────────────────────────────────────────────────────────
+  const fetchItems = useCallback(async () => {
+    const seq = ++requestSeq.current;
+    setList((prev) => ({ ...prev, status: prev.items.length ? 'refreshing' : 'loading' }));
+    try {
+      const res = await getInventory({
+        page, page_size: PAGE_SIZE,
+        ...buildFilterParams({ search, category, stockState, floor, pendingOnly }),
+      });
+      if (seq !== requestSeq.current) return;
+      const data = res.data?.results ?? res.data ?? [];
+      const items = Array.isArray(data) ? data : [];
+      setList({ status: 'ready', items, total: res.data?.count ?? items.length });
+      if (autoStart.current && canAssign) {
+        autoStart.current = false;
+        const first = items.find(isPending);
+        if (first) setAssignItems([first]);
+      }
+    } catch {
+      if (seq === requestSeq.current) setList({ status: 'error', items: [], total: 0 });
+    }
+  }, [page, search, category, stockState, floor, pendingOnly, canAssign]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchItems, search ? 400 : 0);
+    return () => clearTimeout(timer);
+  }, [fetchItems, search, reloadKey]);
+
+  const announcement = useFilterAnnouncer(
+    filterKey,
+    list.status === 'ready' ? `Mostrando ${list.total} ${list.total === 1 ? 'ítem' : 'ítems'}.` : '',
+  );
+
+  // ── Selección ─────────────────────────────────────────────────────────────
+  const pageIds = list.items.map((i) => i.id);
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const toggleOne = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pageIds));
+  const selectedItems = list.items.filter((i) => selected.has(i.id));
+
+  const refresh = () => {
+    setSelected(new Set());
+    setReloadKey((k) => k + 1);
+  };
+
+  const startLocating = () => {
+    if (pendingOnly) {
+      const first = list.items.find(isPending);
+      if (first) setAssignItems([first]);
+      return;
+    }
+    autoStart.current = true;
+    setPendingOnly(true);
+    setPage(1);
+    setSelected(new Set());
+  };
+
+  const hasFilters = Boolean(search || category || stockState || floor || pendingOnly);
+  const loading = list.status === 'loading';
+
+  const kpiLine = kpis
+    ? [
+        kpis.totalItems != null && `${formatQty(kpis.totalItems)} ${kpis.totalItems === 1 ? 'ítem' : 'ítems'}`,
+        kpis.units != null && `${formatQty(kpis.units)} unidades`,
+        kpis.zeroStock != null && `${formatQty(kpis.zeroStock)} sin stock`,
+        kpis.pending != null && `${formatQty(kpis.pending)} pendientes de ubicar`,
+      ].filter(Boolean).join(' · ')
+    : 'Cargando…';
 
   return (
     <>
       <div className="space-y-5 max-w-7xl mx-auto">
-        {/* ── Header ──────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 font-display tracking-tight">Inventario</h1>
-            <p className="text-sm text-gray-400 mt-0.5">
-              {initialLoad ? 'Cargando...' : `${totalCount} item${totalCount !== 1 ? 's' : ''} registrados`}
-            </p>
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <a
-              href={exportInventoryUrl({ category, item_type: itemType, search, low_stock: lowStock ? 'true' : '' })}
-              className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-sm font-medium text-gray-600 rounded-xl hover:bg-gray-50 active:scale-[0.97] transition-all duration-150"
-              download
-            >
-              <Download size={16} /> Exportar
-            </a>
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-all duration-150 shadow-lg shadow-emerald-600/20 active:scale-[0.97] active:shadow-md flex-1 sm:flex-none justify-center font-display"
-            >
-              <Plus size={16} strokeWidth={2.5} />
-              Nuevo item
-            </button>
-          </div>
-        </div>
+        <PageHeader
+          title="Inventario"
+          subtitle={kpiLine}
+          actions={(
+            <>
+              <button
+                type="button"
+                onClick={() => download.run(
+                  () => exportInventory(buildFilterParams(filters)),
+                  'inventario.xlsx',
+                  'No se pudo exportar el inventario. Intente nuevamente.',
+                )}
+                aria-disabled={download.busy}
+                className={btnSecondary}
+              >
+                {download.busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+                Exportar
+              </button>
+              {canImport && (
+                <Link to="/almacen/importar" className={btnSecondary}>
+                  <FileUp size={16} aria-hidden="true" /> Importar Excel
+                </Link>
+              )}
+              <button type="button" onClick={() => setShowForm(true)} className={`${btnPrimary} flex-1 sm:flex-none`}>
+                <Plus size={16} strokeWidth={2.5} aria-hidden="true" /> Nuevo ítem
+              </button>
+            </>
+          )}
+        />
 
-        {/* ── Summary pills ───────────────────────────────── */}
-        {!initialLoad && totalItems > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-100 text-sm">
-              <Package size={14} className="text-emerald-500" />
-              <span className="text-gray-500">Total stock:</span>
-              <span className="font-bold text-gray-800">{totalStock.toLocaleString()}</span>
-            </span>
-            {lowStockCount > 0 && (
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 border border-amber-100 dark:bg-amber-500/10 dark:border-amber-500/30 text-sm">
-                <AlertTriangle size={14} className="text-amber-500" />
-                <span className="text-amber-700 dark:text-amber-300 font-medium">{lowStockCount} item{lowStockCount !== 1 ? 's' : ''} con stock bajo</span>
-              </span>
-            )}
-          </div>
+        {canAssign && kpis?.pending > 0 && (
+          <Banner tone="amber">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+              <p>
+                Sin ubicación exacta: {formatQty(kpis.pending)}. Asigne pabellón, sección y nivel a cada ítem
+                para encontrarlos al preparar pedidos.
+              </p>
+              <button type="button" onClick={startLocating} className={`${btnPrimary} shrink-0`}>
+                <MapPin size={15} aria-hidden="true" /> Empezar a ubicar
+              </button>
+            </div>
+          </Banner>
         )}
 
-        {/* ── Filters ─────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search size={16} className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${searching ? 'text-emerald-400' : 'text-gray-300'}`} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por codigo, descripcion o marca..."
-                className="w-full pl-10 pr-10 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gray-50/50 focus:bg-white transition-colors"
-              />
-              {searching && (
-                <div className="absolute right-3.5 top-1/2 -translate-y-1/2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-200 border-t-emerald-500" />
-                </div>
-              )}
+        {/* ── Filtros ── */}
+        <Card className="p-4">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-4">
+              <label htmlFor="inv-search" className="block text-xs font-semibold text-gray-600 mb-1.5 font-display">Buscar</label>
+              <div className="relative">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" aria-hidden="true" />
+                <input
+                  id="inv-search"
+                  type="search"
+                  value={search}
+                  onChange={(e) => changeFilter(setSearch)(e.target.value)}
+                  placeholder="Buscar por código, descripción, OC o packing list…"
+                  className={`${inputCls()} pl-10`}
+                />
+              </div>
             </div>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} className="px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-gray-50/50 focus:bg-white transition-colors">
-              <option value="">Todas las categorias</option>
-              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={itemType} onChange={(e) => setItemType(e.target.value)} className="px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-gray-50/50 focus:bg-white transition-colors">
-              {ITEM_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <label className="flex items-center gap-2 cursor-pointer whitespace-nowrap px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50/50 hover:bg-gray-50 transition-colors select-none">
-              <input type="checkbox" checked={lowStock} onChange={(e) => setLowStock(e.target.checked)} className="w-4 h-4 text-amber-500 rounded border-gray-300 focus:ring-amber-400" />
-              <AlertTriangle size={14} className="text-amber-500" />
-              <span className="text-sm text-gray-600">Stock bajo</span>
+            <div className="md:col-span-2">
+              <label htmlFor="inv-category" className="block text-xs font-semibold text-gray-600 mb-1.5 font-display">Categoría</label>
+              <select id="inv-category" value={category} onChange={(e) => changeFilter(setCategory)(e.target.value)} className={inputCls()}>
+                <option value="">Todas</option>
+                {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="inv-stock" className="block text-xs font-semibold text-gray-600 mb-1.5 font-display">Estado de stock</label>
+              <select id="inv-stock" value={stockState} onChange={(e) => changeFilter(setStockState)(e.target.value)} className={inputCls()}>
+                {STOCK_STATES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="inv-floor" className="block text-xs font-semibold text-gray-600 mb-1.5 font-display">Piso</label>
+              <select id="inv-floor" value={floor} onChange={(e) => changeFilter(setFloor)(e.target.value)} className={inputCls()}>
+                <option value="">Todos</option>
+                {FLOOR_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+            <label className="md:col-span-2 flex items-center gap-2 min-h-11 px-3.5 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={pendingOnly}
+                onChange={(e) => changeFilter(setPendingOnly)(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-700">Solo pendientes de ubicar</span>
             </label>
           </div>
-        </div>
+        </Card>
 
-        {/* ── Error ───────────────────────────────────────── */}
-        {error && (
-          <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
+        <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
+
+        {/* ── Barra de acción masiva ── */}
+        {canAssign && selected.size > 0 && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-200 dark:ring-emerald-500/30 px-4 py-3">
+            <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+              {selected.size} {selected.size === 1 ? 'ítem seleccionado' : 'ítems seleccionados'}
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setSelected(new Set())} className={btnSecondary}>Quitar selección</button>
+              <button type="button" onClick={() => setAssignItems(selectedItems)} className={btnPrimary}>
+                <MapPin size={15} aria-hidden="true" /> Asignar ubicación a {selected.size} {selected.size === 1 ? 'ítem' : 'ítems'}
+              </button>
+            </div>
+          </div>
         )}
 
-        {/* ── Table ───────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden relative">
-          {/* Subtle progress bar at top when searching */}
-          {searching && !initialLoad && (
-            <div className="absolute top-0 left-0 right-0 h-0.5 z-10 bg-emerald-100 dark:bg-emerald-500/10 overflow-hidden">
-              <div className="h-full w-1/3 bg-emerald-500 rounded-full animate-[searchbar_1s_ease-in-out_infinite]" />
-              <style>{`@keyframes searchbar{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}`}</style>
-            </div>
-          )}
-
-          {initialLoad ? (
-            <div className="flex items-center justify-center h-48">
-              <div className="animate-spin rounded-full h-7 w-7 border-2 border-gray-200 border-t-emerald-600 dark:border-t-emerald-400" />
-            </div>
-          ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-3">
-              <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center">
-                <Package size={32} strokeWidth={1} className="text-gray-300" />
-              </div>
-              <p className="text-sm font-medium text-gray-500">No se encontraron items</p>
-              <p className="text-xs text-gray-400">Intenta con otros filtros o crea un nuevo item.</p>
-            </div>
+        {/* ── Tabla ── */}
+        <Card className="overflow-hidden relative">
+          {loading ? (
+            <LoadingBlock label="Cargando inventario…" />
+          ) : list.status === 'error' ? (
+            <ErrorBlock message="No se pudo cargar el inventario." onRetry={fetchItems} />
+          ) : list.items.length === 0 ? (
+            <EmptyBlock
+              icon={Package}
+              title="No hay ítems que coincidan con los filtros."
+              hint={hasFilters ? 'Pruebe con otros filtros.' : 'Cree un ítem o importe el libro de Excel.'}
+            />
           ) : (
-            <div className={`overflow-x-auto transition-opacity duration-200 ${searching && !initialLoad ? 'opacity-50' : 'opacity-100'}`}>
+            <div className={`overflow-x-auto transition-opacity ${list.status === 'refreshing' ? 'opacity-50' : ''}`} aria-busy={list.status === 'refreshing'}>
               <table className="w-full text-sm">
+                <caption className="sr-only">Ítems del inventario con su stock y ubicación</caption>
                 <thead>
-                  <tr className="bg-gray-50/80 border-b border-gray-100">
-                    <th className="px-5 sm:px-6 py-3.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Item</th>
-                    <th className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell">Tipo</th>
-                    <th className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Categoria</th>
-                    <th className="px-4 py-3.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Ubicacion</th>
-                    <th className="px-4 py-3.5 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Stock</th>
-                    <th className="px-4 py-3.5 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Estado</th>
-                    <th className="px-3 py-3.5" />
+                  <tr className="bg-gray-50 border-b border-gray-100 text-left">
+                    {canAssign && (
+                      <th scope="col" className="pl-4 pr-1 py-3 w-10">
+                        <input
+                          type="checkbox"
+                          aria-label="Seleccionar todos los ítems de esta página"
+                          checked={allSelected}
+                          onChange={toggleAll}
+                          className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                      </th>
+                    )}
+                    <th scope="col" className={thCls}>Código</th>
+                    <th scope="col" className={thCls}>Descripción</th>
+                    <th scope="col" className={`${thCls} hidden md:table-cell`}>Unidad</th>
+                    <th scope="col" className={`${thCls} hidden lg:table-cell`}>Categoría</th>
+                    <th scope="col" className={`${thCls} text-right`}>Stock</th>
+                    <th scope="col" className={thCls}>Ubicación</th>
+                    <th scope="col" className={thCls}>Estado</th>
+                    <th scope="col" className="px-3 py-3"><span className="sr-only">Acciones</span></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {items.map((item) => {
-                    const stock = item.total_stock ?? 0;
-                    const minSt = Number(item.min_stock ?? 0);
-                    const typeColor = ITEM_TYPE_COLORS[item.item_type] ?? 'bg-gray-50 text-gray-600 ring-gray-100';
-
+                <tbody className="divide-y divide-gray-100">
+                  {list.items.map((item) => {
+                    const stock = Number(item.total_stock ?? 0);
+                    const typeColor = ITEM_TYPE_COLORS[item.item_type] ?? ITEM_TYPE_COLORS.MATERIAL;
                     return (
                       <tr
                         key={item.id}
                         className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/10 cursor-pointer transition-colors group"
                         onClick={() => navigate(`/almacen/inventario/${item.id}`)}
                       >
-                        {/* Item: code + description + unit + stock pills */}
-                        <td className="px-5 sm:px-6 py-4">
-                          <div className="flex items-start gap-3">
-                            <div className="w-9 h-9 rounded-lg bg-gray-50 ring-1 ring-gray-100 flex items-center justify-center shrink-0 mt-0.5">
-                              <Package size={16} className="text-gray-400" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">{item.product_code}</span>
-                                <span className="text-[10px] text-gray-300 hidden sm:inline">\u00B7</span>
-                                <span className="text-[11px] text-gray-400 hidden sm:inline">{ucFirst(item.unit)}</span>
-                              </div>
-                              <p className="text-sm text-gray-900 font-medium mt-0.5 leading-snug">{item.description}</p>
-                              {item.brand && (
-                                <p className="text-[11px] text-gray-400 mt-0.5">{item.brand}{item.model_name ? ` \u00B7 ${item.model_name}` : ''}</p>
-                              )}
-                              {/* Stock breakdown pills - mobile */}
-                              <div className="lg:hidden">
-                                <StockPills stocks={item.stocks} />
-                              </div>
-                            </div>
-                          </div>
+                        {canAssign && (
+                          <td className="pl-4 pr-1 py-3" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Seleccionar ${item.product_code}`}
+                              checked={selected.has(item.id)}
+                              onChange={() => toggleOne(item.id)}
+                              className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <Link
+                            to={`/almacen/inventario/${item.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
+                          >
+                            {item.product_code}
+                          </Link>
                         </td>
-
-                        {/* Type badge */}
-                        <td className="px-4 py-4 hidden md:table-cell">
-                          <span className={`inline-flex px-2.5 py-1 rounded-lg text-[10px] font-bold ring-1 ${typeColor}`}>
-                            {ITEM_TYPE_LABELS[item.item_type] ?? item.item_type}
+                        <td className="px-4 py-3 text-gray-900 font-medium leading-snug min-w-[14rem]">
+                          {item.description}
+                          {item.size && <span className="ml-2 text-xs font-normal text-gray-500">Talla {item.size}</span>}
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-600">{ucFirst(item.unit)}</td>
+                        <td className="px-4 py-3 hidden lg:table-cell">
+                          <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-bold ring-1 ${typeColor}`}>
+                            {item.category || ITEM_TYPE_LABELS[item.item_type] || '—'}
                           </span>
                         </td>
-
-                        {/* Category */}
-                        <td className="px-4 py-4 text-gray-500 hidden lg:table-cell whitespace-nowrap text-xs">
-                          {item.category || '\u2014'}
-                        </td>
-
-                        {/* Location */}
-                        <td className="px-4 py-4 hidden lg:table-cell">
-                          {item.location ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                              <MapPin size={11} className="text-gray-400" />
-                              {item.location}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-gray-300">\u2014</span>
+                        <td className="px-4 py-3 text-right text-base font-bold text-gray-900 tabular-nums">{formatQty(stock)}</td>
+                        <td className="px-4 py-3"><LocationChip item={item} /></td>
+                        <td className="px-4 py-3"><StockStatusChip total={stock} minStock={item.min_stock} /></td>
+                        <td className="px-3 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {canAssign && (
+                            <button
+                              type="button"
+                              onClick={() => setAssignItems([item])}
+                              aria-label={`Asignar ubicación a ${item.product_code}`}
+                              title="Asignar ubicación"
+                              className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:text-emerald-400 dark:hover:bg-emerald-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600"
+                            >
+                              <MapPin size={16} aria-hidden="true" />
+                            </button>
                           )}
-                        </td>
-
-                        {/* Stock number + bar */}
-                        <td className="px-4 py-4 text-right">
-                          <div className="inline-flex flex-col items-end min-w-[60px]">
-                            <span className="text-base font-bold text-gray-900 tabular-nums">{fmtNum(stock)}</span>
-                            <StockBar stock={stock} minStock={minSt} />
-                          </div>
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-4 py-4 text-center">
-                          <StockBadge stock={stock} minStock={minSt} />
-                        </td>
-
-                        {/* Arrow */}
-                        <td className="px-3 py-4 text-right">
-                          <ChevronRight size={15} className="text-gray-200 group-hover:text-emerald-400 transition-colors inline-block" />
+                          <ChevronRight size={15} className="text-gray-300 group-hover:text-emerald-500 inline-block align-middle" aria-hidden="true" />
                         </td>
                       </tr>
                     );
@@ -478,34 +405,30 @@ export default function InventarioPage() {
             </div>
           )}
 
-          {/* ── Pagination ── */}
-          {!initialLoad && totalCount > 0 && (
-            <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100">
-              <p className="text-xs text-gray-400">{totalCount} items en total</p>
-              <div className="flex gap-2 items-center">
-                <button
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                  className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all duration-150"
-                >
-                  Anterior
-                </button>
-                <span className="px-3 py-1.5 text-xs text-gray-500">Pag. {page}</span>
-                <button
-                  disabled={items.length < 25}
-                  onClick={() => setPage((p) => p + 1)}
-                  className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 transition-all duration-150"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+          {list.status !== 'loading' && list.status !== 'error' && list.total > 0 && (
+            <Pagination page={page} pageSize={PAGE_SIZE} total={list.total} noun="ítems" onPage={(p) => { setPage(p); setSelected(new Set()); }} />
           )}
-        </div>
+        </Card>
       </div>
 
-      {/* Modals */}
-      {showModal && <NewItemModal onClose={() => setShowModal(false)} onCreated={handleCreated} categories={categories} />}
+      {assignItems && (
+        <AssignLocationModal
+          open
+          items={assignItems}
+          queue={assignItems.length === 1 ? list.items.filter(isPending) : []}
+          onClose={() => setAssignItems(null)}
+          onAssigned={() => setReloadKey((k) => k + 1)}
+          onDone={() => { setAssignItems(null); refresh(); }}
+        />
+      )}
+      {showForm && (
+        <ItemFormModal
+          categories={categories}
+          canAssignLocation={canAssign}
+          onClose={() => setShowForm(false)}
+          onSaved={() => { setShowForm(false); refresh(); }}
+        />
+      )}
     </>
   );
 }

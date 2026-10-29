@@ -16,11 +16,23 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import F
+from django.db.models.functions import Length
+from django.utils import timezone
 
 from apps.core.models import User
-from apps.warehouse.models import Inventory, InventoryStock, InventoryMovement
+from apps.warehouse.models import Inventory, InventoryStock, InventoryMovement, MovementGroup
+from apps.warehouse.models.inventory import MAX_STOCK_QUANTITY
 
 logger = logging.getLogger(__name__)
+
+
+def format_quantity(value) -> str:
+    """
+    Quantity as a person reads it: ``5`` instead of ``5.000``, ``2.5`` instead of ``2.500``.
+
+    Stock errors go straight to the screen, where ``5.000`` can be read as five thousand.
+    """
+    return format(Decimal(str(value)).normalize(), 'f')
 
 
 # ---------------------------------------------------------------------------
@@ -48,11 +60,13 @@ def _generate_movement_number(movement_type: str) -> str:
     }
     prefix = prefixes.get(movement_type, 'MOV')
     year = datetime.now().year
+    # Longest first: the sequence is zero-padded to 4 digits, so past 9999 a plain text sort puts
+    # ...-10000 BEFORE ...-9999 and the same number would be handed out again.
     last = (
         InventoryMovement.objects
         .select_for_update()
         .filter(movement_number__startswith=f'{prefix}-{year}-')
-        .order_by('-movement_number')
+        .order_by(Length('movement_number').desc(), '-movement_number')
         .first()
     )
     if last:
@@ -82,11 +96,14 @@ def _generate_group_number(movement_type: str) -> str:
     prefix = prefixes.get(movement_type, 'MOV')
     year = datetime.now().year
     pattern = f'{prefix}-{year}-G'
+    # Longest first: ``SAL-2026-G9999`` is followed by ``G10000``, which a plain text sort puts
+    # BEFORE ``G9999``: the next number would repeat ``G10000`` and every registration would fail
+    # on the unique constraint. (~400 vales in 12 days in the real workbook: months, not years.)
     last = (
         MovementGroup.objects
         .select_for_update()
         .filter(group_number__startswith=pattern)
-        .order_by('-group_number')
+        .order_by(Length('group_number').desc(), '-group_number')
         .first()
     )
     if last:
@@ -163,6 +180,28 @@ def _upload_group_pdf_sync(group_id: int) -> None:
 # Batch (multi-item) operations
 # ---------------------------------------------------------------------------
 
+def resolve_movement_date(movement_date, undated: bool = False):
+    """
+    Operational date of a movement: the given date, or today (America/Lima) when
+    ``movement_date`` is None. ``undated=True`` stores NULL instead (only the
+    Excel importer uses it, for rows the workbook leaves without a date).
+    """
+    if undated:
+        return None
+    return movement_date or timezone.localdate()
+
+
+def find_duplicate_voucher(warehouse: str, voucher_number: str) -> bool:
+    """True when an EXIT vale with this physical number already exists in the warehouse."""
+    if not voucher_number:
+        return False
+    # iexact: the movements list filters by ``voucher_number__iexact``, so 'S-12' and 's-12' are
+    # the same physical vale.
+    return MovementGroup.objects.filter(
+        movement_type='EXIT', warehouse=warehouse, voucher_number__iexact=voucher_number.strip(),
+    ).exists()
+
+
 @transaction.atomic
 def register_entry_batch(
     items_data: list,
@@ -173,6 +212,15 @@ def register_entry_batch(
     invoice_number: str,
     notes: str,
     registered_by: User,
+    *,
+    movement_date=None,
+    undated: bool = False,
+    voucher_number: str = '',
+    po_number: str = '',
+    guide_number: str = '',
+    internal_transfer: str = '',
+    destination_personal_id=None,
+    import_batch_id=None,
 ):
     """
     Register multiple inventory entries as a single vale (MovementGroup).
@@ -181,10 +229,23 @@ def register_entry_batch(
         - 'inventory_id': int (PK of Inventory)
         - 'quantity': numeric
         - 'line': int (optional, used to suffix the movement_number)
+        - 'tag', 'notes', 'source_key': optional per-line data (SYSPCC-025)
+
+    The keyword-only arguments are optional (SYSPCC-025); callers that do not
+    pass them (e.g. the WorkflowEngine) behave exactly as before, with
+    ``movement_date`` defaulting to today (America/Lima).
 
     Returns the created MovementGroup.
     """
-    from apps.warehouse.models import MovementGroup
+    movement_date = resolve_movement_date(movement_date, undated)
+    header = {
+        'movement_date': movement_date,
+        'voucher_number': voucher_number or '',
+        'po_number': po_number or '',
+        'guide_number': guide_number or '',
+        'internal_transfer': internal_transfer or '',
+        'destination_personal_id': destination_personal_id,
+    }
 
     group = MovementGroup.objects.create(
         group_number=_generate_group_number('ENTRY'),
@@ -196,7 +257,25 @@ def register_entry_batch(
         invoice_number=invoice_number or '',
         notes=notes or '',
         registered_by=registered_by,
+        **header,
     )
+
+    # Lock the stock rows up front in a deterministic order (inventory id) so two
+    # concurrent batches touching the same items cannot deadlock. The locked quantity also
+    # lets us refuse an entry that would overflow the DECIMAL(12, 3) column (repeated lines
+    # of one item are added up first, like the exit does).
+    incoming: dict = {}
+    for d in items_data:
+        incoming[d['inventory_id']] = incoming.get(d['inventory_id'], Decimal('0')) + Decimal(str(d['quantity']))
+    for inv_id in sorted(incoming):
+        inventory = Inventory.objects.get(pk=inv_id)
+        pre_stock = _get_or_create_stock(inventory, warehouse, project_id)
+        locked = InventoryStock.objects.select_for_update().get(pk=pre_stock.pk)
+        if locked.quantity + incoming[inv_id] > MAX_STOCK_QUANTITY:
+            raise ValueError(
+                f'El ingreso supera el stock máximo permitido ({MAX_STOCK_QUANTITY:,.3f}) '
+                f'para {inventory.product_code}. Stock actual: {format_quantity(locked.quantity)}.'
+            )
 
     for idx, item_data in enumerate(items_data, start=1):
         inventory = Inventory.objects.get(pk=item_data['inventory_id'])
@@ -213,9 +292,13 @@ def register_entry_batch(
             source_type=source_type,
             supplier_name=supplier_name or '',
             invoice_number=invoice_number or '',
-            notes='',
+            notes=item_data.get('notes') or '',
+            tag=item_data.get('tag') or '',
+            source_key=item_data.get('source_key') or None,
+            import_batch_id=import_batch_id,
             registered_by=registered_by,
             group=group,
+            **header,
         )
 
         stock = _get_or_create_stock(inventory, warehouse, project_id)
@@ -239,6 +322,15 @@ def register_exit_batch(
     authorized_by_id,
     notes: str,
     registered_by: User,
+    *,
+    movement_date=None,
+    undated: bool = False,
+    voucher_number: str = '',
+    po_number: str = '',
+    guide_number: str = '',
+    internal_transfer: str = '',
+    destination_personal_id=None,
+    import_batch_id=None,
 ):
     """
     Register multiple inventory exits as a single vale (MovementGroup).
@@ -247,36 +339,55 @@ def register_exit_batch(
         - 'inventory_id': int (PK of Inventory)
         - 'quantity': numeric
         - 'line': int (optional)
+        - 'tag', 'notes', 'source_key': optional per-line data (SYSPCC-025)
 
-    Raises ValueError if any item has insufficient stock.
+    Raises ValueError if any item has insufficient stock (quantities of the same
+    item repeated across lines are added up before checking).
     Returns the created MovementGroup.
     """
-    from apps.warehouse.models import MovementGroup
-
     requested_by = (
         User.objects.filter(pk=requested_by_id).first() if requested_by_id else None
     )
     authorized_by = (
         User.objects.filter(pk=authorized_by_id).first() if authorized_by_id else None
     )
+    movement_date = resolve_movement_date(movement_date, undated)
+    header = {
+        'movement_date': movement_date,
+        'voucher_number': voucher_number or '',
+        'po_number': po_number or '',
+        'guide_number': guide_number or '',
+        'internal_transfer': internal_transfer or '',
+        'destination_personal_id': destination_personal_id,
+    }
 
     # Validate & lock stock for every item before creating anything.
     # select_for_update() blocks any concurrent transaction that would read/decrement
     # the same InventoryStock row until this transaction commits or rolls back, closing
     # the TOCTOU race that could otherwise push stock negative under concurrent exits.
-    # The locked rows are reused below when decrementing, so each row is only queried once.
-    locked_stocks = []
+    # Locks are taken in inventory-id order (deterministic -> no deadlocks between
+    # two batches) and the requested quantity of a repeated item is accumulated so
+    # that "2 lines x 3" is checked as 6 against the available stock.
+    requested_by_inventory: dict[int, Decimal] = {}
     for item_data in items_data:
-        inventory = Inventory.objects.get(pk=item_data['inventory_id'])
-        quantity = Decimal(str(item_data['quantity']))
+        inv_id = item_data['inventory_id']
+        requested_by_inventory[inv_id] = (
+            requested_by_inventory.get(inv_id, Decimal('0'))
+            + Decimal(str(item_data['quantity']))
+        )
+
+    locked_stocks: dict[int, InventoryStock] = {}
+    for inv_id in sorted(requested_by_inventory):
+        inventory = Inventory.objects.get(pk=inv_id)
         stock = _get_or_create_stock(inventory, warehouse, project_id)
         stock = InventoryStock.objects.select_for_update().get(pk=stock.pk)
-        if stock.quantity < quantity:
+        requested = requested_by_inventory[inv_id]
+        if stock.quantity < requested:
             raise ValueError(
                 f'Stock insuficiente para {inventory.product_code}. '
-                f'Disponible: {stock.quantity}, solicitado: {quantity}'
+                f'Disponible: {format_quantity(stock.quantity)}, solicitado: {format_quantity(requested)}'
             )
-        locked_stocks.append(stock)
+        locked_stocks[inv_id] = stock
 
     group = MovementGroup.objects.create(
         group_number=_generate_group_number('EXIT'),
@@ -287,6 +398,7 @@ def register_exit_batch(
         destination_detail=destination_detail or '',
         notes=notes or '',
         registered_by=registered_by,
+        **header,
     )
 
     for idx, item_data in enumerate(items_data, start=1):
@@ -305,12 +417,17 @@ def register_exit_batch(
             destination_detail=destination_detail or '',
             requested_by=requested_by,
             authorized_by=authorized_by,
-            notes='',
+            notes=item_data.get('notes') or '',
+            tag=item_data.get('tag') or '',
+            source_key=item_data.get('source_key') or None,
+            import_batch_id=import_batch_id,
             registered_by=registered_by,
             group=group,
+            **header,
         )
 
-        stock = locked_stocks[idx - 1]
+        # Reuse the locked row; F() keeps the decrement atomic at the DB level.
+        stock = locked_stocks[inventory.pk]
         stock.quantity = F('quantity') - quantity
         stock.save(update_fields=['quantity', 'last_updated'])
 
@@ -334,13 +451,18 @@ def register_entry(
     invoice_number: str,
     notes: str,
     registered_by: User,
+    *,
+    tag: str = '',
+    **header,
 ) -> InventoryMovement:
     """
     Register a single inventory entry and increment the matching stock row.
     Creates a one-item MovementGroup for consistent PDF handling.
+    ``header`` carries the optional SYSPCC-025 document fields (movement_date,
+    voucher_number, po_number, guide_number, internal_transfer, ...).
     """
     group = register_entry_batch(
-        items_data=[{'inventory_id': inventory.pk, 'quantity': quantity, 'line': 1}],
+        items_data=[{'inventory_id': inventory.pk, 'quantity': quantity, 'line': 1, 'tag': tag}],
         warehouse=warehouse,
         project_id=project_id,
         source_type=source_type,
@@ -348,6 +470,7 @@ def register_entry(
         invoice_number=invoice_number,
         notes=notes,
         registered_by=registered_by,
+        **header,
     )
     # Return the single InventoryMovement for backward compatibility
     return group.movements.first()
@@ -365,14 +488,18 @@ def register_exit(
     authorized_by_id,
     notes: str,
     registered_by: User,
+    *,
+    tag: str = '',
+    **header,
 ) -> InventoryMovement:
     """
     Register a single inventory exit and decrement the matching stock row.
     Raises ValueError if current stock is insufficient.
     Creates a one-item MovementGroup for consistent PDF handling.
+    ``header`` carries the optional SYSPCC-025 document fields.
     """
     group = register_exit_batch(
-        items_data=[{'inventory_id': inventory.pk, 'quantity': quantity, 'line': 1}],
+        items_data=[{'inventory_id': inventory.pk, 'quantity': quantity, 'line': 1, 'tag': tag}],
         warehouse=warehouse,
         project_id=project_id,
         destination_type=destination_type,
@@ -381,6 +508,7 @@ def register_exit(
         authorized_by_id=authorized_by_id,
         notes=notes,
         registered_by=registered_by,
+        **header,
     )
     return group.movements.first()
 
@@ -393,6 +521,8 @@ def register_adjustment(
     project_id,
     notes: str,
     registered_by: User,
+    *,
+    movement_date=None,
 ) -> InventoryMovement:
     """
     Register an inventory adjustment.
@@ -411,8 +541,13 @@ def register_adjustment(
     new_qty = stock.quantity + qty
     if new_qty < 0:
         raise ValueError(
-            f'El ajuste resultaria en stock negativo. '
-            f'Stock actual: {stock.quantity}, ajuste: {quantity}'
+            f'El ajuste resultaría en stock negativo. '
+            f'Stock actual: {format_quantity(stock.quantity)}, ajuste: {format_quantity(qty)}'
+        )
+    if new_qty > MAX_STOCK_QUANTITY:
+        raise ValueError(
+            f'El ajuste supera el stock máximo permitido ({MAX_STOCK_QUANTITY:,.3f}). '
+            f'Stock actual: {format_quantity(stock.quantity)}, ajuste: {format_quantity(qty)}'
         )
 
     movement = InventoryMovement.objects.create(
@@ -425,6 +560,7 @@ def register_adjustment(
         source_type='ADJUSTMENT' if qty > 0 else '',
         destination_type='ADJUSTMENT' if qty < 0 else '',
         notes=notes or '',
+        movement_date=resolve_movement_date(movement_date),
         registered_by=registered_by,
     )
 

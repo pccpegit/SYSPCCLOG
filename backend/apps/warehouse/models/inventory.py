@@ -2,11 +2,18 @@
 Inventory and InventoryStock models.
 """
 
+from decimal import Decimal
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator
 
 from apps.core.enums import WarehouseOriginChoices, ItemTypeChoices
+
+# Largest value ``InventoryStock.quantity`` can hold: DECIMAL(12, 3). A sum of entries that goes
+# past it must be refused (400) before it reaches the column: SQLite would store an unreadable
+# value and PostgreSQL would fail the commit with ``numeric field overflow`` (500).
+MAX_STOCK_QUANTITY = Decimal('999999999.999')
 
 
 class Inventory(models.Model):
@@ -23,7 +30,7 @@ class Inventory(models.Model):
     unit = models.CharField(_('unidad'), max_length=30)
     category = models.CharField(_('categoría'), max_length=100, blank=True)
     item_type = models.CharField(
-        _('tipo de item'),
+        _('tipo de ítem'),
         max_length=20,
         choices=ItemTypeChoices.choices,
         default=ItemTypeChoices.MATERIAL,
@@ -31,10 +38,10 @@ class Inventory(models.Model):
     brand = models.CharField(_('marca'), max_length=100, blank=True)
     model_name = models.CharField(_('modelo'), max_length=100, blank=True)
     location = models.CharField(
-        _('ubicación física'),
+        _('ubicación'),
         max_length=100,
         blank=True,
-        help_text=_('Estante, rack, zona del almacén'),
+        help_text=_('Formato Pabellón + Sección – Nivel, por ejemplo B3-2.'),
     )
     min_stock = models.DecimalField(
         _('stock mínimo'),
@@ -42,6 +49,34 @@ class Inventory(models.Model):
         decimal_places=3,
         default=0,
         validators=[MinValueValidator(0)],
+    )
+
+    # SYSPCC-025 — datos del libro real de EPP (todos opcionales).
+    order_number = models.CharField(_('número de orden'), max_length=50, blank=True)
+    purchase_order_ref = models.CharField(
+        _('OC'),
+        max_length=30,
+        blank=True,
+        help_text=_('Referencia de OC tal como figura en el libro (texto).'),
+    )
+    packing_list = models.CharField(_('packing list'), max_length=50, blank=True)
+    size = models.CharField(_('talla'), max_length=20, blank=True)
+    floor = models.PositiveSmallIntegerField(
+        _('piso'),
+        null=True,
+        blank=True,
+        choices=[(1, _('1er piso')), (2, _('2do piso'))],
+        help_text=_('Piso del almacén cuando aún no se conoce la ubicación exacta.'),
+    )
+    observation = models.CharField(_('observación'), max_length=300, blank=True)
+    project = models.ForeignKey(
+        'core.Project',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='inventory_items',
+        verbose_name=_('proyecto'),
+        help_text=_('Proyecto propietario/asignado del ítem (atributo del catálogo, no alcance de stock).'),
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -53,6 +88,20 @@ class Inventory(models.Model):
 
     def __str__(self) -> str:
         return f'{self.product_code} - {self.description}'
+
+    @property
+    def location_status(self) -> str:
+        """EXACT / FLOOR_ONLY / NONE — derived, never stored."""
+        from apps.warehouse.services.locations import location_status
+
+        return location_status(self.location, self.floor)
+
+    @property
+    def location_display(self) -> str:
+        """Exact location, else 'PISO n', else ''."""
+        from apps.warehouse.services.locations import location_display
+
+        return location_display(self.location, self.floor)
 
 
 class InventoryStock(models.Model):

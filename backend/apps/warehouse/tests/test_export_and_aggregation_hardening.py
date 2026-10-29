@@ -65,7 +65,7 @@ class TestInventoryExportFormulaInjection:
         wb = _read_workbook(response)
         ws = wb.active
         row = next(ws.iter_rows(min_row=2, max_row=2, values_only=True))
-        # headers: Codigo(1) Descripcion(2) Unidad(3) ... Ubicacion(8)
+        # headers: Código(1) Descripción(2) Unidad(3) ... Ubicación(8)
         assert row[1] == "'=cmd(calc)"
         assert row[7] == "'+A1"
 
@@ -84,7 +84,7 @@ class TestInventoryExportTruncation:
         wb = _read_workbook(response)
         ws = wb.active
         assert 'ADVERTENCIA' in ws.cell(row=1, column=1).value
-        assert ws.cell(row=2, column=1).value == 'Codigo'
+        assert ws.cell(row=2, column=1).value == 'Código'
 
 
 @pytest.mark.django_db
@@ -109,8 +109,8 @@ class TestMovementExportFormulaInjection:
         wb = _read_workbook(response)
         ws = wb.active
         row = next(ws.iter_rows(min_row=2, max_row=2, values_only=True))
-        # headers: N.Movimiento(1) Tipo(2) Fecha(3) Codigo(4) Descripcion(5)
-        # Cantidad(6) Unidad(7) Almacen(8) Proveedor/Destino(9)
+        # headers: N° de movimiento(1) Tipo(2) Fecha(3) Código(4) Descripción(5)
+        # Cantidad(6) Unidad(7) Almacén(8) Proveedor/Destino(9)
         assert row[8] == "'=cmd()|calc"
 
 

@@ -1574,6 +1574,7 @@ class OneDriveViewSet(viewsets.ViewSet):
 # States where CENTRAL_WAREHOUSE must act
 CENTRAL_PENDING_STATUSES = [
     'IN_STOCK',            # Must dispatch from central stock
+    'QUALITY_APPROVED',    # SYSPCC-029: purchase received and approved; LOGISTICS dispatches it
     'DISPATCHED_TO_SITE',  # ADM: must update warehouse records
     'DELIVERED',           # ADM: must mark warehouse records updated
 ]
@@ -1585,12 +1586,14 @@ SITE_PENDING_STATUSES = [
 
 STATUS_LABELS = {
     'IN_STOCK':           'Stock disponible — pendiente despacho',
+    'QUALITY_APPROVED':   'Calidad aprobada — pendiente despacho',
     'DISPATCHED_TO_SITE': 'Despachado — pendiente actualizar registros',
     'DELIVERED':          'Entregado — pendiente confirmar en almacén',
 }
 
 PENDING_ACTIONS = {
     'IN_STOCK':           'DISPATCHED',
+    'QUALITY_APPROVED':   'DISPATCHED',
     'DISPATCHED_TO_SITE': 'WAREHOUSE_RECORDS_UPDATED',
     'DELIVERED':          'WAREHOUSE_RECORDS_UPDATED',
 }
@@ -1618,16 +1621,25 @@ class PendingRequestsViewSet(RejectNulQueryParamsMixin, viewsets.ViewSet):
             statuses.update(SITE_PENDING_STATUSES)
         return list(statuses)
 
-    def _build_queryset(self, user, params):
-        from apps.rq.models import Request
+    def _build_queryset(self, user, params, *, with_item_counts=False):
+        from django.db.models import Count
+        from apps.rq.permissions import get_accessible_requests_queryset
         pending_statuses = self._get_pending_statuses(user)
+        # Same visibility source as the rest of the app: SITE_WAREHOUSE only sees the requests of
+        # its own projects (SYSPCC-029); central warehouse and logistics see all.
         qs = (
-            Request.objects
+            get_accessible_requests_queryset(user)
             .filter(status__in=pending_statuses)
             .select_related('project', 'department', 'requested_by')
-            .prefetch_related('items')
             .order_by('fecha_necesidad', '-created_at')
         )
+        if with_item_counts:
+            # SYSPCC-029: one query with the three counters instead of three per card.
+            qs = qs.annotate(
+                items_total=Count('items'),
+                stock_total=Count('items', filter=Q(items__supply_source='STOCK')),
+                purchase_total=Count('items', filter=Q(items__supply_source='PURCHASE')),
+            )
         if params.get('flow'):
             qs = qs.filter(flow=params['flow'])
         if params.get('status'):
@@ -1646,21 +1658,41 @@ class PendingRequestsViewSet(RejectNulQueryParamsMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=['get'], url_path='list')
     def list_pending(self, request):
-        """Paginated list of RQs pending warehouse action."""
-        qs = self._build_queryset(request.user, request.query_params)
+        """
+        Paginated list of RQs pending warehouse action.
+
+        ``can_act``: the user holds the role that TRANSITIONS requires for ``pending_action`` at
+        this (flow, status); otherwise the card is read-only (e.g. QUALITY_APPROVED for the
+        warehouse keeper: dispatching a purchase is Logistics' step). ``can_deliver``: the user
+        may register partial deliveries (SYSPCC-029); ``act_roles`` lists who can act.
+        """
+        from apps.rq.services.transition_roles import roles_for_action
+        from apps.warehouse.services.rq_fulfillment import DELIVERABLE_STATUSES
+
+        qs = self._build_queryset(request.user, request.query_params, with_item_counts=True)
         paginator = WarehousePagination()
         page = paginator.paginate_queryset(qs, request)
         items = page if page is not None else qs
+        user_roles = set(request.user.user_roles.values_list('role', flat=True))
 
         data = []
         for rq in items:
+            pending_action = PENDING_ACTIONS.get(rq.status, '')
+            act_roles = roles_for_action(rq.flow, rq.status, pending_action) if pending_action else frozenset()
+            deliver_roles = (
+                roles_for_action(rq.flow, rq.status, 'DISPATCHED') if rq.status in DELIVERABLE_STATUSES
+                else frozenset()
+            )
             data.append({
                 'id': rq.id,
                 'rq_number': rq.rq_number,
                 'flow': rq.flow,
                 'status': rq.status,
                 'status_label': STATUS_LABELS.get(rq.status, rq.status),
-                'pending_action': PENDING_ACTIONS.get(rq.status, ''),
+                'pending_action': pending_action,
+                'act_roles': sorted(act_roles),
+                'can_act': bool(user_roles & act_roles),
+                'can_deliver': bool(user_roles & deliver_roles),
                 'priority': rq.priority,
                 'fecha_necesidad': rq.fecha_necesidad,
                 'fecha_estimada_entrega': rq.fecha_estimada_entrega,
@@ -1668,9 +1700,9 @@ class PendingRequestsViewSet(RejectNulQueryParamsMixin, viewsets.ViewSet):
                 'project_code': rq.project.code if rq.project else None,
                 'department': rq.department.name if rq.department else None,
                 'requested_by': rq.requested_by.get_full_name(),
-                'items_count': rq.items.count(),
-                'stock_items': rq.items.filter(supply_source='STOCK').count(),
-                'purchase_items': rq.items.filter(supply_source='PURCHASE').count(),
+                'items_count': rq.items_total,
+                'stock_items': rq.stock_total,
+                'purchase_items': rq.purchase_total,
                 'acquisition_type': rq.acquisition_type,
                 'created_at': rq.created_at,
             })

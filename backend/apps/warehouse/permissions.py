@@ -64,6 +64,17 @@ class CanDeliverEPP(_RolePermission):
     ALLOWED_ROLES = [CENTRAL_WAREHOUSE, SITE_WAREHOUSE]
 
 
+class CanReverseDelivery(_RolePermission):
+    """
+    Annul an entrega registered against an RQ (SYSPCC-029). The design assigns it to the
+    warehouse keeper who registered it or to the logistics chief; deliberately NOT derived
+    from TRANSITIONS (it is a correction, not a workflow action). No is_superuser bypass.
+    """
+
+    message = 'Solo Almacén Central y Jefe Logístico pueden anular entregas.'
+    ALLOWED_ROLES = [CENTRAL_WAREHOUSE, LOGISTICS_CHIEF]
+
+
 class CanLookupPersonal(_RolePermission):
     """
     Search workers (id, name, position, project code of every ACTIVE worker).

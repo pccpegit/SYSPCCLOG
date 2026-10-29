@@ -289,6 +289,8 @@ REST_FRAMEWORK = {
         # SYSPCC-025 (warehouse)
         'warehouse_lookup': '120/min',
         'warehouse_import': '10/hour',
+        # SYSPCC-029 (entregas parciales y reversas de RQ)
+        'warehouse_delivery': '60/min',
     },
 }
 

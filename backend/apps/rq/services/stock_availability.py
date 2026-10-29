@@ -39,6 +39,7 @@ from apps.rq.models import RequestItem
 from apps.rq.services.request_catalog import central_pool_available
 from apps.rq.services.units import units_equivalent
 from apps.warehouse.models import WarehouseDispatchItem, WarehouseReceiptItem
+from apps.warehouse.services.dispatch_totals import net_dispatched_expression
 
 _ZERO = Decimal('0')
 _QUANTITY_FIELD = DecimalField(max_digits=14, decimal_places=3)
@@ -83,13 +84,8 @@ def _owed_to_in_stock_requests(ids, exclude_request_id) -> dict:
         RequestItem.objects
         .filter(request__status=RQStatusChoices.IN_STOCK, inventory_item_id__in=ids)
         .exclude(request_id=exclude_request_id)
-        .annotate(
-            dispatched=Coalesce(
-                Sum('dispatch_items__quantity_dispatched'),
-                Value(_ZERO, output_field=_QUANTITY_FIELD),
-                output_field=_QUANTITY_FIELD,
-            )
-        )
+        # SYSPCC-029: entregado neto = entregas − reversas.
+        .annotate(dispatched=net_dispatched_expression('dispatch_items__'))
         .values_list('inventory_item_id', 'quantity', 'dispatched')
     )
 
@@ -124,7 +120,7 @@ def _owed_to_received_purchases(ids, exclude_request_id) -> dict:
         WarehouseDispatchItem.objects
         .filter(request_item=OuterRef('pk'))
         .values('request_item')
-        .annotate(total=Sum('quantity_dispatched'))
+        .annotate(total=net_dispatched_expression(''))   # SYSPCC-029: neto de reversas
         .values('total')
     )
     rows = (

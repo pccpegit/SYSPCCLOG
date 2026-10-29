@@ -83,6 +83,19 @@ class WarehouseDispatch(models.Model):
         help_text=_('MovementGroup (vale de salida) generado automáticamente al registrar DISPATCHED'),
     )
     notes = models.TextField(_('notas'), blank=True)
+    reverses = models.ForeignKey(
+        'self',
+        on_delete=models.PROTECT,
+        related_name='reversals',
+        null=True,
+        blank=True,
+        verbose_name=_('anula la entrega'),
+        help_text=_(
+            'SYSPCC-029: si no es NULL, este registro es la REVERSA de esa entrega (contra-movimiento '
+            'de ingreso al almacén). Lo entregado de un ítem es la suma de las entregas normales '
+            'menos la suma de las reversas. Nada se borra: la entrega original queda protegida.'
+        ),
+    )
 
     class Meta:
         db_table = 'warehouse_dispatches'
@@ -92,6 +105,18 @@ class WarehouseDispatch(models.Model):
         indexes = [
             models.Index(fields=['request']),
         ]
+        constraints = [
+            # An entrega can be annulled at most once (defence in depth behind the row locks).
+            models.UniqueConstraint(
+                fields=['reverses'],
+                condition=models.Q(reverses__isnull=False),
+                name='uniq_dispatch_single_reversal',
+            ),
+        ]
+
+    @property
+    def is_reversal(self) -> bool:
+        return self.reverses_id is not None
 
     def __str__(self) -> str:
         return f'Despacho {self.dispatch_number or self.pk} | {self.request.rq_number}'

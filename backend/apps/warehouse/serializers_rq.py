@@ -1,0 +1,132 @@
+"""
+Serializers of the RQ delivery endpoints (SYSPCC-029): picking list, partial delivery and reversal.
+
+The input serializers validate shape and ranges only; the business rules (state, role, remainder,
+stock) live in `services/rq_fulfillment.py` and run under the row locks.
+"""
+from decimal import Decimal
+
+from django.utils import timezone
+from rest_framework import serializers
+
+MAX_DELIVERY_LINES = 200
+QUANTITY_FIELD = {'max_digits': 12, 'decimal_places': 3}
+
+
+class DeliveryLineInputSerializer(serializers.Serializer):
+    request_item_id = serializers.IntegerField(min_value=1)
+    quantity = serializers.DecimalField(min_value=Decimal('0.001'), **QUANTITY_FIELD)
+
+
+class _OperationalDateMixin:
+    def validate_movement_date(self, value):
+        if value > timezone.localdate():
+            raise serializers.ValidationError('La fecha no puede ser posterior a hoy.')
+        return value
+
+
+class DeliverInputSerializer(_OperationalDateMixin, serializers.Serializer):
+    lines = DeliveryLineInputSerializer(many=True, allow_empty=False, max_length=MAX_DELIVERY_LINES)
+    dispatch_guide_number = serializers.CharField(max_length=50)
+    movement_date = serializers.DateField(required=False)
+    notes = serializers.CharField(max_length=300, required=False, allow_blank=True, default='')
+
+    def validate_lines(self, lines):
+        ids = [line['request_item_id'] for line in lines]
+        if len(set(ids)) != len(ids):
+            raise serializers.ValidationError('Un ítem no puede repetirse en la misma entrega.')
+        return lines
+
+
+class ReverseInputSerializer(_OperationalDateMixin, serializers.Serializer):
+    reason = serializers.CharField(min_length=5, max_length=300)
+    movement_date = serializers.DateField(required=False)
+
+
+# ── Output (documents the response; the view renders the dicts built by rq_picking) ────────
+
+class PickingProductSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    product_code = serializers.CharField()
+    description = serializers.CharField()
+    unit = serializers.CharField()
+    category = serializers.CharField()
+    location = serializers.CharField()
+    location_status = serializers.CharField()
+
+
+class PickingItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    line_number = serializers.IntegerField()
+    description = serializers.CharField()
+    unit = serializers.CharField()
+    quantity = serializers.DecimalField(max_digits=14, decimal_places=3)
+    link_status = serializers.CharField()
+    product = PickingProductSerializer(allow_null=True)
+    available_central = serializers.DecimalField(max_digits=14, decimal_places=3, allow_null=True)
+    delivered = serializers.DecimalField(max_digits=14, decimal_places=3)
+    remaining = serializers.DecimalField(max_digits=14, decimal_places=3)
+    max_deliverable = serializers.DecimalField(max_digits=14, decimal_places=3, allow_null=True)
+    status = serializers.CharField()
+    can_deliver = serializers.BooleanField()
+    blocked_reason = serializers.CharField(allow_null=True)
+
+
+class DeliveryLineSerializer(serializers.Serializer):
+    request_item_id = serializers.IntegerField()
+    line_number = serializers.IntegerField()
+    description = serializers.CharField()
+    quantity = serializers.DecimalField(max_digits=14, decimal_places=3)
+
+
+class DeliverySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    dispatch_number = serializers.CharField()
+    dispatch_guide_number = serializers.CharField()
+    movement_date = serializers.DateField(allow_null=True)
+    dispatched_at = serializers.DateTimeField()
+    dispatched_by = serializers.CharField()
+    is_reversal = serializers.BooleanField()
+    reverses = serializers.IntegerField(allow_null=True)
+    reversed_by = serializers.IntegerField(allow_null=True)
+    notes = serializers.CharField(allow_blank=True)
+    can_reverse = serializers.BooleanField()
+    lines = DeliveryLineSerializer(many=True)
+
+
+class PickingRequestSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    rq_number = serializers.CharField()
+    flow = serializers.CharField()
+    status = serializers.CharField()
+    project = serializers.CharField(allow_null=True)
+    project_code = serializers.CharField(allow_null=True)
+    department = serializers.CharField(allow_null=True)
+    requested_by = serializers.CharField()
+    fecha_necesidad = serializers.DateField(allow_null=True)
+    deliverable_state = serializers.BooleanField()
+    deliver_roles = serializers.ListField(child=serializers.CharField())
+    can_deliver = serializers.BooleanField()
+    can_reverse = serializers.BooleanField()
+
+
+class PickingSummarySerializer(serializers.Serializer):
+    items_total = serializers.IntegerField()
+    complete = serializers.IntegerField()
+    partial = serializers.IntegerField()
+    pending = serializers.IntegerField()
+    blocked = serializers.IntegerField()
+
+
+class PickingSerializer(serializers.Serializer):
+    request = PickingRequestSerializer()
+    items = PickingItemSerializer(many=True)
+    summary = PickingSummarySerializer()
+    deliveries = DeliverySerializer(many=True)
+
+
+class DeliveryResultSerializer(serializers.Serializer):
+    """201 of `deliver` and `reverse`: the document that was written plus the refreshed list."""
+
+    delivery = DeliverySerializer()
+    picking = PickingSerializer()

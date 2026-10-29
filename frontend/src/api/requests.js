@@ -31,9 +31,12 @@ export const deleteRequest = (id) =>
 export const performAction = (id, actionData) =>
   client.post(`/requests/${id}/action/`, actionData);
 
-/** GET /requests/{id}/available-actions/ */
-export const getAvailableActions = (id) =>
-  client.get(`/requests/${id}/available-actions/`);
+/**
+ * GET /requests/{id}/available-actions/ -> `{ available_actions: [{ action, label, ... }] }`.
+ * `role` (opcional) es el rol con el que se consulta; sin él el servidor usa el rol principal.
+ */
+export const getAvailableActions = (id, role) =>
+  client.get(`/requests/${id}/available-actions/`, role ? { params: { role } } : undefined);
 
 /** GET /requests/{id}/approvals/ */
 export const getApprovals = (id) =>

@@ -41,6 +41,7 @@ import SalidaPage           from './pages/almacen/SalidaPage';
 import VoucherPrint         from './pages/almacen/VoucherPrint';
 import MovimientosPage      from './pages/almacen/MovimientosPage';
 import PendientesPage       from './pages/almacen/PendientesPage';
+import PickingPage          from './pages/almacen/PickingPage';
 import ResumenPage          from './pages/almacen/ResumenPage';
 import TransferenciaPage    from './pages/almacen/TransferenciaPage';
 import ImportarPage         from './pages/almacen/ImportarPage';
@@ -181,6 +182,7 @@ export default function App() {
             <Route path="salida/:id/voucher"  element={<VoucherPrint />}      />
             <Route path="movimientos"         element={<MovimientosPage />}   />
             <Route path="pendientes"          element={<PendientesPage />}    />
+            <Route path="pendientes/:id/picking" element={<PickingPage />}    />
             <Route path="resumen"             element={<ResumenPage />}       />
             <Route
               path="transferencia"

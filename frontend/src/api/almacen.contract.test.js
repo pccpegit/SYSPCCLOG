@@ -29,6 +29,8 @@ describe('api/almacen — lecturas', () => {
     ['getMovements', [{ voucher_number: '1' }], 'get', '/warehouse/movements/', { params: { voucher_number: '1' } }],
     ['getVoucher', [9], 'get', '/warehouse/movements/9/voucher/'],
     ['lookupPersonal', ['rosa'], 'get', '/warehouse/personal-lookup/', { params: { search: 'rosa' } }],
+    ['getPendingRequests', [{ status: 'QUALITY_APPROVED' }], 'get', '/warehouse/pending-requests/list/', { params: { status: 'QUALITY_APPROVED' } }],
+    ['getRqPicking', [7], 'get', '/warehouse/pending-requests/7/picking/'],
   ])('%s', (name, args, method, url, config) => {
     almacen[name](...args);
     expect(client[method]).toHaveBeenCalledTimes(1);
@@ -154,5 +156,18 @@ describe('api/almacenImport', () => {
     importer.downloadImportTemplate();
     expect(client.get).toHaveBeenCalledWith('/warehouse/imports/abc/problems/export/', { params: { code: 'VALE_VACIO' }, responseType: 'blob' });
     expect(client.get).toHaveBeenCalledWith('/warehouse/imports/template/', { responseType: 'blob' });
+  });
+});
+
+describe('api/almacen — entregas parciales de un RQ (SYSPCC-029)', () => {
+  it('deliverRqItems hace POST al detalle del RQ con el cuerpo tal cual', () => {
+    const body = { lines: [{ request_item_id: 11, quantity: '3' }], dispatch_guide_number: 'GR-1' };
+    almacen.deliverRqItems(7, body);
+    expect(client.post).toHaveBeenCalledWith('/warehouse/pending-requests/7/deliver/', body);
+  });
+
+  it('reverseRqDelivery hace POST a la entrega concreta', () => {
+    almacen.reverseRqDelivery(7, 3, { reason: 'Error de conteo' });
+    expect(client.post).toHaveBeenCalledWith('/warehouse/pending-requests/7/deliveries/3/reverse/', { reason: 'Error de conteo' });
   });
 });

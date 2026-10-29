@@ -12,7 +12,6 @@ Both workflow definitions are encoded here based on the DBML schema.
 import logging
 from datetime import date
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.enums import (
@@ -671,6 +670,18 @@ TRANSITIONS: list[dict] = [
 ]
 
 
+# SYSPCC-028: (previous status, new status) pairs that mean "the goods were delivered".
+# The delivery dates are written only for these; they do not alter TRANSITIONS.
+#   DISPATCHED action, ADM direct path:      IN_STOCK -> DELIVERED
+#   WAREHOUSE_RECORDS_UPDATED (OPS and ADM): DISPATCHED_TO_SITE -> DELIVERED
+DIRECT_DELIVERY_TRANSITIONS = frozenset({
+    (RQStatusChoices.IN_STOCK, RQStatusChoices.DELIVERED),
+})
+DELIVERY_RECORD_TRANSITIONS = frozenset({
+    (RQStatusChoices.DISPATCHED_TO_SITE, RQStatusChoices.DELIVERED),
+})
+
+
 class WorkflowEngine:
     """
     State machine engine for RQ workflow transitions.
@@ -920,7 +931,9 @@ class WorkflowEngine:
         if action == ApprovalActionChoices.RECEIVED:
             self._on_material_received(extra_data)
         elif action == ApprovalActionChoices.DISPATCHED:
-            self._on_dispatched(extra_data)
+            self._on_dispatched(extra_data, previous_status, new_status)
+        elif action == ApprovalActionChoices.WAREHOUSE_RECORDS_UPDATED:
+            self._on_warehouse_records_updated(previous_status, new_status)
 
     def _on_validated(self, extra_data: dict) -> None:
         """When a request is validated: calculate SLA, commit budget."""
@@ -951,16 +964,14 @@ class WorkflowEngine:
 
     def _resolve_inventory_item(self, item):
         """
-        Resolve the Inventory instance for a RequestItem.
-        A line marked off-catalog on purpose never resolves to a product (no stock moves).
-        Otherwise prefers the direct FK; falls back to fuzzy description/code search.
-        Returns None (and logs) if no match is found.
-        """
-        from apps.warehouse.models import Inventory
+        Resolve the Inventory instance whose stock a RequestItem may move.
 
-        # SYSPCC-026: "off-catalog" is an explicit decision (services, items that do not
-        # go through the warehouse). It must not reach the fuzzy fallback below, which
-        # would match a look-alike product by text and move its stock.
+        SYSPCC-028: only the catalog link CONFIRMED by logistics counts
+        (`inventory_item` + `inventory_item_confirmed_at`). There is no text matching:
+        a line without a link, with a link that only the requester proposed (or that
+        seeds/imports left unconfirmed), or marked off-catalog never moves stock.
+        Returns None in those cases; they stay visible in `report_rq_stock_gaps`.
+        """
         if item.is_off_catalog:
             logger.info(
                 'RQ %s item "%s" is off-catalog — no inventory movement.',
@@ -968,39 +979,56 @@ class WorkflowEngine:
             )
             return None
 
-        inv = item.inventory_item
-        if inv:
-            return inv
-
-        # Fuzzy fallback: match by full description or first word as product_code
-        first_word = item.description.split()[0] if item.description else ''
-        inv = Inventory.objects.filter(
-            Q(description__icontains=item.description) |
-            Q(product_code__iexact=first_word)
-        ).first()
-
-        if not inv:
+        if item.inventory_item_id is None:
             logger.info(
-                'RQ %s item "%s" has no matching inventory product — skipping movement.',
+                'RQ %s item "%s" has no catalog link — no inventory movement.',
                 self.request.rq_number, item.description,
             )
-        else:
-            # SYSPCC-013 FIX 8: this branch only runs when there was no direct
-            # FK match — `inv` was "guessed" via icontains/iexact on free-text
-            # description. That guess can silently move stock for the wrong
-            # product, so it must be traceable even though resolution
-            # succeeded (logic itself is unchanged — logging only).
+            return None
+
+        if item.inventory_item_confirmed_at is None:
             logger.warning(
-                'workflow_engine.inventory_resolution.fuzzy_match',
+                'workflow_engine.inventory_resolution.unconfirmed_link',
                 extra={
                     'rq_number': self.request.rq_number,
                     'request_item_id': item.pk,
-                    'item_description': item.description,
-                    'matched_inventory_id': inv.pk,
-                    'matched_product_code': inv.product_code,
+                    'proposed_inventory_id': item.inventory_item_id,
                 },
             )
-        return inv
+            return None
+
+        return item.inventory_item
+
+    def _receivable_lines(self):
+        """
+        [(RequestItem, Inventory)] for the lines of a RECEIVED that really enter the pool:
+        not served from stock and with a catalog link CONFIRMED by logistics.
+        Returns (lines, unlinked) where `unlinked` are the purchase lines left out for
+        lack of a confirmed link (off-catalog lines are a deliberate decision: not listed).
+        """
+        lines, unlinked = [], []
+        for item in self.request.items.select_related('inventory_item').all():
+            # Skip items that were fulfilled from existing stock.
+            if item.supply_source == 'STOCK':
+                logger.info(
+                    'RQ %s item "%s" served from stock — skipping entry movement.',
+                    self.request.rq_number, item.description,
+                )
+                continue
+            inv = self._resolve_inventory_item(item)
+            if inv is None:
+                if not item.is_off_catalog:
+                    unlinked.append(item)
+                continue
+            lines.append((item, inv))
+        return lines, unlinked
+
+    @staticmethod
+    def _entry_items_data(lines):
+        return [
+            {'inventory_id': inv.pk, 'quantity': item.quantity, 'line': number}
+            for number, (item, inv) in enumerate(lines, start=1)
+        ]
 
     def _build_items_data(self, movement_type):
         """
@@ -1009,7 +1037,10 @@ class WorkflowEngine:
         Filtering rules:
           - ENTRY (RECEIVED): skip items with supply_source='STOCK' (they were served
             from existing stock, no supplier purchase happened).
-          - EXIT (DISPATCHED): include all items that have a linked inventory product.
+          - Only lines with a catalog link CONFIRMED by logistics are included
+            (see `_resolve_inventory_item`).
+          - The DISPATCHED exit no longer uses this list: it is computed per line, by
+            remainder, in `apps.warehouse.services.rq_fulfillment` (SYSPCC-028).
 
         Returns a list of dicts ready for the batch service, or [] if nothing to move.
         """
@@ -1018,10 +1049,6 @@ class WorkflowEngine:
         for item in self.request.items.select_related('inventory_item').all():
             # ENTRY: skip items that were fulfilled from existing stock.
             if movement_type == 'ENTRY' and item.supply_source == 'STOCK':
-                logger.info(
-                    'RQ %s item "%s" served from stock — skipping entry movement.',
-                    self.request.rq_number, item.description,
-                )
                 continue
 
             inv = self._resolve_inventory_item(item)
@@ -1040,156 +1067,138 @@ class WorkflowEngine:
     def _on_material_received(self, extra_data: dict) -> None:
         """
         RECEIVED: Material arrives from supplier.
-        1. Creates a batch ENTRY (InventoryMovement records) via MovementGroup.
+        1. Creates a batch ENTRY (InventoryMovement records) via MovementGroup, only for
+           lines whose catalog link was confirmed by logistics.
         2. Creates a formal WarehouseReceipt linked to the group and the RQ.
-        3. Creates WarehouseReceiptItem for each RequestItem with purchase supply_source.
-        Best-effort: inventory and document errors never fail the workflow transition.
+        3. Creates WarehouseReceiptItem for each line that actually entered the pool (purchase
+           supply_source and confirmed link), linked to its purchase-order line.
+        Best-effort: inventory and document errors never fail the workflow transition. The
+        work runs in a savepoint so a database error cannot poison the transition's atomic().
         """
         from apps.warehouse.services.movements import register_entry_batch
+        from apps.warehouse.services.rq_fulfillment import record_unlinked_lines
         from apps.warehouse.models import WarehouseReceipt, WarehouseReceiptItem
 
         try:
-            items_data = self._build_items_data('ENTRY')
-            if not items_data:
+            lines, unlinked = self._receivable_lines()
+            # Visible, outside the ingress savepoint: logistics must confirm the link BEFORE RECEIVED.
+            record_unlinked_lines(self.request, self.user, unlinked, event='ingresar')
+            with transaction.atomic():
+                items_data = self._entry_items_data(lines)
+                if not items_data:
+                    logger.info(
+                        'RQ %s RECEIVED: no purchasable items with a confirmed catalog link — '
+                        'skipping entry batch.',
+                        self.request.rq_number,
+                    )
+                    return
+
+                # 1. Create inventory movements batch
+                group = register_entry_batch(
+                    items_data=items_data,
+                    warehouse='CENTRAL',
+                    project_id=None,
+                    source_type='PURCHASE',
+                    supplier_name=f'RQ {self.request.rq_number}',
+                    invoice_number='',
+                    notes=f'Recepción automática RQ {self.request.rq_number}',
+                    registered_by=self.user,
+                )
                 logger.info(
-                    'RQ %s RECEIVED: no purchasable items with linked inventory — skipping entry batch.',
-                    self.request.rq_number,
+                    'RQ %s RECEIVED: entry batch created — group %s (%d items).',
+                    self.request.rq_number, group.group_number, len(items_data),
                 )
-                return
 
-            # 1. Create inventory movements batch
-            group = register_entry_batch(
-                items_data=items_data,
-                warehouse='CENTRAL',
-                project_id=None,
-                source_type='PURCHASE',
-                supplier_name=f'RQ {self.request.rq_number}',
-                invoice_number='',
-                notes=f'Recepción automática RQ {self.request.rq_number}',
-                registered_by=self.user,
-            )
-            logger.info(
-                'RQ %s RECEIVED: entry batch created — group %s (%d items).',
-                self.request.rq_number, group.group_number, len(items_data),
-            )
-
-            # 2. Create formal WarehouseReceipt linked to the group
-            last_po = self.request.purchase_orders.order_by('-created_at').first()
-            receipt = WarehouseReceipt.objects.create(
-                request=self.request,
-                purchase_order=last_po,
-                received_by=self.user,
-                receipt_number=group.group_number,
-                conformity_passed=True,
-                conformity_checked_by=self.user,
-                movement_group=group,
-                notes=f'Recepción automática desde workflow RQ {self.request.rq_number}',
-            )
-
-            # 3. Create WarehouseReceiptItem per eligible RequestItem
-            for item in self.request.items.select_related('inventory_item').all():
-                if item.supply_source == 'STOCK':
-                    continue
-                last_po_item = (
-                    item.purchase_order_items.order_by('-created_at').first()
-                    if hasattr(item, 'purchase_order_items') else None
+                # 2. Create formal WarehouseReceipt linked to the group
+                last_po = self.request.purchase_orders.order_by('-created_at').first()
+                receipt = WarehouseReceipt.objects.create(
+                    request=self.request,
+                    purchase_order=last_po,
+                    received_by=self.user,
+                    receipt_number=group.group_number,
+                    conformity_passed=True,
+                    conformity_checked_by=self.user,
+                    movement_group=group,
+                    notes=f'Recepción automática desde workflow RQ {self.request.rq_number}',
                 )
-                WarehouseReceiptItem.objects.create(
-                    receipt=receipt,
-                    request_item=item,
-                    purchase_order_item=last_po_item,
-                    quantity_received=item.quantity,
-                    quantity_accepted=item.quantity,
-                    quantity_rejected=0,
+
+                # 3. Create WarehouseReceiptItem ONLY for the lines that really entered the pool:
+                #    a receipt row is read by stock_availability as "already in the pool".
+                for item, _inv in lines:
+                    po_items = item.po_items.order_by('-created_at', '-pk')
+                    last_po_item = (
+                        po_items.filter(purchase_order=last_po).first() if last_po else None
+                    ) or po_items.first()
+                    WarehouseReceiptItem.objects.create(
+                        receipt=receipt,
+                        request_item=item,
+                        purchase_order_item=last_po_item,
+                        quantity_received=item.quantity,
+                        quantity_accepted=item.quantity,
+                        quantity_rejected=0,
+                    )
+                logger.info(
+                    'RQ %s RECEIVED: WarehouseReceipt %s created and linked to group %s.',
+                    self.request.rq_number, receipt.pk, group.group_number,
                 )
-            logger.info(
-                'RQ %s RECEIVED: WarehouseReceipt %s created and linked to group %s.',
-                self.request.rq_number, receipt.pk, group.group_number,
-            )
         except Exception as exc:
             logger.warning('Inventory entry batch failed for %s: %s', self.request.rq_number, exc)
 
-    def _on_dispatched(self, extra_data: dict) -> None:
+    def _on_dispatched(
+        self,
+        extra_data: dict,
+        previous_status: str | None = None,
+        new_status: str | None = None,
+    ) -> None:
         """
         DISPATCHED: Warehouse sends items to site/department.
-        1. Creates a batch EXIT (InventoryMovement records) via MovementGroup.
-        2. Creates a formal WarehouseDispatch linked to the group and the RQ.
-        3. Creates WarehouseDispatchItem for each RequestItem with linked inventory.
-        Best-effort: inventory and document errors never fail the workflow transition.
+
+        Delegates the stock exit and its documents to
+        `apps.warehouse.services.rq_fulfillment.dispatch_request_items` (SYSPCC-028): it
+        takes the REMAINDER of each confirmed line from the CENTRAL pool, so a second
+        DISPATCHED after the supplier-claim cycle does not discount twice, and records
+        any shortage visibly. For the direct ADMINISTRATIVE path (IN_STOCK -> DELIVERED)
+        the delivery dates are completed here too, because no
+        WAREHOUSE_RECORDS_UPDATED step follows.
+        Best-effort: errors never fail the workflow transition (each part runs in its own
+        savepoint).
         """
-        from apps.warehouse.services.movements import register_exit_batch
-        from apps.warehouse.models import WarehouseDispatch, WarehouseDispatchItem
+        from apps.warehouse.services.rq_fulfillment import dispatch_request_items
 
         try:
-            items_data = self._build_items_data('EXIT')
-            if not items_data:
-                logger.info(
-                    'RQ %s DISPATCHED: no items with linked inventory — skipping exit batch.',
-                    self.request.rq_number,
-                )
-                return
-
-            project_id = self.request.project_id if self.request.project_id else None
-            if self.request.project:
-                destination_type = 'PROJECT'
-                destination_detail = self.request.project.name
-            elif self.request.department:
-                destination_type = 'DEPARTMENT'
-                destination_detail = self.request.department.name
-            else:
-                destination_type = 'OTHER'
-                destination_detail = ''
-
-            # 1. Create inventory movements batch
-            group = register_exit_batch(
-                items_data=items_data,
-                warehouse='CENTRAL',
-                project_id=project_id,
-                destination_type=destination_type,
-                destination_detail=destination_detail,
-                requested_by_id=self.request.requested_by_id,
-                authorized_by_id=None,
-                notes=f'Despacho automático RQ {self.request.rq_number}',
-                registered_by=self.user,
-            )
-            logger.info(
-                'RQ %s DISPATCHED: exit batch created — group %s (%d items).',
-                self.request.rq_number, group.group_number, len(items_data),
+            with transaction.atomic():
+                dispatch_request_items(self.request, self.user)
+        except Exception:
+            logger.exception(
+                'workflow_engine.dispatch.failed',
+                extra={'rq_number': self.request.rq_number, 'request_id': self.request.pk},
             )
 
-            # 2. Create formal WarehouseDispatch linked to the group
-            last_receipt = (
-                self.request.warehouse_receipts.order_by('-received_at').first()
-                if hasattr(self.request, 'warehouse_receipts') else None
-            )
-            dispatch = WarehouseDispatch.objects.create(
-                request=self.request,
-                receipt=last_receipt,
-                dispatched_by=self.user,
-                dispatch_number=group.group_number,
-                origin='CENTRAL',
-                destination_project=self.request.project,
-                destination_department=self.request.department,
-                movement_group=group,
-                notes=f'Despacho automático desde workflow RQ {self.request.rq_number}',
-            )
+        if (previous_status, new_status) in DIRECT_DELIVERY_TRANSITIONS:
+            self._mark_delivered()
 
-            # 3. Create WarehouseDispatchItem per eligible RequestItem
-            for item in self.request.items.select_related('inventory_item').all():
-                inv = self._resolve_inventory_item(item)
-                if inv is None:
-                    continue
-                WarehouseDispatchItem.objects.create(
-                    dispatch=dispatch,
-                    request_item=item,
-                    quantity_dispatched=item.quantity,
-                )
-            logger.info(
-                'RQ %s DISPATCHED: WarehouseDispatch %s created and linked to group %s.',
-                self.request.rq_number, dispatch.pk, group.group_number,
+    def _on_warehouse_records_updated(self, previous_status: str, new_status: str) -> None:
+        """
+        WAREHOUSE_RECORDS_UPDATED: the same action is used for two different steps, so
+        the dates are written according to (previous, new):
+          - DISPATCHED_TO_SITE -> DELIVERED (OPS and ADM): the goods arrived -> delivery dates.
+          - DELIVERED -> WAREHOUSE_UPDATED (ADM): only bookkeeping, nothing to write.
+        """
+        if (previous_status, new_status) in DELIVERY_RECORD_TRANSITIONS:
+            self._mark_delivered()
+
+    def _mark_delivered(self) -> None:
+        """Set-if-null delivery dates (WarehouseDispatch and Request); never fails the transition."""
+        from apps.warehouse.services.rq_fulfillment import mark_request_delivered
+
+        try:
+            with transaction.atomic():
+                mark_request_delivered(self.request, self.user)
+        except Exception:
+            logger.exception(
+                'workflow_engine.delivery_dates.failed',
+                extra={'rq_number': self.request.rq_number, 'request_id': self.request.pk},
             )
-        except Exception as exc:
-            logger.warning('Inventory exit batch failed for %s: %s', self.request.rq_number, exc)
 
     def _log_activity(self, action: str, previous_status: str, new_status: str) -> None:
         from apps.rq.models import ActivityLog

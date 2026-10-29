@@ -7,18 +7,21 @@ Reporta los RQs OPERATIONS con proyecto que ya fueron "despachados" (Approval DI
 o estado posterior al despacho) y cuyo despacho automático no generó movimiento de
 almacén: sin WarehouseDispatch y sin salida "Despacho automático RQ …".
 
-R1: `_on_dispatched` descuenta de la fila CENTRAL + proyecto, mientras las recepciones
-ingresan al pool central (project=NULL). La salida falla con "Stock insuficiente", el
-error se reduce a un warning y el RQ avanza igual. Ver `apps/rq/services/stock_diagnostics.py`.
+R1 (corregido en SYSPCC-028): el despacho automático descontaba de la fila CENTRAL +
+proyecto, mientras las recepciones ingresan al pool central (project=NULL). La salida fallaba
+con "Stock insuficiente", el error se reducía a un warning y el RQ avanzaba igual. Desde
+SYSPCC-028 el despacho descuenta del pool, así que este reporte sirve para los RQs HISTÓRICOS
+(despachados antes del arreglo, que no se reprocesan solos) y para ver cuántos ítems de cada
+RQ moverían stock hoy (ÍTEMS = con vínculo / total; columna CONF = vínculos confirmados).
+Ver `apps/rq/services/stock_diagnostics.py`.
 
-El indicio se calcula con el stock ACTUAL: es una pista para decidir antes de la Fase 3,
-no una prueba.
+El indicio se calcula con el stock ACTUAL: es una pista, no una prueba.
 
 Segunda sección: ítems con producto de catálogo (`inventory_item`) que Logística NO confirmó
 (`inventory_item_confirmed_at` nulo). El solicitante puede proponer el producto al crear el
-RQ y el motor hoy lo usa aunque nadie lo haya revisado; la Fase 3 solo honrará vínculos
-confirmados. Esta lista es lo que hay que revisar o confirmar en bloque ANTES de desplegar
-esta rama a un entorno con movimiento real de stock. Por defecto solo RQs no terminales.
+RQ; desde SYSPCC-028 el motor ignora el vínculo propuesto hasta que Logística lo confirme
+(esos ítems no mueven stock). Esta lista es lo que hay que revisar o confirmar en bloque
+(incluye vínculos de seeds e históricos). Por defecto solo RQs no terminales.
 
 Nunca escribe en la base de datos (solo SELECT). `--dry-run` se acepta por compatibilidad.
 """
@@ -38,7 +41,7 @@ from apps.rq.services.stock_diagnostics import (
 class Command(BaseCommand):
     help = (
         'SOLO LECTURA. Reporta RQs OPS con proyecto despachados cuyo despacho automático no '
-        'generó movimiento de almacén (evidencia del bug R1) y los ítems con producto de '
+        'generó movimiento de almacén (evidencia del bug R1, histórico) y los ítems con producto de '
         'catálogo propuesto que Logística no confirmó.'
     )
 
@@ -100,14 +103,14 @@ class Command(BaseCommand):
         out('')
 
         shown = rows if limit <= 0 else rows[:limit]
-        out(f'{"RQ":<16}{"PROYECTO":<14}{"ESTADO":<22}{"DESPACHADO":<18}{"ÍTEMS":<10}INDICIO')
+        out(f'{"RQ":<16}{"PROYECTO":<14}{"ESTADO":<22}{"DESPACHADO":<18}{"ÍTEMS":<20}INDICIO')
         for r in shown:
             when = '—'
             if r['dispatch_approved_at']:
                 when = timezone.localtime(r['dispatch_approved_at']).strftime('%Y-%m-%d %H:%M')
-            items = f'{r["items_linked"]}/{r["items_total"]}'
+            items = f'{r["items_linked"]}/{r["items_total"]} ({r["items_confirmed"]} conf.)'
             out(f'{r["rq_number"][:15]:<16}{r["project_code"][:13]:<14}{r["status"][:21]:<22}'
-                f'{when:<18}{items:<10}{r["verdict"]}')
+                f'{when:<18}{items:<20}{r["verdict"]}')
             if verbosity >= 2:
                 for it in r['items']:
                     proj = '—' if it['project_row_quantity'] is None else it['project_row_quantity']
@@ -119,10 +122,11 @@ class Command(BaseCommand):
 
         out('')
         out('Cómo leerlo:')
-        out('  - ÍTEMS = ítems con inventory_item / total de ítems del RQ.')
-        out('  - R1_PROBABLE es la evidencia fuerte: había stock en el pool pero el despacho lo '
-            'buscó en la fila del proyecto. Esos despachos empezarán a descontar de verdad al '
-            'activar la Fase 3.')
+        out('  - ÍTEMS = ítems con inventory_item / total de ítems del RQ (entre paréntesis, los '
+            'vínculos confirmados por Logística: solo esos mueven stock).')
+        out('  - R1_PROBABLE es la evidencia histórica: había stock en el pool pero el despacho '
+            'de entonces lo buscó en la fila del proyecto. El arreglo (SYSPCC-028) no reprocesa '
+            'esos RQs: requieren un ajuste o despacho manual del almacén.')
         out('  - El indicio usa el stock de HOY, no el de la fecha del despacho. Usa -v 2 para ver '
             'la cantidad por ítem.')
 
@@ -151,7 +155,7 @@ class Command(BaseCommand):
         out('Cómo leerlo:')
         out('  - El producto lo propuso el solicitante (o un seed/admin) y Logística no lo confirmó '
             'en la verificación de stock.')
-        out('  - Hoy el motor igual usa ese vínculo al recibir y despachar. La Fase 3 solo honrará '
-            'vínculos confirmados: no despliegue esta rama a un entorno con movimiento real de '
-            'stock sin revisar esta lista (o sin confirmar en bloque las que correspondan).')
+        out('  - El motor NO mueve stock con un vínculo sin confirmar (ni al recibir ni al despachar). '
+            'Revise esta lista y confirme los vínculos que correspondan antes de que el RQ '
+            'llegue a RECEIVED o DISPATCHED.')
         out('  - Usa --include-terminal para ver también los RQs cerrados, cancelados y rechazados.')

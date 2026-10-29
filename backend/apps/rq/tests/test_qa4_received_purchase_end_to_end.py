@@ -91,9 +91,9 @@ class TestPurchaseReceivedByTheEngine:
         self, adm_rq, ops_rq, logistics_supervisor, logistics_coordinator, helmet,
     ):
         """Pool 5 + purchase of 10 received for RQ A = 15 in the pool, 10 of them A's."""
-        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                   supply_source='PURCHASE')
-        make_item(ops_rq, 1, description='Casco', quantity=8, inventory_item=helmet)
+        make_item(ops_rq, 1, description='Casco', quantity=8, inventory_item=helmet, confirmed=True)
 
         _receive(adm_rq, logistics_supervisor)
 
@@ -110,7 +110,7 @@ class TestPurchaseReceivedByTheEngine:
     def test_the_receipt_the_engine_writes_is_what_the_commitment_reads(
         self, adm_rq, logistics_supervisor, helmet,
     ):
-        item = make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        item = make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                          supply_source='PURCHASE')
 
         _receive(adm_rq, logistics_supervisor)
@@ -122,9 +122,9 @@ class TestPurchaseReceivedByTheEngine:
         self, adm_rq, ops_rq, logistics_supervisor, logistics_coordinator, helmet,
     ):
         """The net figure must not subtract the same 10 twice (pool AND commitment)."""
-        item = make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        item = make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                          supply_source='PURCHASE')
-        make_item(ops_rq, 1, description='Casco', quantity=3, inventory_item=helmet)
+        make_item(ops_rq, 1, description='Casco', quantity=3, inventory_item=helmet, confirmed=True)
         _receive(adm_rq, logistics_supervisor)
 
         _dispatch_after_quality(adm_rq, logistics_supervisor)
@@ -148,9 +148,9 @@ class TestPurchaseReceivedByTheEngine:
         pool at the first dispatch, so the remainder (received - dispatched) is 0: counting the
         full purchase again would hide 10 units that are no longer there.
         """
-        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                   supply_source='PURCHASE')
-        make_item(ops_rq, 1, description='Casco', quantity=3, inventory_item=helmet)
+        make_item(ops_rq, 1, description='Casco', quantity=3, inventory_item=helmet, confirmed=True)
         _receive(adm_rq, logistics_supervisor)
         _dispatch_after_quality(adm_rq, logistics_supervisor)
         adm_rq.refresh_from_db()
@@ -168,12 +168,12 @@ class TestPurchaseReceivedByTheEngine:
         self, adm_rq, ops_rq, logistics_supervisor, logistics_coordinator, helmet, gloves,
     ):
         """Line 1 is served from stock (no purchase): only line 2 enters, only line 2 is committed."""
-        from_stock = make_item(adm_rq, 1, description='Guantes', quantity=4, inventory_item=gloves,
+        from_stock = make_item(adm_rq, 1, description='Guantes', quantity=4, inventory_item=gloves, confirmed=True,
                                supply_source='STOCK')
-        bought = make_item(adm_rq, 2, description='Casco', quantity=10, inventory_item=helmet,
+        bought = make_item(adm_rq, 2, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                            supply_source='PURCHASE')
-        make_item(ops_rq, 1, description='Guantes', quantity=2, unit='PAR', inventory_item=gloves)
-        make_item(ops_rq, 2, description='Casco', quantity=2, inventory_item=helmet)
+        make_item(ops_rq, 1, description='Guantes', quantity=2, unit='PAR', inventory_item=gloves, confirmed=True)
+        make_item(ops_rq, 2, description='Casco', quantity=2, inventory_item=helmet, confirmed=True)
 
         _receive(adm_rq, logistics_supervisor)
 
@@ -193,8 +193,8 @@ class TestPurchaseReceivedByTheEngine:
         The engine ingresses every line that is not STOCK, also the ones whose origin was left
         blank; if the commitment skipped them their material would look free to the next RQ.
         """
-        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet)   # supply_source ''
-        make_item(ops_rq, 1, description='Casco', quantity=8, inventory_item=helmet)
+        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True)   # supply_source ''
+        make_item(ops_rq, 1, description='Casco', quantity=8, inventory_item=helmet, confirmed=True)
 
         _receive(adm_rq, logistics_supervisor)
 
@@ -206,7 +206,7 @@ class TestPurchaseReceivedByTheEngine:
     def test_the_rq_that_bought_it_does_not_see_its_own_purchase_as_committed(
         self, adm_rq, logistics_supervisor, helmet,
     ):
-        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                   supply_source='PURCHASE')
         _receive(adm_rq, logistics_supervisor)
 
@@ -222,10 +222,10 @@ class TestUpdateItemsOnAnRqTheEngineLeftReceiving:
     @pytest.fixture
     def received_rq(self, adm_rq, logistics_supervisor, helmet, gloves):
         """RQ in RECEIVING after the real RECEIVED: line 1 bought, line 2 from stock."""
-        bought = make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        bought = make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                            supply_source='PURCHASE')
         from_stock = make_item(adm_rq, 2, description='Guantes', quantity=4, unit='PAR',
-                               inventory_item=gloves, supply_source='STOCK')
+                               inventory_item=gloves, confirmed=True, supply_source='STOCK')
         _receive(adm_rq, logistics_supervisor)
         adm_rq.refresh_from_db()
         assert adm_rq.status == 'RECEIVING'
@@ -264,31 +264,30 @@ class TestUpdateItemsOnAnRqTheEngineLeftReceiving:
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.data['code'] == 'ITEMS_ALREADY_RECEIVED'
 
-    def test_a_line_without_product_that_got_a_receipt_row_cannot_be_marked_off_catalog(
+    def test_an_unlinked_line_gets_no_receipt_row_and_is_not_blocked_by_the_received_guard(
         self, adm_rq, logistics_supervisor, helmet,
     ):
         """
-        In a mixed RQ the engine writes a receipt row for EVERY line that is not STOCK, also for
-        the ones that moved nothing (no product). The guard keys on that row: the product stays
-        empty here, so only the off-catalog flag changes, and it must still be refused.
+        SYSPCC-028: in a mixed RQ the engine writes a receipt row ONLY for the lines that
+        entered the pool. A line without a confirmed link moved nothing, so it has no receipt
+        row (a row would be read as "already in the pool" and promise stock that is not there)
+        and the received guard does not apply to it.
         """
-        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet,
+        make_item(adm_rq, 1, description='Casco', quantity=10, inventory_item=helmet, confirmed=True,
                   supply_source='PURCHASE')
         service = make_item(adm_rq, 2, description='Flete urgente', quantity=1, unit='GLB',
                             supply_source='PURCHASE')
         _receive(adm_rq, logistics_supervisor)
-        assert WarehouseReceiptItem.objects.filter(request_item=service).exists()
+        assert not WarehouseReceiptItem.objects.filter(request_item=service).exists()
         assert _pool(helmet) == Decimal('15.000')
 
         response = self._patch(logistics_supervisor, adm_rq, [
             {'item_id': service.pk, 'is_off_catalog': True},
         ])
 
-        assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.data['code'] == 'ITEMS_ALREADY_RECEIVED'
-        assert response.data['item_ids'] == [service.pk]
+        assert response.status_code == status.HTTP_200_OK
         service.refresh_from_db()
-        assert service.is_off_catalog is False
+        assert service.is_off_catalog is True
 
     def test_confirming_the_same_product_and_changing_the_origin_is_allowed(
         self, received_rq, logistics_supervisor, helmet,

@@ -613,7 +613,8 @@ class TestReceivedPurchasesAreCommitted:
     def _purchase_rq(self, number, requester, project, state, product, quantity=8, *,
                      supply_source='PURCHASE', received=None, by=None):
         rq = make_request(number=number, requester=requester, project=project, status=state)
-        item = make_item(rq, 1, quantity=quantity, inventory_item=product, supply_source=supply_source)
+        item = make_item(rq, 1, quantity=quantity, inventory_item=product, supply_source=supply_source,
+                         confirmed=True)
         if received is not None:
             _receive(rq, item, received, by)
         return rq, item

@@ -2,9 +2,9 @@
 SYSPCC-026 (Fase 1, revisión) — `report_rq_stock_gaps`: vínculos de catálogo sin confirmar.
 
 El solicitante puede PROPONER un producto del catálogo al crear el RQ; solo Logística lo
-CONFIRMA (`inventory_item_confirmed_at`). El motor todavía usa la FK propuesta al recibir y
-despachar (la Fase 3 lo corrige), así que antes de desplegar hay que poder listar esos
-ítems. Este módulo prueba esa sección: qué entra, qué no, la salida de texto y JSON, las
+CONFIRMA (`inventory_item_confirmed_at`). Desde SYSPCC-028 el motor ignora la FK propuesta
+al recibir y despachar (esos ítems no mueven stock), así que hay que poder listarlos para
+que Logística los confirme. Este módulo prueba esa sección: qué entra, qué no, la salida de texto y JSON, las
 banderas `--include-terminal` / `--fail-on-unconfirmed`, que solo lee y que las consultas no
 crecen con el número de RQs.
 """
@@ -204,7 +204,7 @@ class TestSummaryAndOutput:
         output = _run()
         assert '1 ítems en 1 RQs' in output
         assert ops_rq.rq_number in output and 'EPP-0001' in output and 'Casco blanco clase E' in output
-        assert 'solo honrará vínculos confirmados' in output
+        assert 'NO mueve stock con un vínculo sin confirmar' in output
         assert 'OPERATIONS: 1' in output
 
     def test_text_scope_changes_with_include_terminal(self, ops_rq, helmet):

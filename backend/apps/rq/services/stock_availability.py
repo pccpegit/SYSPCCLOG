@@ -135,6 +135,9 @@ def _owed_to_received_purchases(ids, exclude_request_id) -> dict:
         )
         .exclude(request_id=exclude_request_id)
         .exclude(supply_source='STOCK')
+        # SYSPCC-028: only a confirmed link ever entered the pool (defense in depth, in case a
+        # receipt row exists for a line the engine did not ingress).
+        .filter(inventory_item_confirmed_at__isnull=False, is_off_catalog=False)
         .annotate(
             received=Subquery(received, output_field=_QUANTITY_FIELD),
             dispatched=Coalesce(

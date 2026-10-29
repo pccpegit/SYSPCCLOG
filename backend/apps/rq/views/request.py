@@ -27,6 +27,9 @@ from apps.rq.serializers.activity_log import ActivityLogSerializer
 from apps.rq.serializers.attachment import AttachmentSerializer
 from apps.rq.serializers.catalog import StockAvailabilitySerializer
 from apps.rq.serializers.notification import NotificationSerializer
+from apps.rq.serializers.master import AttentionOverrideSerializer, MasterRowSerializer
+from apps.rq.services import request_master
+from apps.rq.services.item_attention import ItemNotFound, set_attention_override
 from apps.rq.services.request_items import update_request_items
 from apps.rq.services.stock_availability import build_stock_availability
 from apps.rq.services.workflow_engine import WorkflowEngine
@@ -36,6 +39,13 @@ from apps.rq.filters import RequestFilter
 from apps.rq.permissions import get_accessible_requests_queryset, CanPerformWorkflowAction
 
 logger = logging.getLogger(__name__)
+
+
+def _error_envelope(http_status: int, detail: str, code: str) -> Response:
+    """Same envelope as `apps.core.exceptions.custom_exception_handler`, plus a stable `code`."""
+    return Response(
+        {'error': True, 'status_code': http_status, 'detail': detail, 'code': code}, status=http_status,
+    )
 
 
 @extend_schema_view(
@@ -71,7 +81,7 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         # SYSPCC-011 FIX 2: only logistics roles may rewrite item supply_source.
-        if self.action == 'update_items':
+        if self.action in ('update_items', 'attention_override'):
             return [IsAuthenticated(), IsLogisticsStaff()]
         # SYSPCC-026: the net availability carries demand aggregated across
         # projects (what is promised to other RQs), so it is for the stock check,
@@ -300,3 +310,58 @@ class RequestViewSet(viewsets.ModelViewSet):
         rq_instance = self.get_object()
         report = build_stock_availability(rq_instance)
         return Response(StockAvailabilitySerializer(report).data)
+
+    @extend_schema(
+        tags=['requests'],
+        summary='Set or clear the manual attention status (STAND BY / DESESTIMADO) of a line',
+        request=AttentionOverrideSerializer,
+        responses={200: MasterRowSerializer},
+    )
+    @action(
+        detail=True, methods=['post', 'patch'],
+        url_path=r'items/(?P<item_id>[0-9]+)/attention-override',
+    )
+    def attention_override(self, request, pk=None, item_id=None):
+        """
+        SYSPCC-030 (Master de RQ): logistics sets (`override` STAND_BY | DESESTIMADO, with a
+        mandatory `note`) or clears (`override` empty/null) the manual attention status of ONE
+        line. It is the only editable datum of the Master: it never changes the RQ status nor
+        any workflow transition. Who/when/why goes to the ActivityLog.
+
+        Restricted to logistics roles (checked before the object lookup: no oracle on RQ ids);
+        the RQ is looked up through get_accessible_requests_queryset. 404 for an unknown line,
+        409 (`REQUEST_TERMINAL`) when the RQ is in a final state. Answers with the refreshed
+        Master row of the line. POST and PATCH behave the same; repeating the same request is
+        a no-op (`changed: false`).
+        """
+        rq_instance = self.get_object()
+        serializer = AttentionOverrideSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        ctx = {'rq_id': rq_instance.pk, 'item_id': int(item_id), 'user_id': request.user.id}
+        try:
+            result = set_attention_override(
+                rq_instance.pk, int(item_id), request.user, data['override'], data['note'],
+            )
+        except RequestItemConflict as exc:
+            logger.warning('rq.item_attention.conflict', extra=ctx | {'code': exc.code})
+            return _error_envelope(status.HTTP_409_CONFLICT, exc.message, exc.code)
+        except ItemNotFound:
+            return _error_envelope(
+                status.HTTP_404_NOT_FOUND, 'La línea no existe en este requerimiento.', 'ITEM_NOT_FOUND',
+            )
+        except Request.DoesNotExist:
+            return _error_envelope(
+                status.HTTP_404_NOT_FOUND, 'El requerimiento ya no existe.', 'REQUEST_NOT_FOUND',
+            )
+        except Exception:
+            logger.exception('rq.item_attention.unexpected', extra=ctx)
+            raise
+
+        row = request_master.get_master_row(request.user, result.item.pk)
+        return Response({
+            'detail': 'Seguimiento actualizado.' if result.changed else 'Sin cambios.',
+            'changed': result.changed,
+            'item': MasterRowSerializer(row).data if row else None,
+        })

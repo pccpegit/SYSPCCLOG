@@ -59,6 +59,8 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'warehouse_import': '10/hour',
     # SYSPCC-029 (entregas parciales y reversas de RQ)
     'warehouse_delivery': '60/min',
+    # SYSPCC-030 (Master de RQ: descarga en Excel)
+    'rq_master_export': '10/min',
 }
 REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = REST_FRAMEWORK_THROTTLE_RATES  # noqa: F405
 

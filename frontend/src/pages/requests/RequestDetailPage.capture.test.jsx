@@ -10,6 +10,10 @@ import * as requestsApi from '../../api/requests';
 // API only sends the code, historical RQs (no area, nothing linked) and inconsistent lines.
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
+// SYSPCC-030: el detalle incluye el seguimiento por ítem; aquí no es el objeto de la prueba.
+vi.mock('../../api/requestMaster', () => ({
+  getRequestMaster: vi.fn(() => new Promise(() => {})),
+}));
 
 const line = (over = {}) => ({
   id: 1, line_number: 1, description: 'Casco blanco', quantity: '10.000', unit: 'UND',

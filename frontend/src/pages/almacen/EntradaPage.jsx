@@ -267,15 +267,28 @@ export default function EntradaPage() {
           </div>
           {dateCheck.warning && <Banner tone="amber" live>{dateCheck.warning}</Banner>}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Origen" required>
-              <select value={effectiveSource} disabled={header.internal} onChange={setH('source_type')} className={inputCls()}>
-                {ENTRY_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Proveedor">
-              <input value={header.supplier_name} onChange={setH('supplier_name')} className={inputCls()} placeholder="Nombre (opcional)" />
-            </Field>
+          <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <Field label="Origen" required>
+                <select value={effectiveSource} disabled={header.internal} onChange={setH('source_type')} className={inputCls()}>
+                  {ENTRY_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Proveedor">
+                <input value={header.supplier_name} onChange={setH('supplier_name')} className={inputCls()} placeholder="Nombre (opcional)" />
+              </Field>
+            </div>
+            {/* SYSPCC-026: the purchases of an RQ enter the warehouse by themselves when they are received in
+                the system, so a manual entry of a purchase would count the same material twice. Only a
+                notice: nothing is blocked. The region is always mounted (and has no role, so it does not
+                clash with the other status regions) so that changing «Origen» to «Compra» is announced. */}
+            <div aria-live="polite">
+              {effectiveSource === 'PURCHASE' && (
+                <Banner tone="blue" className="mt-3">
+                  Las compras de un RQ ingresan solas al recibirlas en el sistema; use este formulario solo para stock sin RQ.
+                </Banner>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">

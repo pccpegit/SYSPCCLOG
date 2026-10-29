@@ -952,10 +952,21 @@ class WorkflowEngine:
     def _resolve_inventory_item(self, item):
         """
         Resolve the Inventory instance for a RequestItem.
-        Prefers the direct FK; falls back to fuzzy description/code search.
+        A line marked off-catalog on purpose never resolves to a product (no stock moves).
+        Otherwise prefers the direct FK; falls back to fuzzy description/code search.
         Returns None (and logs) if no match is found.
         """
         from apps.warehouse.models import Inventory
+
+        # SYSPCC-026: "off-catalog" is an explicit decision (services, items that do not
+        # go through the warehouse). It must not reach the fuzzy fallback below, which
+        # would match a look-alike product by text and move its stock.
+        if item.is_off_catalog:
+            logger.info(
+                'RQ %s item "%s" is off-catalog — no inventory movement.',
+                self.request.rq_number, item.description,
+            )
+            return None
 
         inv = item.inventory_item
         if inv:

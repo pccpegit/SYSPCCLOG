@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError, Q, Sum, DecimalField, Value, F
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
@@ -195,6 +195,21 @@ class ItemHasMovements(APIException):
     default_code = 'item_has_movements'
 
 
+class ItemLinkedToRequests(APIException):
+    """
+    Request lines point at the catalog item (``RequestItem.inventory_item``, SET_NULL).
+    Deleting it would silently detach them: the RQ would keep asking for "a product" that
+    no longer exists and the stock check / dispatch could no longer find it.
+    """
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        'El ítem está vinculado a líneas de requerimientos y no se puede eliminar. '
+        'Desvincúlelo primero o déjelo sin stock.'
+    )
+    default_code = 'item_linked_to_requests'
+
+
 # Fase 3 (Almacenamiento) data of a catalog item: only ``CanAssignLocations`` roles change it.
 STORAGE_FIELDS = ('location', 'floor', 'project')
 STORAGE_DENIED = (
@@ -275,6 +290,27 @@ class InventoryViewSet(RejectNulQueryParamsMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._guard_storage_fields(serializer)
         super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        """
+        Refuse to delete a product that request lines (``RequestItem``) still point at.
+
+        The FK is SET_NULL, so the database would not stop the delete: it would just empty
+        the link of every line. The row is locked first so a line cannot be linked to the
+        product between the check and the delete (a new FK reference takes a conflicting
+        row lock in PostgreSQL). The FK itself is unchanged.
+        """
+        with transaction.atomic():
+            locked = Inventory.objects.select_for_update().filter(pk=instance.pk).first()
+            if locked is None:
+                raise Http404
+            if locked.request_items.exists():
+                logger.info(
+                    'warehouse.inventory.delete_blocked_by_requests',
+                    extra={'user_id': self.request.user.id, 'inventory_id': instance.pk},
+                )
+                raise ItemLinkedToRequests()
+            locked.delete()
 
     def destroy(self, request, *args, **kwargs):
         try:

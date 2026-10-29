@@ -22,6 +22,15 @@ export const updateInventoryItem = (id, data) =>
 export const patchInventoryItem = (id, data) =>
   client.patch(`/warehouse/inventory/${id}/`, data);
 
+/**
+ * DELETE /warehouse/inventory/{id}/ — remove a product from the catalog.
+ * 204 on success. 409 `item_has_movements` (it has movement history) or `item_linked_to_requests`
+ * (request lines still point at it): both carry a Spanish `detail`; see `describeInventoryDeleteError`
+ * in utils/almacenErrors.js for the message to show.
+ */
+export const deleteInventoryItem = (id) =>
+  client.delete(`/warehouse/inventory/${id}/`);
+
 /** GET /warehouse/inventory/{id}/kardex/ — movement history for one item */
 export const getKardex = (id, params) =>
   client.get(`/warehouse/inventory/${id}/kardex/`, { params });

@@ -8,6 +8,7 @@ describe('CoverageBadge', () => {
     ['FULL', 'LINKED', false, 'Stock suficiente'],
     ['PARTIAL', 'LINKED', false, 'Stock parcial'],
     ['NONE', 'LINKED', false, 'Sin stock'],
+    ['NOT_COMPARABLE', 'LINKED', false, 'Unidad distinta'],
     [null, 'UNLINKED', false, 'Sin vincular'],
     [null, 'OFF_CATALOG', false, 'Fuera de catálogo'],
     [null, 'LINKED', true, 'Consultando…'],
@@ -25,6 +26,14 @@ describe('CoverageBadge', () => {
     expect(dot).not.toBeNull();
     expect(dot.textContent).toBe('');
     expect(container.textContent).toBe('Stock parcial');
+  });
+
+  it('"Unidad distinta" es ámbar (aviso) y no verde, amarillo ni rojo: no afirma cobertura', () => {
+    render(<CoverageBadge coverage="NOT_COMPARABLE" linkStatus="LINKED" />);
+
+    const badge = screen.getByText('Unidad distinta');
+    expect(badge.className).toContain('bg-amber-100');
+    expect(badge.className).not.toMatch(/green|yellow|red/);
   });
 
   it('acepta una clase extra sin perder el estilo base', () => {

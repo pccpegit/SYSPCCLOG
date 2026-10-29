@@ -70,8 +70,9 @@ class RequestItemConflict(Exception):
     """
     Raised (SYSPCC-026) when the items of a request cannot be edited: the RQ is
     terminal, it is in a state outside the editable window (before validation or
-    from the dispatch on), or an item already has warehouse dispatches. The view
-    maps it to HTTP 409.
+    from the dispatch on), an item already has warehouse dispatches, or an item
+    already has warehouse receipts and the edit would change its catalog link. The
+    view maps it to HTTP 409.
 
     `code` is a stable machine-readable reason for the frontend;
     `item_ids` lists the offending RequestItem ids when applicable.
@@ -80,6 +81,7 @@ class RequestItemConflict(Exception):
     REQUEST_TERMINAL = 'REQUEST_TERMINAL'
     REQUEST_STATE_NOT_EDITABLE = 'REQUEST_STATE_NOT_EDITABLE'
     ITEMS_ALREADY_DISPATCHED = 'ITEMS_ALREADY_DISPATCHED'
+    ITEMS_ALREADY_RECEIVED = 'ITEMS_ALREADY_RECEIVED'
 
     def __init__(self, message: str, code: str = None, item_ids: list = None):
         self.message = message

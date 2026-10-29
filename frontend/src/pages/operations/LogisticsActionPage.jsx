@@ -40,6 +40,9 @@ import {
   describeUpdateItemsError,
   findUpdateItemsProblem,
   indexAvailability,
+  isUnitMismatch,
+  lockedItemsFromError,
+  stockUnitOf,
 } from '../../utils/stockCheck';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +280,10 @@ function ItemsTable({ items, showStock, availability }) {
                         }`}>
                           {row ? formatQty(row.available_net) : loading ? '…' : '—'}
                         </span>
+                        {/* The figure is in the PRODUCT's unit; the "Und." column is the line's. Say so when they differ. */}
+                        {isUnitMismatch(row) && stockUnitOf(row) && (
+                          <span className="ml-1 font-mono text-xs text-gray-500">{stockUnitOf(row)}</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <CoverageBadge coverage={row?.coverage ?? null} linkStatus={linkKind} loading={loading} />
@@ -1241,6 +1248,15 @@ export default function LogisticsActionPage() {
   const [submitting,   setSubmitting]   = useState(false);
   const [error,        setError]        = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
+  // SYSPCC-026: lines update-items refused to modify because their material already moved
+  // (409 ITEMS_ALREADY_RECEIVED / ITEMS_ALREADY_DISPATCHED): { [itemId]: 'RECEIVED' | 'DISPATCHED' }.
+  const [lockedItems,  setLockedItems]  = useState({});
+
+  // Marks the lines named by a "line already moved" 409 (a no-op for any other error).
+  function markLockedItems(err) {
+    const found = lockedItemsFromError(err);
+    if (Object.keys(found).length > 0) setLockedItems((prev) => ({ ...prev, ...found }));
+  }
 
   function requestConfirm({ title, message, confirmText, cancelText, confirmColor, icon, onConfirm, children }) {
     setConfirmModal({ title, message, confirmText, cancelText, confirmColor, icon, onConfirm, children });
@@ -1366,7 +1382,8 @@ export default function LogisticsActionPage() {
       await loadAvailability(req.id, { silent: true });
       return { ok: true };
     } catch (err) {
-      return { ok: false, message: describeUpdateItemsError(err) };
+      markLockedItems(err);
+      return { ok: false, message: describeUpdateItemsError(err, req?.items) };
     }
   }
 
@@ -1429,7 +1446,8 @@ export default function LogisticsActionPage() {
             saveError = findUpdateItemsProblem(data);
           } catch (err) {
             console.error('Error saving item decisions:', err);
-            saveError = describeUpdateItemsError(err);
+            markLockedItems(err);
+            saveError = describeUpdateItemsError(err, req?.items);
           }
         }
         if (saveError) {
@@ -1565,6 +1583,7 @@ export default function LogisticsActionPage() {
             availability={availability}
             onRetryAvailability={() => loadAvailability(req.id)}
             onLinkChange={handleLinkChange}
+            lockedItems={lockedItems}
             submitting={submitting}
             notes={notes}
             onNotes={setNotes}

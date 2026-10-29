@@ -528,7 +528,8 @@ class TestAvailabilityReportInvariants:
         summary = self._get(logistics_coordinator, ops_rq).data['summary']
 
         assert summary == {
-            'items_total': 6, 'full': 1, 'partial': 1, 'none': 1, 'off_catalog': 1, 'unlinked': 2,
+            'items_total': 6, 'full': 1, 'partial': 1, 'none': 1, 'not_comparable': 0,
+            'off_catalog': 1, 'unlinked': 2,
         }
         assert sum(v for k, v in summary.items() if k != 'items_total') == summary['items_total']
 
@@ -568,7 +569,7 @@ class TestAvailabilityReportInvariants:
         )
 
     def test_an_administrative_request_is_reported_like_an_operations_one(self, logistics_supervisor, adm_rq):
-        product = make_inventory('EPP-1', 'Papel bond')
+        product = make_inventory('EPP-1', 'Papel bond', unit='MLL')
         make_stock(product, 3)
         make_item(adm_rq, 1, quantity=10, unit='MLL', inventory_item=product)
 

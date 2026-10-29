@@ -66,6 +66,14 @@ describe('api/almacen — escrituras', () => {
   });
 });
 
+describe('api/almacen — borrado de productos', () => {
+  it('deleteInventoryItem pide DELETE a /warehouse/inventory/{id}/ (con /v1 por el cliente)', () => {
+    almacen.deleteInventoryItem(7);
+    expect(client.delete).toHaveBeenCalledTimes(1);
+    expect(client.delete).toHaveBeenCalledWith('/warehouse/inventory/7/');
+  });
+});
+
 describe('api/almacen — descargas', () => {
   it.each([
     ['exportInventory', [{ floor: '2' }], '/warehouse/inventory/export/'],

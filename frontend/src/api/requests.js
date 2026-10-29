@@ -52,7 +52,11 @@ export const getAttachments = (id) =>
  * Each entry: { item_id, supply_source?, inventory_item?, is_off_catalog?, item_source? }
  * (only the keys sent are applied; at least one besides item_id).
  * 200 -> { updated_item_ids, unchanged_item_ids, ignored_item_ids, items }
- * 409 -> { detail, code: REQUEST_TERMINAL | ITEMS_ALREADY_DISPATCHED | INTEGRITY_ERROR, item_ids }
+ * 409 -> { detail, code: REQUEST_TERMINAL | REQUEST_STATE_NOT_EDITABLE | ITEMS_ALREADY_DISPATCHED
+ *                         | ITEMS_ALREADY_RECEIVED | INTEGRITY_ERROR, item_ids }
+ *   ITEMS_ALREADY_RECEIVED: a line with a warehouse receipt cannot change its `inventory_item` or
+ *   `is_off_catalog` (all or nothing; `supply_source` / `item_source` stay editable and re-sending the
+ *   same link is not a change). The UI marks the lines named in `item_ids` (utils/stockCheck.js).
  */
 export const updateRequestItems = (requestId, itemDecisions) =>
   client.patch(`/requests/${requestId}/update-items/`, { items: itemDecisions });
@@ -67,8 +71,11 @@ export const STOCK_AVAILABILITY_TIMEOUT_MS = 15000;
 
 /**
  * GET /requests/{id}/stock-availability/ — per line: requested vs CENTRAL pool
- * (net of what is still owed to other RQs), plus a coverage hint.
- * Advisory only: the stock-check decision stays with logistics.
+ * (net of what is still owed to other RQs and of what the earlier lines of the same RQ take),
+ * plus a coverage hint. Advisory only: the stock-check decision stays with logistics.
+ * Row extras: `product_unit` (the unit the stock figures are in), `unit_mismatch` and
+ * `committed_earlier_lines`. `coverage` is FULL | PARTIAL | NONE | NOT_COMPARABLE (different
+ * units: no conversion is made and `shortfall` is null); null for unlinked / off-catalog lines.
  */
 export const getStockAvailability = (requestId) =>
   client.get(`/requests/${requestId}/stock-availability/`, { timeout: STOCK_AVAILABILITY_TIMEOUT_MS });

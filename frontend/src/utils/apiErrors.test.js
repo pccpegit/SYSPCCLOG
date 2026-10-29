@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractErrorMessage, extractFieldErrors } from './apiErrors';
+import { extractCodedDetail, extractErrorMessage, extractFieldErrors } from './apiErrors';
 
 // SYSPCC-026 (QA ronda 2). The creation of an RQ, update-items and the stock check all
 // show the text these helpers pick out of a failed response. The shapes below are the
@@ -97,5 +97,27 @@ describe('extractFieldErrors', () => {
     expect(extractFieldErrors(err(502, '<html>502</html>'))).toEqual({});
     expect(extractFieldErrors(new Error('Network Error'))).toEqual({});
     expect(extractFieldErrors(undefined)).toEqual({});
+  });
+});
+
+describe('extractCodedDetail — un error con código nunca muestra el código', () => {
+  const http = (data) => ({ response: { status: 409, data } });
+
+  it('devuelve la frase del servidor cuando viene en detail', () => {
+    expect(extractCodedDetail(http({ detail: 'Ya fue recibido.', code: 'ITEMS_ALREADY_RECEIVED' }), 'x')).toBe('Ya fue recibido.');
+  });
+
+  it('sin detail (o vacío, o no texto) usa el texto de respaldo y no el código', () => {
+    expect(extractCodedDetail(http({ code: 'ITEMS_ALREADY_RECEIVED', item_ids: [1] }), 'Respaldo')).toBe('Respaldo');
+    expect(extractCodedDetail(http({ detail: '   ', code: 'X' }), 'Respaldo')).toBe('Respaldo');
+    expect(extractCodedDetail(http({ detail: ['a'], code: 'X' }), 'Respaldo')).toBe('Respaldo');
+    expect(extractCodedDetail(http('<html>502</html>'), 'Respaldo')).toBe('Respaldo');
+    expect(extractCodedDetail(new Error('Network Error'), 'Respaldo')).toBe('Respaldo');
+    expect(extractCodedDetail(undefined, 'Respaldo')).toBe('Respaldo');
+  });
+
+  it('a diferencia de extractErrorMessage, que sí recorre las demás claves (por eso existe)', () => {
+    expect(extractErrorMessage(http({ code: 'ITEMS_ALREADY_RECEIVED' }), 'Respaldo')).toBe('ITEMS_ALREADY_RECEIVED');
+    expect(extractCodedDetail(http({ code: 'ITEMS_ALREADY_RECEIVED' }), 'Respaldo')).toBe('Respaldo');
   });
 });

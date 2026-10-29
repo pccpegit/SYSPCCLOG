@@ -191,7 +191,10 @@ class TestOperationsJourney:
         assert Decimal(rows[1]['shortfall']) == Decimal('4')
         assert (rows[2]['link_status'], rows[2]['link_confirmed'], rows[2]['coverage']) == ('OFF_CATALOG', False, None)
         assert (rows[3]['link_status'], rows[3]['link_confirmed'], rows[3]['coverage']) == ('UNLINKED', False, None)
-        assert summary == {'items_total': 3, 'full': 0, 'partial': 1, 'none': 0, 'off_catalog': 1, 'unlinked': 1}
+        assert summary == {
+            'items_total': 3, 'full': 0, 'partial': 1, 'none': 0, 'not_comparable': 0,
+            'off_catalog': 1, 'unlinked': 1,
+        }
 
         # 2. Logistics confirms line 1 and 2 and links line 3 to a product.
         lines = {line.line_number: line for line in RequestItem.objects.filter(request=created)}

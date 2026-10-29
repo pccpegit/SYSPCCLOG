@@ -139,7 +139,8 @@ class TestHistoricalRequestsAreStillReadable:
         data = _availability(logistics_coordinator, ops_rq)
 
         assert data['summary'] == {
-            'items_total': 2, 'full': 0, 'partial': 0, 'none': 0, 'off_catalog': 0, 'unlinked': 2,
+            'items_total': 2, 'full': 0, 'partial': 0, 'none': 0, 'not_comparable': 0,
+            'off_catalog': 0, 'unlinked': 2,
         }
         for row in data['items']:
             assert row['link_status'] == 'UNLINKED'

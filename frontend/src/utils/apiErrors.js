@@ -59,3 +59,13 @@ export function extractErrorMessage(err, fallback = 'Ocurrió un error inesperad
 
   return fallback;
 }
+
+/**
+ * The server's own sentence for a coded error (`{ detail: '...', code: '...' }`), or `fallback`.
+ * Unlike `extractErrorMessage` it NEVER falls back to scanning the other keys, so a coded error
+ * that arrives without `detail` cannot put its machine `code` ("ITEMS_ALREADY_RECEIVED") on screen.
+ */
+export function extractCodedDetail(err, fallback) {
+  const detail = err?.response?.data?.detail;
+  return typeof detail === 'string' && detail.trim() ? detail : fallback;
+}

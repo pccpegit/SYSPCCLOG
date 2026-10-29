@@ -1,17 +1,23 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Info, Loader2, RefreshCw, ShoppingCart } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, Loader2, Lock, RefreshCw, ShoppingCart } from 'lucide-react';
 import CatalogCombobox from './CatalogCombobox';
 import CoverageBadge from './CoverageBadge';
 import NotesField from '../ui/NotesField';
 import { ITEM_SOURCES, proposeItemSource } from '../../data/requestCapture';
 import { formatQty } from '../../utils/quantity';
 import {
+  LOCKED_ITEM_LABELS,
   buildCoverageWarnings,
   buildItemDecisions,
   describeCoverageSentence,
+  describeNetBreakdown,
+  describeUnitMismatch,
   effectiveSupply,
   isLinkPending,
+  isUnitMismatch,
+  stockUnitOf,
   suggestSupply,
+  summarizeAvailability,
 } from '../../utils/stockCheck';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,6 +39,13 @@ import {
 // A link the REQUESTER proposed shows "Por confirmar" until logistics confirms it
 // (the server tells with `link_confirmed: false`). It is only a notice: the
 // confirmation button is never disabled for it.
+//
+// Units: the stock figures (available, committed, net) are written in the unit of the PRODUCT
+// (`product_unit`), the requested quantity in the unit of the line. When they are not the same
+// unit the server does not compare them (`unit_mismatch` / coverage NOT_COMPARABLE): the panel
+// says so plainly, claims no coverage and suggests no origin; the choice is logistics'.
+//
+// A 409 "already received / dispatched" from update-items marks its lines (`lockedItems`).
 //
 // Keyboard focus: the logistics clerk goes line by line, so when the control that had the
 // focus goes away (a "Confirmar…" button that is no longer needed) the focus is moved to the
@@ -82,6 +95,8 @@ function Stat({ label, value, unit, tone = 'neutral' }) {
  * @param {() => void} props.onRetryAvailability
  * @param {(item: object, patch: object) => Promise<{ok: boolean, message?: string}>} props.onLinkChange
  *        saves `{inventory_item}` or `{is_off_catalog: true}` for one line (update-items)
+ * @param {{[itemId: number]: 'RECEIVED'|'DISPATCHED'}} [props.lockedItems]
+ *        lines the server refused to modify because their material already moved (409)
  * @param {boolean}  props.submitting
  * @param {string}   props.notes
  * @param {(text: string) => void} props.onNotes
@@ -92,6 +107,7 @@ export default function StockCheckPanel({
   availability,
   onRetryAvailability,
   onLinkChange,
+  lockedItems = {},
   submitting,
   notes,
   onNotes,
@@ -177,10 +193,7 @@ export default function StockCheckPanel({
     // Goes into the approval comment, so it is read in the RQ history: official labels (the same
     // ones as the toggle buttons) and whole words.
     const summary = items.map((item, idx) => {
-      const row = byItem[item.id];
-      const stock = row?.available_net != null
-        ? `disponible neto: ${formatQty(row.available_net)}`
-        : 'sin datos de stock';
+      const stock = summarizeAvailability(byItem[item.id]);
       return `${item.description}: ${origins[idx] === 'stock' ? 'Atender de stock' : 'Requiere compra'} (${stock})`;
     }).join('\n');
     onAction(!hasAnyPurchase, summary, decisions, warnings);
@@ -261,14 +274,22 @@ export default function StockCheckPanel({
               const gap = row?.shortfall;
               const pending = !confirmedHere[item.id] && isLinkPending(item, row);
               const errorId = `${baseId}-${item.id}-link-error`;
-              const gapTone = row && row.coverage && row.coverage !== 'FULL' ? 'warn' : row?.coverage === 'FULL' ? 'ok' : 'neutral';
+              const mismatch = isUnitMismatch(row);
+              const stockUnit = stockUnitOf(row);
+              const lockedReason = Object.hasOwn(lockedItems, item.id) ? lockedItems[item.id] : null;
+              const locked = lockedReason && Object.hasOwn(LOCKED_ITEM_LABELS, lockedReason) ? lockedReason : null;
+              const earlier = row?.committed_earlier_lines;
+              const breakdown = describeNetBreakdown(row);
+              // No coverage tone when the units differ: nothing was compared.
+              const gapTone = mismatch ? 'neutral'
+                : row && row.coverage && row.coverage !== 'FULL' ? 'warn' : row?.coverage === 'FULL' ? 'ok' : 'neutral';
 
               return (
                 <li
                   key={item.id}
                   className={`px-6 py-4 transition-all ${
                     origin === 'stock' ? 'bg-teal-50/50 dark:bg-teal-500/10' : origin === 'purchase' ? 'bg-orange-50/50 dark:bg-orange-500/10' : ''
-                  }`}
+                  } ${locked ? 'ring-2 ring-inset ring-red-300 dark:ring-red-500/40' : ''}`}
                 >
                   {/* Header */}
                   <div className="flex items-start justify-between gap-4 mb-3">
@@ -418,6 +439,12 @@ export default function StockCheckPanel({
                       </div>
                     )}
 
+                    {locked && (
+                      <p className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-red-700 dark:text-red-300">
+                        <Lock size={12} aria-hidden="true" className="mt-0.5 shrink-0" />
+                        {LOCKED_ITEM_LABELS[locked]}
+                      </p>
+                    )}
                     {state.saving && (
                       <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
                         <Loader2 size={12} aria-hidden="true" className="animate-spin" />
@@ -438,16 +465,24 @@ export default function StockCheckPanel({
                       <>
                         <div className="grid grid-cols-2 gap-2">
                           <Stat label="Solicitado" value={formatQty(row.requested)} unit={row.unit} />
+                          {/* Stock figures: the unit of the PRODUCT. Requested / shortfall: the unit of the line. */}
                           <Stat
                             label="Disponible neto (almacén central)"
                             value={row.available_net == null ? '—' : formatQty(row.available_net)}
-                            unit={row.available_net == null ? '' : row.unit}
+                            unit={row.available_net == null ? '' : stockUnit}
                           />
                           <Stat
                             label="Comprometido en otros RQ"
                             value={row.committed_other_requests == null ? '—' : formatQty(row.committed_other_requests)}
-                            unit={row.committed_other_requests == null ? '' : row.unit}
+                            unit={row.committed_other_requests == null ? '' : stockUnit}
                           />
+                          {Number(earlier) > 0 && (
+                            <Stat
+                              label="Tomado por los ítems anteriores de este RQ"
+                              value={formatQty(earlier)}
+                              unit={stockUnit}
+                            />
+                          )}
                           <Stat
                             label="Faltante"
                             value={gap == null ? '—' : formatQty(gap)}
@@ -455,15 +490,23 @@ export default function StockCheckPanel({
                             tone={gapTone}
                           />
                         </div>
-                        <p className="mt-2 text-xs text-gray-600">
-                          {describeCoverageSentence(row.coverage)
-                            ?? (row.link_status === 'OFF_CATALOG'
-                              ? 'Fuera de catálogo: no hay stock que comparar.'
-                              : 'Vincule el producto para ver su disponibilidad.')}
-                          {row.available_central != null && row.available_net != null && row.available_central !== row.available_net
-                            ? ` Hay ${formatQty(row.available_central)} ${row.unit} en el almacén central; el resto está comprometido con otros RQ.`
-                            : ''}
-                        </p>
+                        {mismatch ? (
+                          <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+                            <AlertCircle size={13} aria-hidden="true" className="mt-0.5 shrink-0" />
+                            <span>
+                              <span className="font-semibold">{describeUnitMismatch(row)}</span>{' '}
+                              El sistema no convierte unidades: las cifras de stock son solo de referencia y no se comparan con lo solicitado.
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-xs text-gray-600">
+                            {describeCoverageSentence(row.coverage)
+                              ?? (row.link_status === 'OFF_CATALOG'
+                                ? 'Fuera de catálogo: no hay stock que comparar.'
+                                : 'Vincule el producto para ver su disponibilidad.')}
+                            {breakdown ? ` ${breakdown}` : ''}
+                          </p>
+                        )}
                       </>
                     ) : availabilityLoading ? (
                       <p className="flex items-center gap-1.5 text-xs text-gray-500">

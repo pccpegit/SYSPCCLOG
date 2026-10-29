@@ -284,8 +284,11 @@ class RequestViewSet(viewsets.ModelViewSet):
     def stock_availability(self, request, pk=None):
         """
         For each line: what was requested, the linked catalog product, how much the
-        CENTRAL pool holds (minus what is still owed to other RQs already in IN_STOCK)
-        and whether that covers the line fully, partially or not at all.
+        CENTRAL pool holds (minus what other RQs still hold of it: those in IN_STOCK and
+        purchases already received and not yet dispatched; minus what the earlier lines of
+        this same RQ take of the product) and whether that covers the line fully,
+        partially or not at all. A line whose unit differs from the product's is
+        NOT_COMPARABLE.
 
         Read-only and advisory: the stock-check decision stays with logistics.
         Restricted to logistics roles (see get_permissions): `committed_other_requests`

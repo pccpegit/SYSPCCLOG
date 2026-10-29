@@ -15,7 +15,11 @@ transaction under a lock on the request, with a state guard:
   history is the evidence, because a dispatch that failed to write its
   WarehouseDispatchItem rows would otherwise go unnoticed;
 * a line that already has warehouse dispatches cannot be edited (re-linking it
-  would detach the movement history from the product that really moved).
+  would detach the movement history from the product that really moved);
+* a line that already has warehouse receipts (the purchase entered the pool as a
+  specific product) cannot change its catalog link: neither the product nor the
+  off-catalog mark. Its `supply_source` / `item_source` stay editable, and
+  re-sending the link it already has (to confirm it) is not a change.
 
 Provenance: a catalog product (or the off-catalog mark) proposed by the requester
 when creating the RQ is NOT confirmed. Only an explicit decision from logistics
@@ -34,7 +38,7 @@ from django.utils import timezone
 from apps.core.enums import ApprovalActionChoices, ItemSourceChoices, RQStatusChoices
 from apps.core.exceptions import RequestItemConflict
 from apps.rq.models import ActivityLog, Approval, Request, RequestItem
-from apps.warehouse.models import WarehouseDispatchItem
+from apps.warehouse.models import WarehouseDispatchItem, WarehouseReceiptItem
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,35 @@ def _resolve_link_state(item: RequestItem, data: dict):
     if sets_off_catalog and off_catalog and not sets_inventory:
         inventory = None
     return inventory, off_catalog
+
+
+def _received_link_changes(items: dict, items_data: list) -> list:
+    """
+    Ids of the lines that already have warehouse receipts and whose catalog link
+    (product or off-catalog mark) the payload would change.
+
+    A receipt means the purchased material entered the CENTRAL pool as the product the
+    line was linked to; moving the link afterwards would detach that entry from the
+    product that really received it. Entries that only touch `supply_source` /
+    `item_source`, or re-send the link the line already has, are not link changes.
+    """
+    received_ids = set(
+        WarehouseReceiptItem.objects
+        .filter(request_item_id__in=items.keys())
+        .values_list('request_item_id', flat=True)
+    )
+    if not received_ids:
+        return []
+
+    offending = []
+    for entry in items_data:
+        item = items.get(entry['item_id'])
+        if item is None or item.pk not in received_ids or item.pk in offending:
+            continue
+        inventory, off_catalog = _resolve_link_state(item, entry)
+        if inventory != item.inventory_item or off_catalog != item.is_off_catalog:
+            offending.append(item.pk)
+    return offending
 
 
 def _describe_changes(item: RequestItem, before: dict, after: dict) -> str:
@@ -207,8 +240,10 @@ def update_request_items(request_obj: Request, items_data: list, user) -> Update
     in `ignored_item_ids` so the caller can tell the user.
 
     Raises RequestItemConflict (HTTP 409) when the RQ is terminal, is outside the
-    editable window (see EDITABLE_STATUSES) or already had a dispatch, or when a line
-    already has warehouse dispatches.
+    editable window (see EDITABLE_STATUSES) or already had a dispatch, when a line
+    already has warehouse dispatches (ITEMS_ALREADY_DISPATCHED), or when a line that
+    already has warehouse receipts would change its product or off-catalog mark
+    (ITEMS_ALREADY_RECEIVED).
     """
     ctx = {'rq_id': request_obj.pk, 'user_id': getattr(user, 'id', None)}
     result = UpdateItemsResult()
@@ -240,6 +275,15 @@ def update_request_items(request_obj: Request, items_data: list, user) -> Update
                 'Algunos ítems ya tienen despachos de almacén y no se pueden modificar.',
                 code=RequestItemConflict.ITEMS_ALREADY_DISPATCHED,
                 item_ids=dispatched_ids,
+            )
+
+        received_link_ids = sorted(_received_link_changes(items, items_data))
+        if received_link_ids:
+            raise RequestItemConflict(
+                'Algunos ítems ya fueron recibidos en el almacén y no se puede cambiar su producto '
+                'de catálogo ni marcarlos como fuera de catálogo.',
+                code=RequestItemConflict.ITEMS_ALREADY_RECEIVED,
+                item_ids=received_link_ids,
             )
 
         descriptions = []

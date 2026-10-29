@@ -15,7 +15,12 @@ import pytest
 from rest_framework import status
 
 from apps.core.enums import WarehouseOriginChoices
-from apps.warehouse.models import WarehouseDispatch, WarehouseDispatchItem
+from apps.warehouse.models import (
+    WarehouseDispatch,
+    WarehouseDispatchItem,
+    WarehouseReceipt,
+    WarehouseReceiptItem,
+)
 from apps.rq.tests.catalog_fixtures import (  # noqa: F401  (fixtures)
     adm_rq,
     central_warehouse,
@@ -32,8 +37,8 @@ from apps.rq.tests.catalog_fixtures import (  # noqa: F401  (fixtures)
 
 ROW_KEYS = {
     'item_id', 'line_number', 'description', 'unit', 'requested', 'inventory_item',
-    'link_status', 'link_confirmed', 'available_central', 'committed_other_requests',
-    'available_net', 'shortfall', 'coverage',
+    'product_unit', 'unit_mismatch', 'link_status', 'link_confirmed', 'available_central',
+    'committed_other_requests', 'committed_earlier_lines', 'available_net', 'shortfall', 'coverage',
 }
 
 
@@ -55,6 +60,14 @@ def _dispatch(rq, item, quantity, by):
     )
     return WarehouseDispatchItem.objects.create(
         dispatch=dispatch, request_item=item, quantity_dispatched=Decimal(str(quantity)),
+    )
+
+
+def _receive(rq, item, quantity, by):
+    """The purchase of `item` entered the pool: the receipt row the engine writes at RECEIVED."""
+    receipt = WarehouseReceipt.objects.create(request=rq, received_by=by)
+    return WarehouseReceiptItem.objects.create(
+        receipt=receipt, request_item=item, quantity_received=Decimal(str(quantity)),
     )
 
 
@@ -168,7 +181,8 @@ class TestCoverage:
         assert rows[3]['coverage'] == 'NONE'
         assert rows[3]['shortfall'] == '5.000'
         assert response.data['summary'] == {
-            'items_total': 3, 'full': 1, 'partial': 1, 'none': 1, 'off_catalog': 0, 'unlinked': 0,
+            'items_total': 3, 'full': 1, 'partial': 1, 'none': 1, 'not_comparable': 0,
+            'off_catalog': 0, 'unlinked': 0,
         }
 
     def test_exactly_enough_stock_is_full(self, logistics_coordinator, ops_rq):
@@ -189,10 +203,12 @@ class TestCoverage:
         assert row['available_net'] == '0.000'
 
     def test_decimal_quantities_are_compared_exactly(self, logistics_coordinator, ops_rq):
-        product = make_inventory(unit='KG')
-        make_stock(product, '2.500')
-        make_item(ops_rq, 1, quantity='2.501', inventory_item=product, unit='KG')
-        make_item(ops_rq, 2, quantity='2.500', inventory_item=product, unit='KG')
+        short = make_inventory('EPP-0001', 'Cable', unit='KG')
+        exact = make_inventory('EPP-0002', 'Alambre', unit='KG')
+        make_stock(short, '2.500')
+        make_stock(exact, '2.500')
+        make_item(ops_rq, 1, quantity='2.501', inventory_item=short, unit='KG')
+        make_item(ops_rq, 2, quantity='2.500', inventory_item=exact, unit='KG')
 
         rows = _rows(_get(logistics_coordinator, ops_rq))
 
@@ -280,7 +296,27 @@ class TestPoolSemantics:
         assert row['available_central'] == '6.000'
         assert row['coverage'] == 'PARTIAL'
 
-    def test_same_product_on_two_lines_reports_the_same_availability_on_each(
+    def test_when_the_pool_covers_every_line_of_the_same_product_all_are_full(
+        self, logistics_coordinator, ops_rq,
+    ):
+        product = make_inventory()
+        make_stock(product, 20)
+        make_item(ops_rq, 1, quantity=8, inventory_item=product)
+        make_item(ops_rq, 2, quantity=8, inventory_item=product)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert rows[1]['coverage'] == rows[2]['coverage'] == 'FULL'
+        assert rows[1]['available_net'] == '20.000'
+        assert rows[2]['available_net'] == '12.000'
+        assert rows[2]['committed_earlier_lines'] == '8.000'
+
+
+@pytest.mark.django_db
+class TestLinesOfTheSameProduct:
+    """Lines are served in line_number order: a line only sees what the earlier ones left."""
+
+    def test_second_line_of_the_same_product_is_partial_when_the_first_leaves_too_little(
         self, logistics_coordinator, ops_rq,
     ):
         product = make_inventory()
@@ -288,9 +324,104 @@ class TestPoolSemantics:
         make_item(ops_rq, 1, quantity=8, inventory_item=product)
         make_item(ops_rq, 2, quantity=8, inventory_item=product)
 
+        response = _get(logistics_coordinator, ops_rq)
+        rows = _rows(response)
+
+        assert rows[1]['coverage'] == 'FULL'
+        assert rows[1]['committed_earlier_lines'] == '0.000'
+        assert rows[2]['coverage'] == 'PARTIAL'
+        assert rows[2]['available_central'] == '10.000'
+        assert rows[2]['committed_earlier_lines'] == '8.000'
+        assert rows[2]['available_net'] == '2.000'
+        assert rows[2]['shortfall'] == '6.000'
+        assert response.data['summary']['full'] == 1
+        assert response.data['summary']['partial'] == 1
+
+    def test_third_line_is_none_once_the_pool_is_used_up(self, logistics_coordinator, ops_rq):
+        product = make_inventory()
+        make_stock(product, 10)
+        make_item(ops_rq, 1, quantity=8, inventory_item=product)
+        make_item(ops_rq, 2, quantity=8, inventory_item=product)
+        make_item(ops_rq, 3, quantity=1, inventory_item=product)
+
         rows = _rows(_get(logistics_coordinator, ops_rq))
 
-        assert rows[1]['available_net'] == rows[2]['available_net'] == '10.000'
+        assert [rows[n]['coverage'] for n in (1, 2, 3)] == ['FULL', 'PARTIAL', 'NONE']
+        assert rows[3]['available_net'] == '0.000'
+        assert rows[3]['committed_earlier_lines'] == '10.000'
+        assert rows[3]['shortfall'] == '1.000'
+
+    def test_an_earlier_partial_line_takes_everything_that_is_left(self, logistics_coordinator, ops_rq):
+        product = make_inventory()
+        make_stock(product, 5)
+        make_item(ops_rq, 1, quantity=9, inventory_item=product)
+        make_item(ops_rq, 2, quantity=1, inventory_item=product)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert rows[1]['coverage'] == 'PARTIAL'
+        assert rows[1]['available_net'] == '5.000'
+        assert rows[2]['coverage'] == 'NONE'
+        assert rows[2]['available_net'] == '0.000'
+
+    def test_the_order_is_the_line_number_not_the_insertion_order(self, logistics_coordinator, ops_rq):
+        product = make_inventory()
+        make_stock(product, 10)
+        make_item(ops_rq, 2, quantity=8, inventory_item=product)     # inserted first
+        make_item(ops_rq, 1, quantity=8, inventory_item=product)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert (rows[1]['coverage'], rows[2]['coverage']) == ('FULL', 'PARTIAL')
+
+    def test_different_products_do_not_share_what_they_take(self, logistics_coordinator, ops_rq):
+        helmet = make_inventory('EPP-0001', 'Casco')
+        gloves = make_inventory('EPP-0002', 'Guantes')
+        make_stock(helmet, 5)
+        make_stock(gloves, 5)
+        make_item(ops_rq, 1, quantity=5, inventory_item=helmet)
+        make_item(ops_rq, 2, quantity=5, inventory_item=gloves)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert rows[1]['coverage'] == rows[2]['coverage'] == 'FULL'
+        assert rows[2]['committed_earlier_lines'] == '0.000'
+
+    def test_unlinked_and_off_catalog_lines_take_nothing(self, logistics_coordinator, ops_rq):
+        product = make_inventory()
+        make_stock(product, 10)
+        make_item(ops_rq, 1, quantity=9, description='Sin vincular')
+        make_item(ops_rq, 2, quantity=9, description='Servicio', is_off_catalog=True)
+        make_item(ops_rq, 3, quantity=9, inventory_item=product)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert rows[3]['coverage'] == 'FULL'
+        assert rows[3]['committed_earlier_lines'] == '0.000'
+
+    def test_what_other_requests_hold_is_taken_before_the_lines_of_this_one(
+        self, logistics_coordinator, ops_rq, other_requester_same_project, project,
+    ):
+        product = make_inventory()
+        make_stock(product, 12)
+        other = make_request(
+            number='RQ-2026-0700', requester=other_requester_same_project,
+            project=project, status='IN_STOCK',
+        )
+        make_item(other, 1, quantity=4, inventory_item=product)
+        make_item(ops_rq, 1, quantity=5, inventory_item=product)
+        make_item(ops_rq, 2, quantity=5, inventory_item=product)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert rows[1]['committed_other_requests'] == '4.000'
+        assert rows[1]['available_net'] == '8.000'
+        assert rows[1]['coverage'] == 'FULL'
+        assert rows[2]['committed_other_requests'] == '4.000'
+        assert rows[2]['committed_earlier_lines'] == '5.000'
+        assert rows[2]['available_net'] == '3.000'
+        assert rows[2]['coverage'] == 'PARTIAL'
+        assert rows[2]['shortfall'] == '2.000'
 
 
 @pytest.mark.django_db
@@ -461,3 +592,314 @@ class TestResponseShape:
         ops_rq.refresh_from_db()
         item.refresh_from_db()
         assert (ops_rq.status, ops_rq.updated_at, item.supply_source, item.inventory_item_id) == before
+
+
+@pytest.mark.django_db
+class TestReceivedPurchasesAreCommitted:
+    """
+    Material bought for ANOTHER request that already entered the pool (RECEIVING,
+    QUALITY_APPROVED, SUPPLIER_REPLACEMENT_RECEIVED) and has not been dispatched yet is
+    promised to that request: it is subtracted from what this request can count on.
+    """
+
+    PENDING_STATES = ['RECEIVING', 'QUALITY_APPROVED', 'SUPPLIER_REPLACEMENT_RECEIVED']
+
+    @pytest.fixture
+    def product(self):
+        product = make_inventory('EPP-0001', 'Casco de seguridad')
+        make_stock(product, 20)
+        return product
+
+    def _purchase_rq(self, number, requester, project, state, product, quantity=8, *,
+                     supply_source='PURCHASE', received=None, by=None):
+        rq = make_request(number=number, requester=requester, project=project, status=state)
+        item = make_item(rq, 1, quantity=quantity, inventory_item=product, supply_source=supply_source)
+        if received is not None:
+            _receive(rq, item, received, by)
+        return rq, item
+
+    @pytest.mark.parametrize('state', PENDING_STATES)
+    def test_a_received_purchase_not_yet_dispatched_is_subtracted(
+        self, state, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, state, product,
+            quantity=8, received=8, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=15, inventory_item=product)
+
+        row = _rows(_get(logistics_coordinator, ops_rq))[1]
+
+        assert row['committed_other_requests'] == '8.000'
+        assert row['available_net'] == '12.000'
+        assert row['coverage'] == 'PARTIAL'
+        assert row['shortfall'] == '3.000'
+
+    def test_a_purchase_with_no_receipt_has_not_entered_the_pool_and_reserves_nothing(
+        self, logistics_coordinator, ops_rq, other_requester_same_project, project, product,
+    ):
+        self._purchase_rq('RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product)
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '0.000'
+
+    def test_only_the_remainder_after_a_dispatch_is_committed(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        rq, item = self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'QUALITY_APPROVED', product,
+            quantity=8, received=8, by=central_warehouse,
+        )
+        _dispatch(rq, item, 3, central_warehouse)
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '5.000'
+
+    def test_a_fully_dispatched_purchase_commits_nothing(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        rq, item = self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'QUALITY_APPROVED', product,
+            quantity=8, received=8, by=central_warehouse,
+        )
+        _dispatch(rq, item, 8, central_warehouse)
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '0.000'
+
+    def test_only_what_really_entered_the_pool_is_committed(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        """Asked 8, only 5 arrived: the other 3 are not in the pool, so they cannot be subtracted from it."""
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product,
+            quantity=8, received=5, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '5.000'
+
+    def test_receiving_more_than_asked_commits_only_what_was_asked(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product,
+            quantity=8, received=12, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '8.000'
+
+    def test_lines_served_from_stock_are_not_counted_as_purchases(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product,
+            quantity=8, supply_source='STOCK', received=8, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '0.000'
+
+    @pytest.mark.parametrize('state', [
+        'PO_GENERATED', 'DISPATCHED_TO_SITE', 'DELIVERED', 'CLOSED', 'CANCELLED', 'IN_STOCK',
+    ])
+    def test_other_states_do_not_commit_a_received_purchase(
+        self, state, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        """
+        IN_STOCK has its own rule (owed quantity, receipts irrelevant); the rest either has not
+        received yet, has already handed the material over, or is finished.
+        """
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, state, product,
+            quantity=8, received=8, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        expected = '8.000' if state == 'IN_STOCK' else '0.000'
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == expected
+
+    def test_the_request_itself_never_counts_against_itself(
+        self, logistics_coordinator, central_warehouse, ops_rq, product,
+    ):
+        ops_rq.status = 'RECEIVING'
+        ops_rq.save(update_fields=['status'])
+        item = make_item(ops_rq, 1, quantity=8, inventory_item=product, supply_source='PURCHASE')
+        _receive(ops_rq, item, 8, central_warehouse)
+
+        row = _rows(_get(logistics_coordinator, ops_rq))[1]
+
+        assert row['committed_other_requests'] == '0.000'
+        assert row['available_net'] == '20.000'
+
+    def test_a_line_with_several_receipts_and_dispatches_is_not_counted_twice(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        """Two receipt rows and two dispatch rows on one line must not multiply each other."""
+        rq, item = self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product,
+            quantity=10, received=6, by=central_warehouse,
+        )
+        _receive(rq, item, 4, central_warehouse)
+        _dispatch(rq, item, 1, central_warehouse)
+        _dispatch(rq, item, 2, central_warehouse)
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        assert _rows(_get(logistics_coordinator, ops_rq))[1]['committed_other_requests'] == '7.000'
+
+    def test_in_stock_requests_and_received_purchases_add_up(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        in_stock = make_request(
+            number='RQ-2026-0901', requester=other_requester_same_project, project=project,
+            status='IN_STOCK',
+        )
+        make_item(in_stock, 1, quantity=4, inventory_item=product)
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product,
+            quantity=6, received=6, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=1, inventory_item=product)
+
+        row = _rows(_get(logistics_coordinator, ops_rq))[1]
+
+        assert row['committed_other_requests'] == '10.000'
+        assert row['available_net'] == '10.000'
+
+    def test_the_committed_figure_never_pushes_availability_below_zero(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, product,
+    ):
+        self._purchase_rq(
+            'RQ-2026-0900', other_requester_same_project, project, 'RECEIVING', product,
+            quantity=50, received=50, by=central_warehouse,
+        )
+        make_item(ops_rq, 1, quantity=5, inventory_item=product)
+
+        row = _rows(_get(logistics_coordinator, ops_rq))[1]
+
+        assert row['available_net'] == '0.000'
+        assert row['coverage'] == 'NONE'
+
+    def test_it_does_not_cost_a_query_per_line(
+        self, logistics_coordinator, central_warehouse, ops_rq, other_requester_same_project,
+        project, django_assert_max_num_queries,
+    ):
+        for n in range(1, 13):
+            product = make_inventory(f'EPP-{n:04d}', f'Producto {n}')
+            make_stock(product, 50)
+            make_item(ops_rq, n, quantity=5, inventory_item=product)
+            self._purchase_rq(
+                f'RQ-2026-09{n:02d}', other_requester_same_project, project, 'RECEIVING', product,
+                quantity=3, received=3, by=central_warehouse,
+            )
+
+        with django_assert_max_num_queries(14):
+            response = _get(logistics_coordinator, ops_rq)
+
+        assert len(response.data['items']) == 12
+
+
+@pytest.mark.django_db
+class TestUnitMismatch:
+    """Quantities are only compared in the same unit; otherwise the line is NOT_COMPARABLE."""
+
+    def test_a_different_unit_is_not_comparable_and_has_no_shortfall(self, logistics_coordinator, ops_rq):
+        cable = make_inventory('MAT-0001', 'Cable eléctrico', 'M')
+        make_stock(cable, 100)
+        make_item(ops_rq, 1, quantity=2, inventory_item=cable, unit='ROLLO')
+
+        response = _get(logistics_coordinator, ops_rq)
+        row = _rows(response)[1]
+
+        assert row['unit_mismatch'] is True
+        assert row['unit'] == 'ROLLO'
+        assert row['product_unit'] == 'M'
+        assert row['coverage'] == 'NOT_COMPARABLE'
+        assert row['shortfall'] is None
+        assert row['available_central'] == '100.000'
+        assert response.data['summary']['not_comparable'] == 1
+        assert (response.data['summary']['full'], response.data['summary']['partial'],
+                response.data['summary']['none']) == (0, 0, 0)
+
+    @pytest.mark.parametrize('line_unit,product_unit', [
+        ('UND', 'EA'), ('EA', 'UND'), ('und.', 'UND'), ('Unidad', 'UND'), ('UNID', 'UND'),
+        ('U', 'UND'), ('PZA', 'UND'), ('pieza', 'EA'), ('Pza.', 'Unidad'), ('  und ', 'UND'),
+        ('KG', 'kg'), ('Kg.', 'KG'), ('M', 'm'),
+    ])
+    def test_equivalent_spellings_are_comparable(self, logistics_coordinator, ops_rq, line_unit, product_unit):
+        product = make_inventory('EPP-0001', 'Casco', product_unit)
+        make_stock(product, 10)
+        make_item(ops_rq, 1, quantity=4, inventory_item=product, unit=line_unit)
+
+        row = _rows(_get(logistics_coordinator, ops_rq))[1]
+
+        assert row['unit_mismatch'] is False
+        assert row['coverage'] == 'FULL'
+
+    @pytest.mark.parametrize('line_unit,product_unit', [
+        ('KG', 'TN'), ('M', 'CM'), ('UND', 'PAR'), ('M2', 'M3'), ('GLN', 'L'), ('UND', 'CJA'),
+    ])
+    def test_different_units_are_never_converted(self, logistics_coordinator, ops_rq, line_unit, product_unit):
+        product = make_inventory('EPP-0001', 'Producto', product_unit)
+        make_stock(product, 10)
+        make_item(ops_rq, 1, quantity=4, inventory_item=product, unit=line_unit)
+
+        row = _rows(_get(logistics_coordinator, ops_rq))[1]
+
+        assert row['unit_mismatch'] is True
+        assert row['coverage'] == 'NOT_COMPARABLE'
+
+    def test_a_mismatched_line_takes_nothing_from_the_next_line_of_the_same_product(
+        self, logistics_coordinator, ops_rq,
+    ):
+        product = make_inventory('EPP-0001', 'Casco', 'UND')
+        make_stock(product, 10)
+        make_item(ops_rq, 1, quantity=9, inventory_item=product, unit='CJA')
+        make_item(ops_rq, 2, quantity=9, inventory_item=product, unit='UND')
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        assert rows[1]['coverage'] == 'NOT_COMPARABLE'
+        assert rows[2]['coverage'] == 'FULL'
+        assert rows[2]['committed_earlier_lines'] == '0.000'
+        assert rows[2]['available_net'] == '10.000'
+
+    def test_unlinked_and_off_catalog_lines_report_no_unit_data(self, logistics_coordinator, ops_rq):
+        make_item(ops_rq, 1, description='Sin vincular', unit='GLB')
+        make_item(ops_rq, 2, description='Servicio', unit='GLB', is_off_catalog=True)
+
+        rows = _rows(_get(logistics_coordinator, ops_rq))
+
+        for line in (1, 2):
+            assert rows[line]['unit_mismatch'] is False
+            assert rows[line]['product_unit'] is None
+            assert rows[line]['committed_earlier_lines'] is None
+
+    def test_the_summary_adds_up_with_every_kind_of_line(self, logistics_coordinator, ops_rq):
+        full = make_inventory('EPP-0001', 'Casco', 'UND')
+        mismatch = make_inventory('MAT-0001', 'Cable', 'M')
+        make_stock(full, 10)
+        make_stock(mismatch, 10)
+        make_item(ops_rq, 1, quantity=1, inventory_item=full)
+        make_item(ops_rq, 2, quantity=1, inventory_item=mismatch, unit='ROLLO')
+        make_item(ops_rq, 3, quantity=1, is_off_catalog=True)
+        make_item(ops_rq, 4, quantity=1)
+
+        summary = _get(logistics_coordinator, ops_rq).data['summary']
+
+        assert summary == {
+            'items_total': 4, 'full': 1, 'partial': 0, 'none': 0, 'not_comparable': 1,
+            'off_catalog': 1, 'unlinked': 1,
+        }
+        assert sum(v for k, v in summary.items() if k != 'items_total') == summary['items_total']

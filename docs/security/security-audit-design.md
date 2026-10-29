@@ -1,639 +1,339 @@
-# RQ System — Security Architecture Design
+# SYSPCC — Diseño de Seguridad
 
-**System:** Supply Request Management System (RQ System)
-**Stack:** Django 5 + DRF + React + PostgreSQL
-**Context:** Internal enterprise application
-**Date:** 2026-03-07
+**Sistema:** Sistema de Gestión de Requerimientos de Abastecimiento (SYSPCC)
+**Stack:** Django 5.1 + DRF + React 19 | SQLite (desarrollo) / PostgreSQL (producción)
+**Contexto:** aplicación empresarial interna
+**Fecha:** 2026-10-29 (actualizado al código de `develop`; incluye los endurecimientos de SYSPCC-006 a SYSPCC-026)
+
+Cada control se cita con el archivo donde está implementado. Lo que no está implementado figura como pendiente en la sección 5.
 
 ---
 
-## 1. Role-Based Access Control (RBAC)
+## 1. Control de acceso basado en roles (RBAC)
 
-### 1.1 Role Definitions
+### 1.1 Roles
 
-| Role | Code | Description |
-|------|------|-------------|
-| Usuario | `REQUESTER` | Creates supply requests, confirms delivery conformity |
-| Residente de Proyecto | `PROJECT_RESIDENT` | Reviews technical specs, gives initial approval |
-| Control de Proyecto | `PROJECT_CONTROL` | Reviews budget, classifies requests |
-| Gerente General | `GENERAL_MANAGER` | Approves additionals and cost overruns |
-| Coordinador Logístico | `LOGISTICS` | Stock check, procurement, supplier management |
-| Almacén Central | `CENTRAL_WAREHOUSE` | Receives materials, quality control |
-| Almacén de Obra | `SITE_WAREHOUSE` | Delivers to site, updates records |
-| Administrador | `ADMIN` | Full system access, user management |
+`RoleChoices` (`backend/apps/core/enums.py`) define 13 roles. Se asignan con `UserRole` (un usuario puede tener varios, opcionalmente acotados a un proyecto o departamento). No hay rol de "Administrador" de negocio: la administración del sistema exige `is_superuser`.
 
-### 1.2 Permission Matrix
+| Rol | Código | Responsabilidad |
+|-----|--------|-----------------|
+| Solicitante | `REQUESTER` | Crea RQ, da conformidad o reclama |
+| Residente de Proyecto | `PROJECT_RESIDENT` | Validación técnica y adicionales (OPS) |
+| Control de Proyecto | `PROJECT_CONTROL` | Clasificación presupuestal y costo de cotización (OPS) |
+| Gerente General | `GENERAL_MANAGER` | Adicionales, fuera de plan, sobrecostos; lectura de RR. HH. |
+| Coordinador Logístico | `LOGISTICS_COORDINATOR` | Stock, compras, recepción, QC, despacho, cierre (OPS) |
+| Almacén Central | `CENTRAL_WAREHOUSE` | Despacho desde stock, registros de almacén, importación de inventario |
+| Almacén de Obra | `SITE_WAREHOUSE` | Recepción en obra (OPS), almacén de obra |
+| Jefe Directo | `DIRECT_SUPERVISOR` | Validación administrativa (ADM) |
+| Gerente Administrativo | `ADMIN_MANAGER` | Plan anual y costo de cotización (ADM); pasajes |
+| Supervisor Logístico | `LOGISTICS_SUPERVISOR` | Stock, compras, recepción, QC, despacho, cierre (ADM) |
+| Jefe Logístico | `LOGISTICS_CHIEF` | Comparación y selección de cotizaciones (ADM); importación de inventario |
+| Gestor de Pasajes | `PASAJES_MANAGER` | Módulo de pasajes |
+| Gestor de RR. HH. | `HR_MANAGER` | Contratos y análisis de CVs |
 
-| Action | REQUESTER | RESIDENT | CONTROL | GM | LOGISTICS | WAREHOUSE_C | WAREHOUSE_S | ADMIN |
-|--------|-----------|----------|---------|-----|-----------|-------------|-------------|-------|
-| **Requests** | | | | | | | | |
-| Create RQ | OWN | YES | - | - | - | - | - | YES |
-| View own RQ | YES | - | - | - | - | - | - | YES |
-| View project RQs | - | PROJECT | ALL | ALL | ALL | ALL | ALL | ALL |
-| Edit draft RQ | OWN | - | - | - | - | - | - | YES |
-| Delete draft RQ | OWN | - | - | - | - | - | - | YES |
-| Submit RQ | OWN | - | - | - | - | - | - | YES |
-| Cancel RQ | OWN | - | - | - | - | - | - | YES |
-| **Approvals** | | | | | | | | |
-| Technical review | - | YES | - | - | - | - | - | YES |
-| Budget review | - | - | YES | - | - | - | - | YES |
-| Classify request | - | - | YES | - | - | - | - | YES |
-| GM approve/reject | - | - | - | YES | - | - | - | YES |
-| Cost overrun approve | - | - | - | YES | - | - | - | YES |
-| **Procurement** | | | | | | | | |
-| Check stock | - | - | - | - | YES | - | - | YES |
-| Request quotations | - | - | - | - | YES | - | - | YES |
-| Select supplier | - | - | - | - | YES | - | - | YES |
-| Generate PO | - | - | - | - | YES | - | - | YES |
-| View POs | - | - | - | READ | YES | - | - | YES |
-| **Warehouse** | | | | | | | | |
-| Receive materials | - | - | - | - | - | YES | - | YES |
-| Quality check | - | - | - | - | - | YES | - | YES |
-| Dispatch to site | - | - | - | - | - | - | YES | YES |
-| Confirm delivery | - | - | - | - | - | - | YES | YES |
-| **User Actions** | | | | | | | | |
-| Confirm conformity | OWN | - | - | - | - | - | - | YES |
-| Raise claim | OWN | - | - | - | - | - | - | YES |
-| **Admin** | | | | | | | | |
-| Manage users | - | - | - | - | - | - | - | YES |
-| View audit logs | - | - | - | YES | - | - | - | YES |
-| System settings | - | - | - | - | - | - | - | YES |
+### 1.2 Matriz de permisos (backend)
 
-### 1.3 Django Permission Implementation
+| Recurso / acción | Quién | Implementación |
+|------------------|-------|----------------|
+| Ver RQ | Staff/superuser y roles amplios (`GENERAL_MANAGER`, `LOGISTICS_*`, `CENTRAL_WAREHOUSE`): todos; `PROJECT_RESIDENT`, `PROJECT_CONTROL`, `SITE_WAREHOUSE`: su proyecto; `DIRECT_SUPERVISOR`, `ADMIN_MANAGER`: su departamento; resto: solo los propios | `get_accessible_requests_queryset` (`apps/rq/permissions.py`) |
+| Crear RQ | Cualquier autenticado | `RequestViewSet` |
+| Editar / borrar RQ | Solo en `DRAFT` y dentro del alcance | `RequestViewSet.update` / `destroy` |
+| Acción de workflow | Usuario con el `acting_role` declarado y el rol exigido por `TRANSITIONS` | `CanPerformWorkflowAction` + `WorkflowEngine` |
+| Confirmar productos de las líneas (`update-items`) y ver disponibilidad (`stock-availability`) | `LOGISTICS_COORDINATOR`, `LOGISTICS_SUPERVISOR`, `LOGISTICS_CHIEF` | `IsLogisticsStaff` |
+| Cotizaciones y OC (escritura) | Logística | `IsLogisticsStaff`; lectura filtrada por RQ accesible |
+| Proveedores (escritura) | `is_staff` | `IsAdminOrReadOnly` |
+| Reclamos (editar / borrar) | Logística | `IsLogisticsStaff` |
+| Adjuntos | Staff y logística: todos; resto: los de sus RQ | `AttachmentViewSet.get_queryset` (SYSPCC-006) |
+| Módulo almacén | 2 roles de almacén + 3 de logística | `IsWarehouseRole` (`apps/warehouse/permissions.py`) |
+| Importar inventario, asignar ubicaciones, vincular personal | `CENTRAL_WAREHOUSE`, `LOGISTICS_CHIEF` | `CanImportInventory`, `CanAssignLocations`, `CanLinkPersonal` |
+| Entrega de EPP / entregas a personas | `CENTRAL_WAREHOUSE`, `SITE_WAREHOUSE` (`SITE_WAREHOUSE` solo desde el almacén de obra) | `CanDeliverEPP`, `movement_scope_error` |
+| Buscar trabajadores (almacén) | `CENTRAL_WAREHOUSE`, `SITE_WAREHOUSE`, `LOGISTICS_CHIEF` | `CanLookupPersonal` |
+| Fichas completas de `Personal` | `ADMIN_MANAGER`, `PASAJES_MANAGER`, `GENERAL_MANAGER` o `is_staff` | `IsHRManager` |
+| Autocompletar por DNI (pasajes) | `PASAJES_MANAGER`, `ADMIN_MANAGER` o `is_staff` | `IsPasajesStaff` |
+| Pasajes | `ADMIN_MANAGER`, `GENERAL_MANAGER`, `PASAJES_MANAGER` o `is_staff` | `IsAdminOrAdminManager` |
+| RR. HH. escritura / lectura | `HR_MANAGER` / `HR_MANAGER` + `GENERAL_MANAGER`, sin bypass por `is_staff` | `IsHRDocumentsManager`, `IsHRDocumentsReader` |
+| Usuarios, roles y proyectos (escritura) | `is_superuser` | `IsSuperUser` (SYSPCC-018) |
+| Configurar OneDrive | `is_staff` o `is_superuser` | `IsAdminUser` local de `apps/warehouse/views.py` |
+| Tickets de soporte | Cada usuario los suyos; `is_staff` todos | `TicketViewSet.get_queryset` |
+| Esquema y Swagger (`/api/schema/`, `/api/docs/`, `/api/redoc/`) | `is_staff` | `IsAdminUser` en `config/urls.py` |
+
+Los roles siempre se comprueban contra `UserRole` en la base de datos. Las clases de `apps/warehouse/permissions.py` y las de RR. HH. no conceden bypass por `is_staff` / `is_superuser`.
+
+### 1.3 Implementación
 
 ```python
-# apps/accounts/permissions.py
-
-from rest_framework.permissions import BasePermission
-from apps.accounts.models import Role
-
-
+# apps/core/permissions.py
 class HasRole(BasePermission):
-    """
-    Generic role-based permission check.
-    Usage: permission_classes = [HasRole]
-    Set `required_roles` on the view.
-    """
     def has_permission(self, request, view):
-        if not request.user.is_authenticated:
+        if not request.user or not request.user.is_authenticated:
             return False
-        required_roles = getattr(view, 'required_roles', [])
-        if not required_roles:
-            return True  # No role restriction
-        # ADMIN always has access
-        if request.user.has_role(Role.ADMIN):
+        required_roles = getattr(view, 'role_required', None)
+        if required_roles is None:
             return True
-        return request.user.has_any_role(required_roles)
-
-
-class IsRequestOwner(BasePermission):
-    """Object-level: only the request creator can modify."""
-    def has_object_permission(self, request, view, obj):
-        if request.user.has_role(Role.ADMIN):
-            return True
-        return obj.requested_by == request.user
-
-
-class IsProjectMember(BasePermission):
-    """Object-level: user must be assigned to the request's project."""
-    def has_object_permission(self, request, view, obj):
-        if request.user.has_role(Role.ADMIN):
-            return True
-        project = getattr(obj, 'project', None)
-        if project is None:
-            return False
-        return project.resident == request.user
-
-
-class CanPerformTransition(BasePermission):
-    """
-    Check if user's role can perform the requested action
-    on the request's current status. Delegates to state machine.
-    """
-    def has_object_permission(self, request, view, obj):
-        from apps.requests.state_machine import TRANSITION_MAP
-        action = request.data.get('action')
-        transitions = TRANSITION_MAP.get(obj.status, [])
-        for to_status, allowed_roles, action_name in transitions:
-            if action_name == action:
-                return request.user.has_any_role(allowed_roles)
-        return False
+        if isinstance(required_roles, str):
+            required_roles = [required_roles]
+        return request.user.user_roles.filter(role__in=required_roles).exists()
 ```
-
-### 1.4 Double Enforcement Pattern
-
-Permissions are checked at TWO levels:
-
-1. **View level** (DRF `permission_classes`): Quick rejection of unauthorized users
-2. **Service level** (`RequestTransitionService.execute()`): Business logic validation
 
 ```python
-# View level
-class RequestActionView(APIView):
-    permission_classes = [IsAuthenticated, CanPerformTransition]
+# apps/rq/permissions.py
+class CanPerformWorkflowAction(BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return request.user.user_roles.exists()
 
-    def post(self, request, pk):
-        supply_request = get_object_or_404(SupplyRequest, pk=pk)
-        self.check_object_permissions(request, supply_request)
-        # Service level also validates
-        service = RequestTransitionService(supply_request, request.user)
-        result = service.execute(
-            action=request.data['action'],
-            comments=request.data.get('comments', '')
-        )
-        return Response(RequestSerializer(result).data)
+    def has_object_permission(self, request, view, obj):
+        acting_role = request.data.get('acting_role')
+        if not acting_role:
+            return False
+        return request.user.user_roles.filter(role=acting_role).exists()
 ```
+
+### 1.4 Doble verificación en el workflow
+
+1. **Vista** (`RequestViewSet.get_permissions`): `CanPerformWorkflowAction` rechaza con 403 si el usuario no tiene el `acting_role` que declara. El RQ se obtiene con `get_object()` sobre el queryset con alcance (un RQ ajeno responde 404).
+2. **Servicio** (`WorkflowEngine.execute`): `_validate_acting_role()` repite la verificación y `_check_role_permission()` exige el `required_role` de la transición. El RQ se relee con `select_for_update()` para evitar dobles aprobaciones concurrentes (SYSPCC-007).
+
+La cancelación universal no fija `required_role`: la puede ejecutar cualquier usuario que vea el RQ y declare un rol que tenga asignado.
 
 ---
 
-## 2. Secure File Uploads
+## 2. Carga segura de archivos
 
-### 2.1 File Type Whitelist
+### 2.1 Adjuntos de RQ (`apps/rq/serializers/attachment.py`)
 
-```python
-# common/validators.py
+- Extensiones permitidas: `.pdf`, `.xlsx`, `.xls`, `.jpg`, `.jpeg`, `.png`, `.doc`, `.docx`.
+- Tamaño máximo: 10 MB.
+- Tipo real verificado con `python-magic` (`magic.from_buffer`) contra la lista de MIME de cada extensión.
+- El archivo se guarda con `default_storage` bajo `attachments/` y la API nunca expone `file_path`: entrega un `download_url` calculado (URL firmada y temporal si se usa S3/Spaces).
+- Si falla la creación del registro, el archivo ya guardado se borra (SYSPCC-013).
 
-import magic
-from django.core.exceptions import ValidationError
+### 2.2 Importación del Excel de inventario (`apps/warehouse/services/imports/parser.py`)
 
-ALLOWED_EXTENSIONS = {'.pdf', '.xlsx', '.xls', '.jpg', '.jpeg', '.png'}
-ALLOWED_MIME_TYPES = {
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-excel',
-    'image/jpeg',
-    'image/png',
-}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+El libro se trata como entrada hostil y con datos personales:
+- Antes de abrirlo: extensión, content type, tamaño (máx. 10 MB), firma ZIP, número de entradas (máx. 500), path traversal, tamaño descomprimido (máx. 25 MB) y razón de compresión (zip bomb), macros y declaraciones DTD/entidades (XXE).
+- Lectura con `openpyxl` en `read_only=True` y `data_only=True`: las fórmulas no se evalúan y los vínculos externos no se cargan.
+- Límite de 5000 filas de datos por hoja.
+- Flujo en dos pasos (previsualización y confirmación atómica e idempotente); las respuestas llevan `Cache-Control: no-store` y nada registra nombres, filas ni nombres de archivo (`apps/warehouse/views_imports.py`).
+- Throttle `warehouse_import` (10/hora) en la subida; la tarea diaria `warehouse.purge_stale_imports` borra los libros guardados.
 
+### 2.3 Plantillas y CVs de RR. HH.
 
-def validate_upload(file):
-    """Validate file extension, MIME type, and size."""
-    # 1. Check file size
-    if file.size > MAX_FILE_SIZE:
-        raise ValidationError(f"File exceeds maximum size of 10MB.")
+- Plantillas Word (`apps/hr/services/template_service.py`): tamaño máximo `HR_TEMPLATE_MAX_BYTES` (5 MB por defecto) e inspección del ZIP (`inspect_zip`: máx. 1000 entradas, 50 MB descomprimidos, razón 100) que rechaza objetos incrustados, macros, plantillas adjuntas y campos DDE/INCLUDE/LINK.
+- CVs (`apps/hr/services/cv_file_validation.py`): tipo real por libmagic (se ignoran la extensión y el content type del cliente), extensiones `.pdf`, `.docx`, `.jpg`, `.jpeg`, `.png`, máx. 10 MB por archivo y 25 archivos por petición (`HR_CV_MAX_FILE_BYTES`, `HR_CV_MAX_FILES_PER_REQUEST`), límite de páginas y de píxeles.
 
-    # 2. Check extension (whitelist)
-    import os
-    ext = os.path.splitext(file.name)[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise ValidationError(
-            f"File type '{ext}' not allowed. "
-            f"Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
-        )
+### 2.4 Almacenamiento
 
-    # 3. Verify actual MIME type (not just Content-Type header)
-    file_mime = magic.from_buffer(file.read(2048), mime=True)
-    file.seek(0)  # Reset file pointer
-    if file_mime not in ALLOWED_MIME_TYPES:
-        raise ValidationError(
-            f"File content type '{file_mime}' does not match allowed types."
-        )
-
-    return True
-```
-
-### 2.2 Secure File Storage
-
-```python
-# common/storage.py
-
-import uuid
-import os
-
-
-def secure_upload_path(instance, filename):
-    """
-    Generate a secure upload path:
-    - UUID filename prevents path traversal
-    - Organized by year/month
-    - Original filename stored in DB, not filesystem
-    """
-    ext = os.path.splitext(filename)[1].lower()
-    new_filename = f"{uuid.uuid4().hex}{ext}"
-    from django.utils import timezone
-    now = timezone.now()
-    return f"uploads/{now.year}/{now.month:02d}/{new_filename}"
-```
-
-### 2.3 Excel Parsing Security
-
-```python
-# apps/requests/excel_handler.py
-
-import openpyxl
-from django.core.exceptions import ValidationError
-
-MAX_ROWS = 500
-MAX_COLUMNS = 20
-
-
-def parse_excel_safely(file):
-    """
-    Securely parse Excel file for supply request items.
-    Prevents: formula injection, excessive data, macro execution.
-    """
-    try:
-        # read_only=True: prevents macro execution
-        # data_only=True: returns values, not formulas
-        wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
-    except Exception:
-        raise ValidationError("Invalid Excel file.")
-
-    ws = wb.active
-    if ws.max_row > MAX_ROWS:
-        raise ValidationError(f"Excel file exceeds {MAX_ROWS} rows.")
-    if ws.max_column > MAX_COLUMNS:
-        raise ValidationError(f"Excel file exceeds {MAX_COLUMNS} columns.")
-
-    items = []
-    for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=1):
-        if row_num > MAX_ROWS:
-            break
-        if all(cell is None for cell in row):
-            continue
-
-        description = _sanitize_cell(row[0])
-        quantity = _parse_number(row[1])
-        unit = _sanitize_cell(row[2])
-        specifications = _sanitize_cell(row[3]) if len(row) > 3 else ""
-
-        if not description or quantity is None:
-            continue
-
-        items.append({
-            "line_number": len(items) + 1,
-            "description": description,
-            "quantity": quantity,
-            "unit": unit or "UND",
-            "specifications": specifications,
-        })
-
-    wb.close()
-    return items
-
-
-def _sanitize_cell(value):
-    """Remove formula injection characters from cell values."""
-    if value is None:
-        return ""
-    text = str(value).strip()
-    # Prevent formula injection (CSV injection / DDE)
-    if text and text[0] in ('=', '+', '-', '@', '\t', '\r', '\n'):
-        text = "'" + text  # Prefix with single quote
-    return text[:500]  # Limit length
-
-
-def _parse_number(value):
-    """Safely parse a numeric value."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return None
-```
-
-### 2.4 Upload Endpoint Security
-
-```python
-# Django settings
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB in-memory limit
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
-DATA_UPLOAD_MAX_NUMBER_FILES = 5
-
-# MEDIA_ROOT should be OUTSIDE the web-accessible static directory
-MEDIA_ROOT = '/var/data/syspcclog/uploads/'  # NOT inside static/
-```
+- `MEDIA_URL` solo lo sirve Django cuando `DEBUG=True` (`config/urls.py`).
+- En producción, si se define `AWS_STORAGE_BUCKET_NAME`, los archivos van a un bucket S3/Spaces privado con URLs firmadas (`querystring_auth`, expiración `AWS_QUERYSTRING_EXPIRE`, 1 h por defecto) (`config/settings/production.py`).
+- Los documentos de RR. HH. usan `PrivateDocumentStorage` (`apps/hr/storage.py`): fuera de `MEDIA_ROOT` (`HR_PRIVATE_ROOT`), permisos `0600` / `0700` y sin URL pública; solo salen por vistas con permiso. `HR_FILE_STORAGE` permite cambiarlo por un bucket privado.
 
 ---
 
-## 3. API Protection
+## 3. Protección de la API
 
-### 3.1 JWT Authentication
+### 3.1 Autenticación JWT en cookies
 
 ```python
 # config/settings/base.py
-
-from datetime import timedelta
-
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),     # Work day
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,                   # New refresh on each use
-    "BLACKLIST_AFTER_ROTATION": True,                 # Old refresh invalidated
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    "TOKEN_OBTAIN_SERIALIZER":
-        "apps.accounts.serializers.CustomTokenObtainPairSerializer",
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'TOKEN_OBTAIN_SERIALIZER': 'apps.core.serializers.auth.CustomTokenObtainPairSerializer',
 }
 ```
 
-### 3.2 Rate Limiting
+- `POST /api/v1/auth/login/` (`CustomTokenObtainPairView`) fija `access_token` (15 min) y `refresh_token` (1 día) como cookies `httponly`, `SameSite=Lax`, `secure` cuando `DEBUG=False`; el cuerpo solo trae el perfil.
+- `CookieJWTAuthentication` (`apps/core/authentication.py`) es la única clase de autenticación registrada y lee el token de la cookie.
+- `POST /api/v1/auth/logout/` agrega el refresh token a la blacklist y borra las cookies.
+- Cambio de contraseña forzado (SYSPCC-018): mientras `must_change_password` sea verdadero, toda petición fuera de una lista corta (`users/me/`, `me/change-password/`, `auth/logout/`, `auth/csrf/`, `auth/token/refresh/`) responde 403 con código `must_change_password`.
+- Limitación conocida: `auth/token/refresh/` usa el `TokenRefreshView` estándar, que lee `refresh` del cuerpo y no de la cookie; el frontend no lo envía, así que la sesión no se renueva automáticamente (ver `apps/core/tests/test_must_change_password_gate.py`).
+- Contraseñas: validadores de Django con longitud mínima 12 (`AUTH_PASSWORD_VALIDATORS`).
+
+### 3.2 Límites de tasa (throttling)
 
 ```python
 # config/settings/base.py
-
-REST_FRAMEWORK = {
-    "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
-    ],
-    "DEFAULT_THROTTLE_RATES": {
-        "anon": "5/minute",        # Login attempts
-        "user": "100/minute",      # Authenticated users
-        "uploads": "10/minute",    # File uploads
-    },
-}
+'DEFAULT_THROTTLE_CLASSES': ['apps.core.throttling.AnonThrottle', 'apps.core.throttling.UserThrottle'],
+'DEFAULT_THROTTLE_RATES': {
+    'anon': '30/min', 'user': '200/min',
+    'login': '5/min',           # por IP, solo en login
+    'login_user': '10/min',     # por nombre de usuario, solo en login
+    'hr_assistant': '20/min', 'hr_download': '60/min',
+    'hr_cv_upload': '60/min', 'hr_cv_progress': '90/min', 'hr_cv_posting': '20/min',
+    'warehouse_lookup': '120/min', 'warehouse_import': '10/hour',
+},
 ```
 
-### 3.3 CORS Configuration
+La búsqueda de catálogo para RQ tiene además el throttle `rq_catalog` (120/min por defecto, `apps/rq/throttling.py`). Los contadores viven en `THROTTLE_CACHE_ALIAS`; si en producción se activa `DJANGO_REDIS_IGNORE_EXCEPTIONS`, pasan a una caché local del proceso para que el límite de login no quede abierto si Redis cae (`production.py`, `apps/core/throttling.py`). `development.py` usa límites más altos.
+
+### 3.3 CORS
 
 ```python
 # config/settings/base.py
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",      # React dev server
-    "http://localhost:5173",      # Vite dev server
-]
-# Production: set to actual frontend domain
-
-CORS_ALLOW_CREDENTIALS = True     # For httpOnly refresh token cookie
-CORS_ALLOW_METHODS = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-CORS_ALLOW_HEADERS = [
-    "accept", "authorization", "content-type", "x-csrftoken",
-]
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS',
+                              default='http://localhost:5173,http://localhost:3000', ...)
+CORS_ALLOW_CREDENTIALS = True
 ```
 
-### 3.4 CSRF Protection
+`development.py` usa `CORS_ALLOW_ALL_ORIGINS = True`.
+
+### 3.4 CSRF (SYSPCC-015)
+
+- Como la autenticación va en cookies, `CookieJWTAuthentication.enforce_csrf()` aplica la verificación de `CsrfViewMiddleware` a todo POST/PUT/PATCH/DELETE autenticado.
+- Patrón double-submit: el SPA llama a `GET /api/v1/auth/csrf/` al iniciar, lee la cookie `csrftoken` y la reenvía en el header `X-CSRFToken` (`frontend/src/api/client.js`).
+- `CSRF_COOKIE_HTTPONLY = False` a propósito en todos los entornos (el SPA debe leer el token); `CSRF_COOKIE_SAMESITE = 'Lax'`; `CSRF_COOKIE_SECURE = True` en producción; `CSRF_TRUSTED_ORIGINS` por variable de entorno (en desarrollo, los orígenes de Vite).
+
+### 3.5 Validación de entradas
+
+- Serializadores DRF con campos explícitos y validaciones de negocio (por ejemplo `RequestItem.quantity` ≥ 0.001, línea vinculada o fuera de catálogo pero no ambas, límite de líneas por RQ, frente `OFICINA CENTRAL` solo en flujo ADM).
+- Restricciones en base de datos: `inventory_stock_quantity_gte_0`, `request_item_not_linked_and_off_catalog`, unicidad de `rq_number`, `po_number`, `dedup_key`.
+- `RejectNulQueryParamsMixin` (`apps/warehouse/query_guard.py`) rechaza bytes NUL en los query params del almacén (PostgreSQL no los admite).
+- No se usa sanitización HTML (`bleach` no es dependencia del proyecto); React escapa el contenido al renderizar.
+
+### 3.6 Inyección SQL
+
+Todo el acceso a datos usa el ORM de Django. El único SQL directo es `SELECT 1` en `HealthCheckMiddleware` (`apps/core/middleware.py`).
+
+### 3.7 Manejo de errores
 
 ```python
-# For JWT-based API (stateless), CSRF is enforced for cookie-based auth:
-CSRF_COOKIE_HTTPONLY = False       # Frontend needs to read CSRF token
-CSRF_COOKIE_SAMESITE = "Lax"
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-]
-
-# Session cookie (if admin panel is used)
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_SECURE = True      # Production only (HTTPS)
-```
-
-### 3.5 Input Validation & Sanitization
-
-```python
-# apps/requests/serializers.py
-
-from rest_framework import serializers
-import bleach
-
-
-class SupplyRequestSerializer(serializers.ModelSerializer):
-    description = serializers.CharField(max_length=2000)
-    justification = serializers.CharField(max_length=5000, required=False)
-
-    def validate_description(self, value):
-        # Strip HTML tags to prevent XSS
-        return bleach.clean(value, tags=[], strip=True)
-
-    def validate_justification(self, value):
-        return bleach.clean(value, tags=[], strip=True)
-
-
-class RequestItemSerializer(serializers.ModelSerializer):
-    description = serializers.CharField(max_length=500)
-    quantity = serializers.DecimalField(
-        max_digits=12, decimal_places=3,
-        min_value=0.001  # Prevent zero/negative quantities
-    )
-    specifications = serializers.CharField(max_length=1000, required=False)
-
-    def validate_description(self, value):
-        return bleach.clean(value, tags=[], strip=True)
-```
-
-### 3.6 SQL Injection Prevention
-
-Django ORM provides parameterized queries by default. Rules:
-- **NEVER** use raw SQL with string formatting
-- **ALWAYS** use ORM querysets or `.raw()` with params
-- **ALWAYS** use `django.db.connection.cursor()` with parameterized queries
-
-```python
-# BAD - Never do this:
-# SupplyRequest.objects.raw(f"SELECT * FROM requests WHERE id = {user_input}")
-
-# GOOD - Always use parameterized:
-SupplyRequest.objects.filter(id=user_input)
-# or if raw SQL is needed:
-SupplyRequest.objects.raw("SELECT * FROM requests WHERE id = %s", [user_input])
-```
-
-### 3.7 Error Handling (No Data Leakage)
-
-```python
-# common/exceptions.py
-
-from rest_framework.views import exception_handler
-from rest_framework.response import Response
-from rest_framework import status
-import logging
-
-logger = logging.getLogger(__name__)
-
-
+# apps/core/exceptions.py
 def custom_exception_handler(exc, context):
     response = exception_handler(exc, context)
-
-    if response is None:
-        # Unhandled exception - log details, return generic message
-        logger.exception("Unhandled exception", exc_info=exc)
-        return Response(
-            {"detail": "An internal error occurred."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    # Never expose stack traces or internal paths
-    if response.status_code >= 500:
-        response.data = {"detail": "An internal error occurred."}
-
+    if response is not None:
+        error_data = {'error': True, 'status_code': response.status_code}
+        ...  # detail y code normalizados
+        response.data = error_data
     return response
 ```
 
-```python
-# config/settings/base.py
-REST_FRAMEWORK = {
-    "EXCEPTION_HANDLER": "common.exceptions.custom_exception_handler",
-}
+Unifica el formato de los errores que DRF maneja. Las excepciones no controladas siguen el flujo normal de Django (500 sin traza cuando `DEBUG=False`). Las vistas críticas (`execute_action`, `update_items`) registran el error con contexto (`logger.exception`) antes de re-lanzarlo.
 
-# Production: DEBUG = False (never expose debug info)
-```
-
-### 3.8 Security Headers Middleware
+### 3.8 Cabeceras de seguridad y transporte
 
 ```python
 # config/settings/base.py
-
-MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
-    # ... other middleware
-]
-
-# Security headers
-SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = "DENY"
+X_FRAME_OPTIONS = 'DENY'
 
-# Production HTTPS settings
-SECURE_SSL_REDIRECT = True           # Production only
-SECURE_HSTS_SECONDS = 31536000       # 1 year
+# config/settings/production.py
+DEBUG = False
+SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 ```
 
-### 3.9 Audit Logging
+`production.py` también define `SECURE_BROWSER_XSS_FILTER = True`, pero Django 5.1 ya no emite esa cabecera (la opción no tiene efecto). Otras medidas: admin en `/mgmt-panel/` (no `/admin/`), `Cache-Control: no-store` en todo `/api/v1/hr/*` (`HRNoStoreMiddleware`) y en las importaciones del almacén, y `HealthCheckMiddleware` en `/healthz/` como primer middleware.
 
-```python
-# common/middleware.py
+### 3.9 Auditoría
 
-import logging
-from django.utils.deprecation import MiddlewareMixin
-
-audit_logger = logging.getLogger("audit")
-
-
-class AuditLogMiddleware(MiddlewareMixin):
-    """Log all mutating API requests for security audit."""
-
-    MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-
-    def process_response(self, request, response):
-        if request.method in self.MUTATING_METHODS:
-            user = getattr(request, 'user', None)
-            user_id = user.id if user and user.is_authenticated else "anonymous"
-            audit_logger.info(
-                "API_AUDIT",
-                extra={
-                    "user_id": user_id,
-                    "method": request.method,
-                    "path": request.path,
-                    "status_code": response.status_code,
-                    "ip": self._get_client_ip(request),
-                }
-            )
-        return response
-
-    def _get_client_ip(self, request):
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            return x_forwarded_for.split(",")[0].strip()
-        return request.META.get("REMOTE_ADDR")
-```
+No hay middleware de auditoría de peticiones. La trazabilidad está en los datos:
+- `Approval`: cada acción del workflow con usuario, rol, estado previo y nuevo (rol `SYSTEM` en las automáticas).
+- `ActivityLog`: bitácora por RQ (el campo `ip_address` existe pero el código no lo llena).
+- `DocumentEvent`: creación, edición, emisión, anulación, descarga y PDF de documentos de RR. HH.
+- `TicketComment` con `is_status_change` para los cambios de estado de tickets.
+- Logs estructurados (`logger.warning/exception` con `extra`) en workflow, `update-items`, logout, OneDrive y tareas Celery; los módulos con datos personales (importación, CVs) registran solo contadores.
 
 ---
 
-## 4. Data Protection
+## 4. Protección de datos
 
-### 4.1 Sensitive Data Identification
+### 4.1 Datos sensibles
 
-| Data Type | Sensitivity | Protection |
-|-----------|-------------|------------|
-| User passwords | HIGH | bcrypt hash (Django default) |
-| JWT tokens | HIGH | Short-lived, httpOnly cookies for refresh |
-| RUC/Tax IDs (suppliers) | MEDIUM | Access restricted to Logistics role |
-| Budget amounts | MEDIUM | Access restricted to Control + GM |
-| File uploads | MEDIUM | Stored outside web root, access via API only |
-| Email addresses | LOW-MEDIUM | Not publicly exposed |
+| Dato | Sensibilidad | Protección |
+|------|--------------|------------|
+| Contraseñas | Alta | Hash de Django (`AUTH_PASSWORD_VALIDATORS`, mínimo 12 caracteres) |
+| Tokens JWT | Alta | Cookies httpOnly, vida corta, blacklist al cerrar sesión |
+| Tokens de OneDrive | Alta | Cifrados en reposo con Fernet (`EncryptedTextField`, SYSPCC-016) |
+| Ficha de personal (DNI, salario, banco, dirección) | Alta | `IsHRManager`; búsquedas del almacén y pasajes devuelven campos reducidos |
+| Contratos y CVs | Alta | Almacenamiento privado, roles `HR_MANAGER` / `GENERAL_MANAGER`, `no-store` |
+| Libros de inventario importados | Media | `no-store`, purga diaria, sin nombres en logs ni en el reporte de problemas |
+| Presupuestos y costos | Media | Alcance de RQ por rol/proyecto/departamento |
+| Archivos adjuntos | Media | Alcance por RQ; URL firmada si se usa S3/Spaces |
 
-### 4.2 Encryption
+### 4.2 Cifrado
 
-- **In transit:** HTTPS/TLS (mandatory in production)
-- **At rest:** PostgreSQL encryption (transparent data encryption if needed)
-- **Passwords:** Django's default PBKDF2 with SHA256 (or bcrypt via `django[argon2]`)
+- **En tránsito:** HTTPS con `SECURE_SSL_REDIRECT` y HSTS en producción; conexión a PostgreSQL con `sslmode=require` por defecto (`verify-ca` / `verify-full` admitidos con CA) y Redis con TLS (`rediss://`) configurable.
+- **En reposo:** tokens de OneDrive con Fernet. La clave es `ONEDRIVE_TOKEN_ENCRYPTION_KEY`; si falta, se deriva de `SECRET_KEY` (solo aceptable en desarrollo, `apps/core/fields.py`).
+- **Contraseñas:** hasher por defecto de Django.
 
-### 4.3 Database Security
+### 4.3 Base de datos y secretos
 
 ```python
-# Production database with restricted permissions
+# config/settings/production.py (resumen)
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "syspcclog",
-        "USER": "syspcclog_app",     # App-specific user, not superuser
-        "PASSWORD": "...",           # From environment variable
-        "HOST": "localhost",
-        "PORT": "5432",
-        "OPTIONS": {
-            "sslmode": "require",    # Encrypted connection
-        },
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME'), 'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'), 'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT', default='25060'),
+        'OPTIONS': {'connect_timeout': 10, 'sslmode': DB_SSLMODE, ...},
+        'CONN_MAX_AGE': config('DB_CONN_MAX_AGE', default=0, cast=int),
+        'CONN_HEALTH_CHECKS': True,
     }
 }
-
-# Always load secrets from environment
-import os
-DATABASES["default"]["PASSWORD"] = os.environ["DB_PASSWORD"]
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 ```
+
+- `SECRET_KEY` sin valor por defecto: si falta en el entorno, Django no arranca (`base.py`).
+- Credenciales de base de datos, Redis, correo, OneDrive, Anthropic y buckets solo por variables de entorno (`python-decouple`); SYSPCC-017 sacó del repositorio el client ID de OneDrive y la contraseña de demo.
+- Los comandos de datos de demostración (`seed_demo`, `seed_demo_extra`, `seed_screenshots`) se niegan a correr si `DEBUG` es falso o si `DJANGO_ENV=production` (`apps/core/management/seed_guard.py`).
 
 ---
 
-## 5. Security Checklist for MVP
+## 5. Estado de los controles
 
-### P0 — Must Have (Block MVP if missing)
+### Implementados
 
-- [ ] JWT authentication with access/refresh token flow
-- [ ] Role-based permission classes on all API endpoints
-- [ ] Double enforcement: view-level + service-level role checks
-- [ ] File upload validation (extension whitelist + MIME type check + size limit)
-- [ ] Input sanitization on all text fields (prevent XSS)
-- [ ] Django ORM for all queries (prevent SQL injection)
-- [ ] CORS restricted to frontend origin only
-- [ ] `DEBUG = False` in production
-- [ ] Secrets from environment variables (not in code)
-- [ ] Custom error handler (no stack traces in responses)
-- [ ] HTTPS in production
-- [ ] Password hashing (Django default)
-- [ ] Rate limiting on login endpoint
-- [ ] Secure file storage (outside web root, UUID filenames)
+- [x] JWT en cookies httpOnly con access de 15 min y refresh de 1 día
+- [x] Rotación y blacklist de refresh tokens (`ROTATE_REFRESH_TOKENS`, `BLACKLIST_AFTER_ROTATION`)
+- [x] CSRF obligatorio con autenticación por cookies (SYSPCC-015)
+- [x] Permisos por rol en los endpoints y doble verificación en el workflow
+- [x] Alcance de lectura de RQ, cotizaciones, OC, reclamos, adjuntos y bitácora (SYSPCC-006, SYSPCC-011)
+- [x] Validación de archivos por extensión, tamaño y tipo real (adjuntos, CVs, plantillas, importación)
+- [x] Lectura segura de Excel (`read_only`, `data_only`, límites de ZIP y filas)
+- [x] Defensa contra inyección de fórmulas en exportaciones Excel (`sanitize_excel_value`, `apps/core/utils/excel.py`) y tope de filas por exportación
+- [x] ORM para todas las consultas
+- [x] Throttling global, de login (por IP y por usuario) y por módulo
+- [x] `DEBUG = False`, HSTS, redirección HTTPS y cookies seguras en producción
+- [x] Secretos por variables de entorno; `SECRET_KEY` obligatorio
+- [x] Contraseña mínima de 12 caracteres y cambio forzado tras alta o reseteo
+- [x] Cifrado en reposo de tokens de OneDrive
+- [x] Almacenamiento privado para documentos de RR. HH.
+- [x] Locks y restricciones contra condiciones de carrera (SYSPCC-007)
 
-### P1 — Should Have (Complete within 2 weeks after MVP)
+### Pendientes (no encontrados en el código)
 
-- [ ] Refresh token rotation with blacklisting
-- [ ] Audit logging middleware (all mutating requests)
-- [ ] Account lockout after N failed login attempts
-- [ ] CSRF protection for cookie-based auth flows
-- [ ] Security headers (X-Frame-Options, HSTS, Content-Type-Nosniff)
-- [ ] Excel parsing security (read_only, data_only, row limits)
-- [ ] Rate limiting on file upload endpoints
-- [ ] Session timeout (JWT access token expiry = 8 hours)
-- [ ] Object-level permissions (user can only edit own requests)
-- [ ] Input length limits on all serializer fields
-
-### P2 — Nice to Have (Post-MVP enhancements)
-
-- [ ] Content Security Policy (CSP) headers
-- [ ] Automated security scanning (bandit, safety)
-- [ ] Penetration testing
-- [ ] Database user with minimum required privileges
-- [ ] Log aggregation and security alerting
-- [ ] Two-factor authentication (2FA) for GM role
-- [ ] IP allowlisting for admin endpoints
-- [ ] Dependency vulnerability scanning (dependabot)
-- [ ] File virus scanning (ClamAV integration)
-- [ ] Database query monitoring for suspicious patterns
-- [ ] Automated backup encryption
+- [ ] Refresco de sesión por cookie (hoy `token/refresh/` requiere el token en el cuerpo)
+- [ ] Bloqueo de cuenta tras N intentos fallidos (solo hay throttling)
+- [ ] Cabecera Content Security Policy (CSP)
+- [ ] Doble factor de autenticación (2FA)
+- [ ] Registro de IP en `ActivityLog` (el campo existe sin uso)
+- [ ] Escaneo automático de seguridad y dependencias (no hay configuración de CI en el repositorio)
+- [ ] Antivirus para archivos subidos
+- [ ] Nombres de archivo aleatorios para adjuntos de RQ (hoy se guardan con el nombre original bajo `attachments/`)
 
 ---
 
-## 6. Additional Requirements
+## 6. Dependencias relacionadas con seguridad
 
 ```
-# Security-related pip packages
-djangorestframework-simplejwt>=5.3
-django-cors-headers>=4.3
-python-magic>=0.4      # MIME type detection
-bleach>=6.1             # HTML sanitization
+# backend/requirements.txt
+djangorestframework-simplejwt==5.3.1   # JWT + blacklist
+django-cors-headers==4.6.0
+python-magic==0.4.27                   # detección del tipo real de archivo (requiere libmagic1)
+cryptography==43.0.3                   # Fernet para EncryptedTextField
+pypdf==6.19.0                          # validación de PDF de CVs
+django-storages[s3]==1.14.4            # bucket privado opcional
+whitenoise==6.8.2                      # estáticos en producción
 ```

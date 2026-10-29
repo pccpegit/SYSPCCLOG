@@ -14,15 +14,17 @@ docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
 ```
 
-## Servicios que deben estar arriba
-- **backend** (Django/Gunicorn en prod, no `runserver`).
-- **frontend** (build de Vite servido estático / nginx).
-- **redis** (cache + broker Celery).
-- **db** (Postgres en prod).
-- **celery worker** — `celery -A config worker -l info`.
-- **celery beat** — `celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler`.
+## Servicios de `docker-compose.yml` (desarrollo)
+- **redis** — cache + broker/result backend de Celery.
+- **backend** — `runserver` con hot reload; SQLite en el volumen `sqlite_data` (`/app/data/db.sqlite3`). No hay servicio de BD aparte en desarrollo.
+- **frontend** — servidor de Vite con HMR (puerto 5173).
+- **celery_worker** — `celery -A config worker -l info` (cola por defecto).
+- **celery_worker_hr** — `celery -A config worker -Q hr_cv -c 3 -n hr@%h -l info` (análisis de CVs de RR. HH.; `CELERY_TASK_ROUTES` manda ahí `hr.process_cv_item` y `hr.cv_requeue_stale`).
+- **celery_beat** — `celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler`.
 
-Tareas programadas (beat, TZ Lima): SLA 8 AM, recordatorios de aprobación 9 AM/2 PM, invalidación de cache cada 15 min, low-stock 7:30 AM. Verifica que worker **y** beat estén corriendo o no se ejecutan.
+En producción el backend corre con Gunicorn (no `runserver`) sobre PostgreSQL.
+
+Tareas programadas (`CELERY_BEAT_SCHEDULE`, TZ Lima): SLA 8 AM, recordatorios de aprobación 9 AM/2 PM, invalidación de cache cada 15 min, low-stock 7:30 AM, purga de importaciones vencidas del almacén 3 AM, reencolado de CVs atascados cada 5 min (cola `hr_cv`). Verifica que los workers **y** beat estén corriendo o no se ejecutan.
 
 ## Entornos / settings
 - `DJANGO_SETTINGS_MODULE=config.settings.production` en prod (dev usa `.development`).
@@ -30,13 +32,13 @@ Tareas programadas (beat, TZ Lima): SLA 8 AM, recordatorios de aprobación 9 AM/
 - Prod: `DEBUG=False`, `ALLOWED_HOSTS` real, Postgres, flags de seguridad (ver skill `seguridad-owasp`).
 
 ## Checklist de release
-- [ ] `pytest` y `npm run lint`/`build` en verde.
+- [ ] `pytest`, `npm test` y `npm run lint`/`build` en verde.
 - [ ] Migraciones revisadas y seguras (skill `django-migrations`); orden código↔migración pensado.
 - [ ] Variables de entorno de prod configuradas (SECRET_KEY, DB, Redis, CORS, ALLOWED_HOSTS).
 - [ ] `DEBUG=False` y flags de seguridad activos.
 - [ ] `python manage.py migrate` ejecutado en el despliegue.
 - [ ] `collectstatic` si aplica; estáticos del frontend servidos.
-- [ ] Worker **y** beat de Celery corriendo.
+- [ ] Workers (por defecto y `hr_cv`) **y** beat de Celery corriendo.
 - [ ] Redis accesible.
 - [ ] Healthcheck / logs verificados tras el deploy.
 - [ ] Plan de rollback (imagen anterior + migraciones reversibles).
@@ -45,4 +47,4 @@ Tareas programadas (beat, TZ Lima): SLA 8 AM, recordatorios de aprobación 9 AM/
 - No corras `runserver` en prod — usa Gunicorn/uvicorn.
 - No expongas `/mgmt-panel/` ni `/api/docs/` sin auth.
 - Backups de la BD antes de migraciones destructivas.
-- Imagen mínima: `.dockerignore` excluye `.env`, `db.sqlite3`, `node_modules`, `.venv`, tests.
+- Imagen mínima: `backend/.dockerignore` excluye `.env`, `db.sqlite3`, `.venv`/`venv`, `__pycache__`, `*.pyc`, `*.log`, `.git` y `private_media/`; `frontend/.dockerignore` excluye `node_modules`, `dist`, `.env`, `*.log` y `.git`. Los tests sí entran en la imagen.

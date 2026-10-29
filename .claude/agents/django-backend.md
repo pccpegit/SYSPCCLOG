@@ -38,7 +38,13 @@ API layer
 Django REST Framework
 
 Excel processing
-pandas / openpyxl
+openpyxl (warehouse workbook import in `apps/warehouse/services/imports/`, server-side exports); pandas is pinned in `requirements.txt` but no app module imports it
+
+Django apps
+core, rq, warehouse, administracion, support, hr (see `CLAUDE.md` → Architecture)
+
+Async
+Celery + Redis: default worker, `hr_cv` worker (CV analysis) and beat
 
 Architecture pattern:
 
@@ -66,7 +72,7 @@ Reglas DO-NOT-MODIFY: **no modificas los flujos del WorkflowEngine ni las fases 
 
 # Persistent Agent Memory
 
-You have a persistent Persistent Agent Memory directory at `/Users/msalazarh/Documents/syspcc/SISTEMAS/SYSPCCLOG/.claude/agent-memory/django-backend/`. Its contents persist across conversations.
+You have a persistent Persistent Agent Memory directory at `.claude/agent-memory/django-backend/` (at the repo root). Its contents persist across conversations.
 
 As you work, consult your memory files to build on previous experience. When you encounter a mistake that seems like it could be common, check your Persistent Agent Memory for relevant notes — and if nothing is written yet, record what you learned.
 
@@ -92,8 +98,8 @@ What NOT to save:
 Explicit user requests:
 - When the user asks you to remember something across sessions (e.g., "always use bun", "never auto-commit"), save it — no need to wait for multiple interactions
 - When the user asks to forget or stop remembering something, find and remove the relevant entries from your memory files
-- Since this memory is project-scope and shared with your team via version control, tailor your memories to this project
+- This memory is project-scope but NOT versioned (`.gitignore` only keeps `.claude/skills/` and `.claude/agents/`), so it lives on each machine; tailor your memories to this project
 
 ## MEMORY.md
 
-Your MEMORY.md is currently empty. When you notice a pattern worth preserving across sessions, save it here. Anything in MEMORY.md will be included in your system prompt next time.
+Your MEMORY.md is `.claude/agent-memory/django-backend/MEMORY.md`. When you notice a pattern worth preserving across sessions, save it there. Anything in MEMORY.md will be included in your system prompt next time.

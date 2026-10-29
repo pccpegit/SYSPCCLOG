@@ -1,974 +1,466 @@
-# RQ System — Django Backend Design
+# SYSPCC — Diseño del Backend Django
 
-**Stack:** Django 5.x + Django REST Framework 3.x + PostgreSQL 16
-**Auth:** SimpleJWT
-**Date:** 2026-03-07
+**Stack:** Django 5.1.4 + Django REST Framework 3.15.2 | SQLite (desarrollo) / PostgreSQL (producción) | Redis + Celery 5.4
+**Auth:** SimpleJWT 5.3.1 en cookies httpOnly (`CookieJWTAuthentication`)
+**Fecha:** 2026-10-29 (actualizado al código de `develop`)
+
+Este documento describe el backend tal como está en `backend/`. La tabla completa de transiciones del RQ está en `docs/architecture/system-architecture.md` (sección 3.3); la definición de negocio de los flujos está en `CLAUDE.md`.
 
 ---
 
-## 1. Django Project Structure
+## 1. Estructura del proyecto Django
 
 ```
-syspcclog/
+backend/
 ├── manage.py
 ├── requirements.txt
+├── conftest.py                    # fixtures globales: api_client, auth_client, usuarios por rol
+├── Dockerfile                     # python:3.12-slim + libmagic1 (+ LibreOffice opcional)
 ├── config/
-│   ├── __init__.py
 │   ├── settings/
-│   │   ├── base.py            # Shared settings
-│   │   ├── development.py     # DEBUG=True, local DB
-│   │   └── production.py      # Production config
-│   ├── urls.py                # Root URL conf
-│   └── wsgi.py
-├── apps/
-│   ├── accounts/              # Auth, users, roles
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── permissions.py
-│   │   ├── services.py
-│   │   ├── urls.py
-│   │   └── admin.py
-│   ├── projects/              # Projects, budgets
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   └── urls.py
-│   ├── requests/              # Supply requests, items, state machine
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── services.py        # RequestTransitionService
-│   │   ├── state_machine.py   # TRANSITION_MAP
-│   │   ├── excel_handler.py   # Excel parsing & validation
-│   │   └── urls.py
-│   ├── approvals/             # Approval audit trail
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── services.py
-│   │   └── urls.py
-│   ├── procurement/           # Suppliers, quotations, POs
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── services.py
-│   │   └── urls.py
-│   ├── warehouse/             # Inventory, reception, QC, claims
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── services.py
-│   │   └── urls.py
-│   └── dashboard/             # KPI aggregation
-│       ├── views.py
-│       ├── services.py
-│       └── urls.py
-└── common/
-    ├── pagination.py
-    ├── exceptions.py
-    └── validators.py
+│   │   ├── base.py                # común a todos los entornos
+│   │   ├── development.py         # DEBUG=True, CORS abierto, throttles altos
+│   │   ├── production.py          # PostgreSQL, HSTS, cookies seguras, WhiteNoise, S3 opcional
+│   │   ├── demo.py                # hereda de production (demo en capa gratuita)
+│   │   └── guards.py              # valida HR_CV_PROVIDER
+│   ├── urls.py                    # /mgmt-panel/, /api/v1/, /api/schema|docs|redoc/
+│   ├── celery.py
+│   ├── wsgi.py / asgi.py
+└── apps/
+    ├── core/
+    │   ├── models/                # user.py, project.py, department.py, personal.py, base.py
+    │   ├── serializers/ views/ urls/   # auth, users, projects, departments, personal
+    │   ├── services/              # user_admin.py, signature.py
+    │   ├── authentication.py      # CookieJWTAuthentication (+ CSRF, must_change_password)
+    │   ├── permissions.py         # HasRole, IsLogisticsStaff, IsSuperUser, IsHRDocuments*, ...
+    │   ├── throttling.py          # AnonThrottle, UserThrottle, LoginUsernameThrottle
+    │   ├── middleware.py          # HealthCheckMiddleware, DOConnectingIPMiddleware
+    │   ├── exceptions.py          # custom_exception_handler, WorkflowError, ...
+    │   ├── fields.py              # EncryptedTextField (Fernet)
+    │   └── enums.py               # todas las TextChoices de negocio
+    ├── rq/
+    │   ├── models/                # request, approval, workflow, supplier, quotation,
+    │   │                          # purchase_order, claim, notification, activity_log, attachment
+    │   ├── serializers/ views/    # request, supplier, claim, catalog, workflow
+    │   ├── services/              # workflow_engine, budget_validator, sla_calculator,
+    │   │                          # number_generator, notification_service, request_items,
+    │   │                          # request_catalog, stock_availability, stock_diagnostics,
+    │   │                          # link_suggestions, units
+    │   ├── permissions.py         # get_accessible_requests_queryset, CanPerformWorkflowAction
+    │   ├── filters.py · tasks.py · cache.py · throttling.py
+    │   └── tests/                 # incluye test_workflow_snapshot.py
+    ├── warehouse/
+    │   ├── models/                # inventory, movement, receipt, dispatch, inventory_import, onedrive_token
+    │   ├── services/              # movements, kardex, locations, epp, exports, pdf_generator,
+    │   │                          # onedrive, personal_matching, catalog, imports/
+    │   ├── views.py               # InventoryViewSet, MovementViewSet, OneDriveViewSet, PendingRequestsViewSet
+    │   ├── views_imports.py       # InventoryImportViewSet
+    │   ├── views_personal.py      # PersonalLookupViewSet
+    │   └── permissions.py · tasks.py · throttling.py · query_guard.py
+    ├── administracion/            # models.py, serializers.py, services.py, views.py
+    ├── hr/
+    │   ├── models/                # document_template, generated_document, document_event,
+    │   │                          # cv_analysis, cv_analysis_item
+    │   ├── services/              # contratos (template/document/docx/pdf) y CVs (cv_*)
+    │   ├── views/                 # template, document, cv, assistant, meta
+    │   └── storage.py · middleware.py · tasks.py · enums.py
+    └── support/                   # models.py, serializers.py, services.py, views.py
 ```
+
+Convención: en `core`, `rq`, `warehouse` y `hr` los modelos viven en `models/` (un archivo por entidad) y se reexportan en `models/__init__.py`. `administracion` y `support` usan un único `models.py`.
 
 ---
 
-## 2. Django Models
+## 2. Modelos de Django
 
-### 2.1 Accounts App
+Todos los enums están en `apps/core/enums.py` (salvo los de RR. HH., en `apps/hr/enums.py`). `TimeStampedModel` (`apps/core/models/base.py`) aporta `created_at` y `updated_at`.
 
-```python
-# apps/accounts/models.py
+### 2.1 App `core`
 
-from django.contrib.auth.models import AbstractUser
-from django.db import models
+**`User`** (`AbstractUser`, tabla `users`, `USERNAME_FIELD = 'username'`): `email` (único), `first_name`, `last_name`, `position`, `department` (texto libre), `phone`, `avatar_url`, `signature` (imagen), `must_change_password`. Métodos: `get_roles()`, `has_role(role)`.
 
-
-class Role(models.TextChoices):
-    REQUESTER         = "REQUESTER",         "Usuario"
-    PROJECT_RESIDENT  = "PROJECT_RESIDENT",  "Residente de Proyecto"
-    PROJECT_CONTROL   = "PROJECT_CONTROL",   "Control de Proyecto"
-    GENERAL_MANAGER   = "GENERAL_MANAGER",   "Gerente General"
-    LOGISTICS         = "LOGISTICS",         "Coordinador Logístico"
-    CENTRAL_WAREHOUSE = "CENTRAL_WAREHOUSE", "Almacén Central"
-    SITE_WAREHOUSE    = "SITE_WAREHOUSE",    "Almacén de Obra"
-    ADMIN             = "ADMIN",             "Administrador"
-
-
-class CustomUser(AbstractUser):
-    email = models.EmailField(unique=True)
-    primary_role = models.CharField(max_length=30, choices=Role.choices)
-    additional_roles = models.JSONField(default=list, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    position = models.CharField(max_length=100, blank=True)
-    is_active = models.BooleanField(default=True)
-
-    USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username", "first_name", "last_name", "primary_role"]
-
-    class Meta:
-        db_table = "accounts_user"
-        ordering = ["last_name", "first_name"]
-
-    def has_role(self, role: str) -> bool:
-        return self.primary_role == role or role in self.additional_roles
-
-    def has_any_role(self, roles: list[str]) -> bool:
-        return any(self.has_role(r) for r in roles)
-```
-
-### 2.2 Projects App
+**`UserRole`** (tabla `user_roles`): `user`, `role` (`RoleChoices`), `project` (FK opcional), `department_obj` (FK opcional), `is_primary`, `assigned_at`. Único por (`user`, `role`, `project`, `department_obj`).
 
 ```python
-# apps/projects/models.py
-
-class Project(models.Model):
-    code = models.CharField(max_length=20, unique=True)        # e.g., "OBRA-14"
-    name = models.CharField(max_length=200)
-    description = models.TextField(blank=True)
-    total_budget = models.DecimalField(max_digits=14, decimal_places=2)
-    start_date = models.DateField()
-    end_date = models.DateField(null=True, blank=True)
-    is_active = models.BooleanField(default=True)
-    resident = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name="resident_projects"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "projects_project"
-        ordering = ["-created_at"]
-
-    @property
-    def spent_budget(self):
-        """Sum of all approved request estimated costs."""
-        from apps.requests.models import SupplyRequest
-        return self.supply_requests.exclude(
-            status__in=["DRAFT", "CANCELLED", "TECHNICAL_REJECTED", "GM_REJECTED"]
-        ).aggregate(total=models.Sum("estimated_cost"))["total"] or 0
-
-    @property
-    def available_budget(self):
-        return self.total_budget - self.spent_budget
-
-
-class BudgetLine(models.Model):
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="budget_lines")
-    category = models.CharField(max_length=100)            # e.g., "Materiales", "Equipos"
-    allocated_amount = models.DecimalField(max_digits=14, decimal_places=2)
-    description = models.TextField(blank=True)
-
-    class Meta:
-        db_table = "projects_budgetline"
+class RoleChoices(models.TextChoices):   # 13 roles
+    REQUESTER, GENERAL_MANAGER, CENTRAL_WAREHOUSE,                         # comunes
+    PROJECT_RESIDENT, PROJECT_CONTROL, LOGISTICS_COORDINATOR, SITE_WAREHOUSE,  # Operaciones
+    DIRECT_SUPERVISOR, ADMIN_MANAGER, LOGISTICS_SUPERVISOR, LOGISTICS_CHIEF,   # Administración
+    PASAJES_MANAGER,                                                       # Pasajes
+    HR_MANAGER                                                             # RR. HH.
 ```
 
-### 2.3 Requests App
+**`Project`** (`TimeStampedModel`): `code` (único), `name`, `location`, `client`, `frente`, `total_budget`, `start_date`, `end_date`, `is_active`.
+**`ProjectBudgetLine`**: `project`, `code`, `description`, `budgeted_amount`, `committed_amount`, `spent_amount`; propiedad `available_amount`.
+**`Department`**: `code` (único), `name`, `frente`, `manager`, `is_active`.
+**`AnnualPlan`**: `year`, `department`, `total_budget`, `approved_by`, `approved_at`, `is_active` (único por año y departamento).
+**`AnnualPlanLine`**: `annual_plan`, `code`, `description`, `category`, `budgeted_amount`, `committed_amount`, `spent_amount`.
+**`Personal`**: ficha del trabajador (DNI único, datos personales, contacto de emergencia, residencia, formación, estado laboral, `proyecto`, `puesto`, `salario`, datos bancarios, hijos, tallas) y `user` (OneToOne opcional). Propiedad `edad`.
 
-```python
-# apps/requests/models.py
+### 2.2 App `rq`
 
-class RequestStatus(models.TextChoices):
-    # Phase 1
-    DRAFT                = "DRAFT",                "Borrador"
-    SUBMITTED            = "SUBMITTED",            "Enviado"
-    TECHNICAL_REVIEW     = "TECHNICAL_REVIEW",     "Revisión Técnica"
-    TECHNICAL_APPROVED   = "TECHNICAL_APPROVED",   "Aprobado Técnicamente"
-    TECHNICAL_REJECTED   = "TECHNICAL_REJECTED",   "Rechazado por Residente"
-    # Phase 2
-    BUDGET_REVIEW        = "BUDGET_REVIEW",        "Revisión Presupuestal"
-    WITHIN_PROPOSAL      = "WITHIN_PROPOSAL",      "Dentro de Propuesta"
-    ADDITIONAL_REQ       = "ADDITIONAL_REQ",       "Requerimiento Adicional"
-    GM_REVIEW            = "GM_REVIEW",            "Revisión Gerencia"
-    GM_APPROVED          = "GM_APPROVED",          "Aprobado por Gerencia"
-    GM_REJECTED          = "GM_REJECTED",          "Rechazado por Gerencia"
-    VALIDATED            = "VALIDATED",            "Validado para Atención"
-    # Phase 3
-    STOCK_CHECK          = "STOCK_CHECK",          "Verificación Stock"
-    IN_STOCK             = "IN_STOCK",             "En Stock"
-    REQUIRES_PURCHASE    = "REQUIRES_PURCHASE",    "Requiere Compra"
-    QUOTING              = "QUOTING",              "En Cotización"
-    QUOTE_SELECTED       = "QUOTE_SELECTED",       "Cotización Seleccionada"
-    COST_OVERRUN_REVIEW  = "COST_OVERRUN_REVIEW",  "Revisión Sobrecosto"
-    PO_GENERATED         = "PO_GENERATED",         "OC Generada"
-    # Phase 4
-    RECEIVING            = "RECEIVING",            "En Recepción"
-    QUALITY_CHECK        = "QUALITY_CHECK",        "Control de Calidad"
-    QUALITY_REJECTED     = "QUALITY_REJECTED",     "Rechazado Calidad"
-    DISPATCHED_TO_SITE   = "DISPATCHED_TO_SITE",   "Despachado a Obra"
-    DELIVERED            = "DELIVERED",            "Entregado"
-    USER_CONFORMITY      = "USER_CONFORMITY",      "Pendiente Conformidad"
-    USER_CLAIM           = "USER_CLAIM",           "Reclamo Usuario"
-    CLOSED               = "CLOSED",              "Cerrado"
-    CANCELLED            = "CANCELLED",           "Cancelado"
+**`Request`** (tabla `requests`):
 
+| Campo | Tipo | Notas |
+|-------|------|-------|
+| `rq_number` | CharField único | `RQ-YYYY-NNNN`, generado por `RQNumberGenerator` |
+| `flow` | `RQFlowChoices` | `OPERATIONS` / `ADMINISTRATIVE` |
+| `project` / `department` | FK opcionales | OPS exige proyecto; ADM exige departamento |
+| `requested_by` | FK `User` | |
+| `requesting_area` | `RequestingAreaChoices` | `OP`, `QC`, `HSE`, `ADM` (SYSPCC-026) |
+| `front_area`, `service`, `specific_use`, `description`, `justification` | texto | El frente `OFICINA CENTRAL` obliga a usar el flujo ADM (SYSPCC-019) |
+| `acquisition_type` | `AcquisitionTypeChoices` | 6 tipos (compra local, foránea, importación, fabricación, alquiler, calibración) |
+| `priority` | `PriorityChoices` | `URGENT`, `HIGH`, `NORMAL` (por defecto), `LOW` |
+| `status` | `RQStatusChoices` | 47 valores; ver arquitectura §3.1 |
+| `current_step` | FK `WorkflowStep` | |
+| `budget_classification` | `BudgetClassificationChoices` | `BC_WITHIN_PROPOSAL`, `BC_ADDITIONAL`, `BC_WITHIN_ANNUAL_PLAN`, `BC_OUT_OF_ANNUAL_PLAN` |
+| `budget_line` / `annual_plan_line` | FK opcionales | OPS / ADM |
+| `estimated_cost`, `final_cost` | Decimal | |
+| `fecha_necesidad`, `fecha_estimada_entrega`, `fecha_real_entrega` | Date | La estimada se calcula al validar |
 
-class RequestPriority(models.TextChoices):
-    LOW    = "LOW",    "Baja"
-    NORMAL = "NORMAL", "Normal"
-    HIGH   = "HIGH",   "Alta"
-    URGENT = "URGENT", "Urgente"
+Propiedades: `is_terminal` y `total_items_cost` (agregado en BD, en `Decimal`).
 
+**`RequestItem`** (tabla `request_items`, único por `request` + `line_number`): `description`, `specifications`, `quantity` (mínimo 0.001), `unit`, `unit_price`, `total_price` (calculado en `save()`), `stock_almacen_obra`, `stock_almacen_central`, `x_atender`, `presupuestado_adicional`, `rfi_fwo`, `estatus_guia`, `supply_source` (`STOCK` / `PURCHASE`), `inventory_item` (FK a `warehouse.Inventory`), `is_off_catalog`, `inventory_item_confirmed_at`, `inventory_item_confirmed_by`, `item_source` (`ItemSourceChoices`: EPP, herramientas, materiales, equipos, formatería, consumibles, unidades, útiles, gases), `comentarios`. Restricción `request_item_not_linked_and_off_catalog`: una línea no puede estar vinculada al catálogo y marcada fuera de catálogo a la vez. Propiedad `link_confirmed`.
 
-class UnitOfMeasure(models.TextChoices):
-    UND  = "UND",  "Unidad"
-    KG   = "KG",   "Kilogramo"
-    M    = "M",    "Metro"
-    M2   = "M2",   "Metro Cuadrado"
-    M3   = "M3",   "Metro Cúbico"
-    GLB  = "GLB",  "Global"
-    SACO = "SACO", "Saco"
-    L    = "L",    "Litro"
-    PZA  = "PZA",  "Pieza"
-    JGO  = "JGO",  "Juego"
+**`Approval`** (tabla `approvals`): `request`, `workflow_step`, `action` (`ApprovalActionChoices`, 37 valores), `performed_by`, `role` (incluye `SYSTEM` en transiciones automáticas), `previous_status`, `new_status`, `comments`, `performed_at`. Por convención solo se crea, nunca se actualiza.
 
+**`WorkflowStep`**: `flow`, `step_order`, `step_code`, `step_name`, `responsible_role`, `from_status`, `to_status_approve`, `to_status_reject`, `is_conditional`, `condition_description`, `is_terminal_on_reject`, `phase`. Únicos (`flow`, `step_order`) y (`flow`, `step_code`).
+**`AcquisitionTypeConfig`**: `type`, `min_days`, `max_days`, `max_extended_days` y banderas `requires_*_approval`. La usa `SLACalculator`.
 
-class SupplyRequest(models.Model):
-    # Identifiers
-    rq_number = models.CharField(max_length=20, unique=True, editable=False)
-    project = models.ForeignKey(
-        "projects.Project", on_delete=models.PROTECT,
-        related_name="supply_requests"
-    )
+**`Supplier`**: `ruc` (único, 11 caracteres), `business_name`, `trade_name`, datos de contacto, `address`, `city`, `category`, `is_active`.
+**`Quotation`** / **`QuotationItem`**: cotización por RQ y proveedor (`quotation_number`, `total_amount`, `currency`, `delivery_days`, `payment_terms`, `validity_days`, `document_url`, `is_selected`, `selected_by`, `selected_at`) y sus ítems (`unit_price`, `quantity`, `total_price`, `brand`, `model`).
+**`PurchaseOrder`** / **`PurchaseOrderItem`**: `po_number` (`OC-YYYY-NNNN`, `PONumberGenerator`), `request`, `quotation`, `supplier`, `generated_by`, `status` (`POStatusChoices`: `DRAFT`, `SENT`, `CONFIRMED`, `PARTIALLY_RECEIVED`, `FULLY_RECEIVED`, `CANCELLED`), montos y fechas.
+**`Claim`**: `claim_type` (`SUPPLIER_CLAIM` / `USER_COMPLAINT`), `status` (`OPEN`, `IN_REVIEW`, `RESOLVED`, `CLOSED`), `raised_by`, `managed_by`, `resolved_by`, `description`, `resolution`.
+**`Notification`**: notificación in-app (`user`, `request`, `title`, `message`, `is_read`, `dedup_key` único cuando no es nulo).
+**`ActivityLog`**: `request`, `user`, `action`, `detail`, `ip_address`.
+**`Attachment`**: `file_name`, `file_path`, `file_type`, `file_size`, `category`, `description`, `uploaded_by`.
 
-    # Requester info
-    requested_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name="created_requests"
-    )
-    description = models.TextField()
-    justification = models.TextField(blank=True)
-    priority = models.CharField(
-        max_length=10, choices=RequestPriority.choices,
-        default=RequestPriority.NORMAL
-    )
+### 2.3 App `warehouse`
 
-    # Status
-    status = models.CharField(
-        max_length=30, choices=RequestStatus.choices,
-        default=RequestStatus.DRAFT
-    )
+**`Inventory`** (catálogo, tabla `inventory`): `product_code` (único), `description`, `unit`, `category`, `item_type` (`EQUIPMENT`, `CONSUMABLE`, `TOOL`, `MATERIAL`, `EPP`), `brand`, `model_name`, `location` (formato `{Pabellón}{Sección}-{Nivel}`), `min_stock` y, desde SYSPCC-025, `order_number`, `purchase_order_ref`, `packing_list`, `size`, `floor` (1er/2do piso cuando aún no hay ubicación exacta), `observation`, `project`. Propiedades derivadas `location_status` (`EXACT` / `FLOOR_ONLY` / `NONE`) y `location_display`.
 
-    # Budget
-    estimated_cost = models.DecimalField(
-        max_digits=14, decimal_places=2, null=True, blank=True
-    )
-    budget_classification = models.CharField(
-        max_length=20, blank=True,
-        choices=[("WITHIN", "Dentro de Propuesta"), ("ADDITIONAL", "Adicional")]
-    )
+**`InventoryStock`**: `inventory`, `warehouse_type` (`CENTRAL`, `SITE`, `OFFICE`), `project`, `department`, `quantity`. Único por (`inventory`, `warehouse_type`, `project`, `department`); `CheckConstraint` `quantity >= 0`.
 
-    # Dates
-    required_date = models.DateField(help_text="Fecha requerida de entrega")
-    work_location = models.CharField(max_length=200, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    closed_at = models.DateTimeField(null=True, blank=True)
+**`MovementGroup`** (vale): `group_number` (único), `movement_type` (`ENTRY`, `EXIT`, `TRANSFER`, `ADJUSTMENT`), `warehouse`, `project`, `source_type`, `supplier_name`, `invoice_number`, `destination_type`, `destination_detail`, `movement_date`, `voucher_number`, `po_number`, `guide_number`, `internal_transfer`, `destination_personal`, `document_url`, `registered_by`.
 
-    # Current assignee (who should act next)
-    assigned_to = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name="assigned_requests"
-    )
+**`InventoryMovement`**: una línea de movimiento (`movement_number`, `movement_type`, `inventory`, `quantity`, `warehouse`, `project`, origen y destino, `requested_by`, `authorized_by`, `group`, `movement_date`, `voucher_number`, `po_number`, `guide_number`, `internal_transfer`, `tag`, `destination_personal`, `source_key`, `import_batch`, `document_url`, `registered_by`).
 
-    class Meta:
-        db_table = "requests_supplyrequest"
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["status"]),
-            models.Index(fields=["project", "status"]),
-            models.Index(fields=["requested_by"]),
-        ]
+**`WarehouseReceipt`** / **`WarehouseReceiptItem`** y **`WarehouseDispatch`** / **`WarehouseDispatchItem`**: recepción y despacho formales ligados a un RQ y a un `MovementGroup`; los crea `WorkflowEngine` en las acciones `RECEIVED` y `DISPATCHED`.
 
-    def save(self, *args, **kwargs):
-        if not self.rq_number:
-            self.rq_number = self._generate_rq_number()
-        super().save(*args, **kwargs)
+**`InventoryImport`** (UUID): importación en dos pasos del Excel "INVENTARIO PCC - ALM" (`status`: `PREVIEWED`, `PROCESSING`, `CONFIRMED`, `CANCELLED`, `EXPIRED`, `FAILED`; `file_sha256`, `file_bytes`, `summary`, `problems`, `plan_digest`, `result`, `expires_at`).
 
-    def _generate_rq_number(self):
-        from django.utils import timezone
-        year = timezone.now().year
-        last = SupplyRequest.objects.filter(
-            rq_number__startswith=f"RQ-{year}"
-        ).count()
-        return f"RQ-{year}-{last + 1:04d}"
+**`OneDriveToken`**: `access_token` y `refresh_token` cifrados en reposo (`EncryptedTextField`).
 
+### 2.4 App `administracion`
 
-class RequestItem(models.Model):
-    request = models.ForeignKey(
-        SupplyRequest, on_delete=models.CASCADE, related_name="items"
-    )
-    line_number = models.PositiveIntegerField()
-    description = models.CharField(max_length=500)
-    quantity = models.DecimalField(max_digits=12, decimal_places=3)
-    unit = models.CharField(max_length=10, choices=UnitOfMeasure.choices)
-    specifications = models.TextField(blank=True)
-    estimated_unit_cost = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True
-    )
+**`Pasaje`**: viaje (`tipo` `B` / `S` / `S/B`, fechas, embarque y destino de bajada/subida), trabajador (`personal`, `dni`, `nombres`, `cargo`, `tipo_trabajador` `STAFF` / `WORKER`), `centro_costo` (FK `Project`), facturación (`proveedor`, `ruc`, `razon_social`, `factura_ticket`, `fecha`, `mes`), importes (`moneda` `SOLES` / `DOLARES`, `monto_con_igv_soles`, `monto_con_igv_dolares`, `tipo_cambio`, `devolucion`, `total`), pago (`estado` `PENDIENTE` / `PAGADO`, `fecha_pago`, `numero_operacion`), `codigo_id_legado` (único, para reimportar el CSV histórico) y auditoría. `save()` deriva `mes` y calcula `total` en soles.
+**`PoliticaPasajeDevoluciones`**: `tipo_trabajador`, `tramo`, `en_dolares`, `no_devolucion`, `monto_dolares`, `monto_soles`, `habilitado`.
+**`ProveedorPasajes`**: `ruc` (único), `razon_social`.
+**`Puesto`**: `cargo` (único), `habilitado`.
 
-    class Meta:
-        db_table = "requests_requestitem"
-        ordering = ["line_number"]
-        unique_together = [("request", "line_number")]
+### 2.5 App `hr`
 
+**`DocumentTemplate`**: plantilla Word versionada (`document_type`, `slug`, `name`, `version`, `file`, `file_sha256`, variables detectadas / desconocidas / faltantes, `is_active`).
+**`GeneratedDocument`**: contrato generado (`template`, `template_version`, `template_sha256`, `personal`, `subject_name`, `data`, `status` `DRAFT` / `ISSUED` / `VOIDED`, `source` `MANUAL` / `ASSISTANT`, `docx_file`, `pdf_file`, `reference_number`, emisión y anulación).
+**`DocumentEvent`**: bitácora del documento (`CREATED`, `UPDATED`, `ISSUED`, `VOIDED`, `DOWNLOADED`, `PDF_RENDERED`).
+**`CVAnalysis`**: proceso de selección (`name`, `requirements_text`, `requirements`, convocatoria opcional y su costo de extracción).
+**`CVAnalysisItem`**: un CV (`kind` `PDF` / `DOCX` / `IMAGE`, `status` `QUEUED` / `PROCESSING` / `DONE` / `FAILED` / `CANCELLED`, `result`, `score`, `recommendation` `ADVANCE` / `REVIEW` / `NO_ADVANCE`, tokens y costo, `report_pdf`).
 
-class Attachment(models.Model):
-    request = models.ForeignKey(
-        SupplyRequest, on_delete=models.CASCADE, related_name="attachments"
-    )
-    file = models.FileField(upload_to="attachments/%Y/%m/")
-    original_filename = models.CharField(max_length=255)
-    file_size = models.PositiveIntegerField()
-    content_type = models.CharField(max_length=100)
-    uploaded_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT
-    )
-    uploaded_at = models.DateTimeField(auto_now_add=True)
+### 2.6 App `support`
 
-    class Meta:
-        db_table = "requests_attachment"
-```
-
-### 2.4 Approvals App
-
-```python
-# apps/approvals/models.py
-
-class ApprovalAction(models.TextChoices):
-    SUBMITTED            = "SUBMITTED",            "Enviado"
-    TECHNICAL_APPROVED   = "TECHNICAL_APPROVED",   "Aprobado Técnicamente"
-    TECHNICAL_REJECTED   = "TECHNICAL_REJECTED",   "Rechazado por Residente"
-    RETURNED             = "RETURNED",             "Devuelto para Corrección"
-    BUDGET_WITHIN        = "BUDGET_WITHIN",        "Clasificado: Dentro de Propuesta"
-    BUDGET_ADDITIONAL    = "BUDGET_ADDITIONAL",    "Clasificado: Adicional"
-    GM_APPROVED          = "GM_APPROVED",          "Aprobado por Gerencia"
-    GM_REJECTED          = "GM_REJECTED",          "Rechazado por Gerencia"
-    COST_APPROVED        = "COST_APPROVED",        "Sobrecosto Aprobado"
-    STOCK_CONFIRMED      = "STOCK_CONFIRMED",      "Stock Confirmado"
-    PO_CREATED           = "PO_CREATED",           "OC Generada"
-    RECEIVED             = "RECEIVED",             "Material Recibido"
-    QC_PASSED            = "QC_PASSED",            "Calidad Aprobada"
-    QC_FAILED            = "QC_FAILED",            "Calidad Rechazada"
-    DISPATCHED           = "DISPATCHED",           "Despachado a Obra"
-    DELIVERED            = "DELIVERED",            "Entregado"
-    CONFORMITY_OK        = "CONFORMITY_OK",        "Conformidad Otorgada"
-    CLAIM_RAISED         = "CLAIM_RAISED",         "Reclamo Generado"
-    CLOSED               = "CLOSED",              "Cerrado"
-    CANCELLED            = "CANCELLED",           "Cancelado"
-
-
-class Approval(models.Model):
-    """Immutable audit trail record for every state transition."""
-    request = models.ForeignKey(
-        "requests.SupplyRequest", on_delete=models.CASCADE,
-        related_name="approvals"
-    )
-    action = models.CharField(max_length=30, choices=ApprovalAction.choices)
-    from_status = models.CharField(max_length=30)
-    to_status = models.CharField(max_length=30)
-    performed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT
-    )
-    comments = models.TextField(blank=True)
-    metadata = models.JSONField(default=dict, blank=True)  # Extra data per action
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "approvals_approval"
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["request", "-created_at"]),
-        ]
-```
-
-### 2.5 Procurement App
-
-```python
-# apps/procurement/models.py
-
-class Supplier(models.Model):
-    name = models.CharField(max_length=200)
-    ruc = models.CharField(max_length=20, unique=True)  # Tax ID
-    contact_name = models.CharField(max_length=200, blank=True)
-    contact_email = models.EmailField(blank=True)
-    contact_phone = models.CharField(max_length=20, blank=True)
-    address = models.TextField(blank=True)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "procurement_supplier"
-
-
-class Quotation(models.Model):
-    class QuotationStatus(models.TextChoices):
-        PENDING  = "PENDING",  "Pendiente"
-        SELECTED = "SELECTED", "Seleccionada"
-        REJECTED = "REJECTED", "No Seleccionada"
-
-    request = models.ForeignKey(
-        "requests.SupplyRequest", on_delete=models.CASCADE,
-        related_name="quotations"
-    )
-    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT)
-    quote_number = models.CharField(max_length=50)
-    total_amount = models.DecimalField(max_digits=14, decimal_places=2)
-    currency = models.CharField(max_length=3, default="PEN")
-    delivery_days = models.PositiveIntegerField()
-    valid_until = models.DateField()
-    status = models.CharField(
-        max_length=10, choices=QuotationStatus.choices,
-        default=QuotationStatus.PENDING
-    )
-    notes = models.TextField(blank=True)
-    file = models.FileField(upload_to="quotations/%Y/%m/", null=True, blank=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "procurement_quotation"
-
-
-class PurchaseOrder(models.Model):
-    class POStatus(models.TextChoices):
-        DRAFT     = "DRAFT",     "Borrador"
-        ISSUED    = "ISSUED",    "Emitida"
-        PARTIAL   = "PARTIAL",   "Recepción Parcial"
-        COMPLETED = "COMPLETED", "Completada"
-        CANCELLED = "CANCELLED", "Cancelada"
-
-    po_number = models.CharField(max_length=20, unique=True)
-    request = models.ForeignKey(
-        "requests.SupplyRequest", on_delete=models.PROTECT,
-        related_name="purchase_orders"
-    )
-    quotation = models.ForeignKey(
-        Quotation, on_delete=models.PROTECT, null=True, blank=True
-    )
-    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT)
-    total_amount = models.DecimalField(max_digits=14, decimal_places=2)
-    currency = models.CharField(max_length=3, default="PEN")
-    status = models.CharField(
-        max_length=10, choices=POStatus.choices, default=POStatus.DRAFT
-    )
-    expected_delivery_date = models.DateField()
-    issued_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    issued_at = models.DateTimeField(auto_now_add=True)
-    notes = models.TextField(blank=True)
-
-    class Meta:
-        db_table = "procurement_purchaseorder"
-```
-
-### 2.6 Warehouse App
-
-```python
-# apps/warehouse/models.py
-
-class InventoryItem(models.Model):
-    code = models.CharField(max_length=50, unique=True)
-    description = models.CharField(max_length=500)
-    unit = models.CharField(max_length=10)
-    quantity_on_hand = models.DecimalField(max_digits=12, decimal_places=3, default=0)
-    minimum_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
-    warehouse_location = models.CharField(max_length=100, blank=True)
-    last_updated = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "warehouse_inventoryitem"
-
-
-class Reception(models.Model):
-    request = models.ForeignKey(
-        "requests.SupplyRequest", on_delete=models.CASCADE,
-        related_name="receptions"
-    )
-    purchase_order = models.ForeignKey(
-        "procurement.PurchaseOrder", on_delete=models.SET_NULL,
-        null=True, blank=True
-    )
-    received_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    received_at = models.DateTimeField(auto_now_add=True)
-    notes = models.TextField(blank=True)
-    delivery_note_number = models.CharField(max_length=50, blank=True)
-
-    class Meta:
-        db_table = "warehouse_reception"
-
-
-class QualityCheck(models.Model):
-    class QCResult(models.TextChoices):
-        PASSED = "PASSED", "Conforme"
-        FAILED = "FAILED", "No Conforme"
-
-    reception = models.OneToOneField(
-        Reception, on_delete=models.CASCADE, related_name="quality_check"
-    )
-    result = models.CharField(max_length=10, choices=QCResult.choices)
-    checked_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    checked_at = models.DateTimeField(auto_now_add=True)
-    observations = models.TextField(blank=True)
-
-    class Meta:
-        db_table = "warehouse_qualitycheck"
-
-
-class Claim(models.Model):
-    class ClaimType(models.TextChoices):
-        QUALITY   = "QUALITY",   "Reclamo de Calidad"
-        USER      = "USER",      "Reclamo de Usuario"
-        SUPPLIER  = "SUPPLIER",  "Reclamo a Proveedor"
-
-    class ClaimStatus(models.TextChoices):
-        OPEN     = "OPEN",     "Abierto"
-        IN_PROGRESS = "IN_PROGRESS", "En Proceso"
-        RESOLVED = "RESOLVED", "Resuelto"
-        CLOSED   = "CLOSED",   "Cerrado"
-
-    request = models.ForeignKey(
-        "requests.SupplyRequest", on_delete=models.CASCADE,
-        related_name="claims"
-    )
-    claim_type = models.CharField(max_length=10, choices=ClaimType.choices)
-    status = models.CharField(
-        max_length=15, choices=ClaimStatus.choices, default=ClaimStatus.OPEN
-    )
-    description = models.TextField()
-    raised_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
-        related_name="raised_claims"
-    )
-    assigned_to = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name="assigned_claims"
-    )
-    resolution = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    resolved_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "warehouse_claim"
-```
+**`Ticket`** (`TimeStampedModel`): `ticket_number` (`TK-YYYYMMDD-XXXX`, generado en `save()`), `title`, `description`, `category` (7 valores), `priority` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`), `status` (`OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`), `created_by`, `assigned_to`, `resolved_at`.
+**`TicketComment`**: `ticket`, `author`, `content`, `is_status_change`, `old_status`, `new_status`.
 
 ---
 
-## 3. Request Status Transitions — State Machine
+## 3. Máquina de estados del RQ
+
+### 3.1 Tabla de transiciones
+
+`apps/rq/services/workflow_engine.py` define `TRANSITIONS` como lista de diccionarios (71 entradas). Ejemplo literal:
 
 ```python
-# apps/requests/state_machine.py
-
-from apps.accounts.models import Role
-from apps.requests.models import RequestStatus as S
-
-# Format: from_status: [(to_status, allowed_roles, action_name), ...]
-TRANSITION_MAP = {
-    S.DRAFT: [
-        (S.SUBMITTED,   [Role.REQUESTER],                       "submit"),
-        (S.CANCELLED,   [Role.REQUESTER, Role.ADMIN],           "cancel"),
-    ],
-    S.SUBMITTED: [
-        (S.TECHNICAL_REVIEW, [Role.PROJECT_RESIDENT, Role.ADMIN], "assign_review"),
-    ],
-    S.TECHNICAL_REVIEW: [
-        (S.TECHNICAL_APPROVED, [Role.PROJECT_RESIDENT],          "approve_technical"),
-        (S.TECHNICAL_REJECTED, [Role.PROJECT_RESIDENT],          "reject_technical"),
-        (S.DRAFT,              [Role.PROJECT_RESIDENT],          "return_for_correction"),
-    ],
-    S.TECHNICAL_APPROVED: [
-        (S.BUDGET_REVIEW, [Role.PROJECT_CONTROL, Role.ADMIN],   "send_to_budget"),
-    ],
-    S.BUDGET_REVIEW: [
-        (S.WITHIN_PROPOSAL,  [Role.PROJECT_CONTROL],            "classify_within_proposal"),
-        (S.ADDITIONAL_REQ,   [Role.PROJECT_CONTROL],            "classify_additional"),
-    ],
-    S.WITHIN_PROPOSAL: [
-        (S.VALIDATED, [Role.PROJECT_CONTROL, Role.ADMIN],       "validate"),
-    ],
-    S.ADDITIONAL_REQ: [
-        (S.GM_REVIEW, [Role.PROJECT_CONTROL, Role.ADMIN],       "escalate_to_gm"),
-    ],
-    S.GM_REVIEW: [
-        (S.GM_APPROVED, [Role.GENERAL_MANAGER],                 "gm_approve"),
-        (S.GM_REJECTED, [Role.GENERAL_MANAGER],                 "gm_reject"),
-    ],
-    S.GM_APPROVED: [
-        (S.VALIDATED, [Role.GENERAL_MANAGER, Role.ADMIN],       "validate"),
-    ],
-    S.VALIDATED: [
-        (S.STOCK_CHECK, [Role.LOGISTICS],                       "check_stock"),
-    ],
-    S.STOCK_CHECK: [
-        (S.IN_STOCK,          [Role.LOGISTICS],                 "mark_in_stock"),
-        (S.REQUIRES_PURCHASE, [Role.LOGISTICS],                 "mark_no_stock"),
-    ],
-    S.IN_STOCK: [
-        (S.DISPATCHED_TO_SITE, [Role.LOGISTICS, Role.SITE_WAREHOUSE], "dispatch_from_stock"),
-    ],
-    S.REQUIRES_PURCHASE: [
-        (S.QUOTING, [Role.LOGISTICS],                           "request_quotes"),
-    ],
-    S.QUOTING: [
-        (S.QUOTE_SELECTED, [Role.LOGISTICS],                    "select_quote"),
-    ],
-    S.QUOTE_SELECTED: [
-        (S.PO_GENERATED,        [Role.LOGISTICS],               "generate_po"),
-        (S.COST_OVERRUN_REVIEW, [Role.LOGISTICS],               "escalate_cost"),
-    ],
-    S.COST_OVERRUN_REVIEW: [
-        (S.PO_GENERATED, [Role.GENERAL_MANAGER],                "gm_approve_cost"),
-        (S.GM_REJECTED,  [Role.GENERAL_MANAGER],                "gm_reject_cost"),
-    ],
-    S.PO_GENERATED: [
-        (S.RECEIVING, [Role.CENTRAL_WAREHOUSE],                 "receive_materials"),
-    ],
-    S.RECEIVING: [
-        (S.QUALITY_CHECK, [Role.CENTRAL_WAREHOUSE],             "start_quality_check"),
-    ],
-    S.QUALITY_CHECK: [
-        (S.DISPATCHED_TO_SITE, [Role.CENTRAL_WAREHOUSE],        "pass_qc"),
-        (S.QUALITY_REJECTED,   [Role.CENTRAL_WAREHOUSE],        "fail_qc"),
-    ],
-    S.QUALITY_REJECTED: [
-        (S.QUOTING, [Role.LOGISTICS],                           "reorder"),
-    ],
-    S.DISPATCHED_TO_SITE: [
-        (S.DELIVERED, [Role.SITE_WAREHOUSE],                    "confirm_delivery"),
-    ],
-    S.DELIVERED: [
-        (S.USER_CONFORMITY, [Role.SITE_WAREHOUSE, Role.ADMIN],  "request_conformity"),
-    ],
-    S.USER_CONFORMITY: [
-        (S.CLOSED,     [Role.REQUESTER],                        "confirm_conformity"),
-        (S.USER_CLAIM, [Role.REQUESTER],                        "raise_claim"),
-    ],
-    S.USER_CLAIM: [
-        (S.STOCK_CHECK, [Role.LOGISTICS],                       "reprocess_claim"),
-    ],
-}
+{
+    'flow': RQFlowChoices.OPERATIONS,
+    'from_status': RQStatusChoices.TECHNICAL_APPROVED,
+    'action': ApprovalActionChoices.BUDGET_CLASSIFIED,
+    'required_role': RoleChoices.PROJECT_CONTROL,
+    'to_status': None,
+    'to_status_reject': None,
+    'conditional': True,
+    'handler': 'handle_ops_budget_classification',
+},
 ```
 
-### Transition Service
+- `flow` puede ser `RQFlowChoices.OPERATIONS`, `RQFlowChoices.ADMINISTRATIVE` o `ANY` (`'__ANY__'`).
+- `from_status=None` solo aparece en la cancelación universal.
+- `system_action=True` marca las transiciones automáticas hacia `VALIDATED`.
+- `handler` nombra un método de `WorkflowEngine` que decide el destino según `extra_data`.
+
+La tabla está congelada por `apps/rq/tests/test_workflow_snapshot.py`. Cambiarla exige autorización de gerencia y actualizar el snapshot en el mismo PR.
+
+### 3.2 `WorkflowEngine`
 
 ```python
-# apps/requests/services.py
-
-from django.db import transaction
-from apps.approvals.models import Approval
-from apps.requests.state_machine import TRANSITION_MAP
-
-
-class TransitionError(Exception):
-    pass
-
-
-class RequestTransitionService:
-    def __init__(self, request, user):
-        self.request = request
-        self.user = user
-
-    def get_available_actions(self):
-        """Return actions available for current status + user role."""
-        transitions = TRANSITION_MAP.get(self.request.status, [])
-        return [
-            {"action": action, "target_status": str(to_status)}
-            for to_status, roles, action in transitions
-            if self.user.has_any_role(roles)
-        ]
-
-    def execute(self, action: str, comments: str = "", metadata: dict = None):
-        """Validate and execute a state transition atomically."""
-        transitions = TRANSITION_MAP.get(self.request.status, [])
-
-        target = None
-        for to_status, allowed_roles, action_name in transitions:
-            if action_name == action:
-                target = (to_status, allowed_roles)
-                break
-
-        if target is None:
-            raise TransitionError(
-                f"Action '{action}' not valid for status '{self.request.status}'"
-            )
-
-        to_status, allowed_roles = target
-
-        if not self.user.has_any_role(allowed_roles):
-            raise TransitionError(
-                f"User role '{self.user.primary_role}' cannot perform '{action}'"
-            )
-
-        with transaction.atomic():
-            from_status = self.request.status
-            self.request.status = to_status
-            self.request.save(update_fields=["status", "updated_at"])
-
-            Approval.objects.create(
-                request=self.request,
-                action=action,
-                from_status=from_status,
-                to_status=to_status,
-                performed_by=self.user,
-                comments=comments,
-                metadata=metadata or {},
-            )
-
-        return self.request
+engine = WorkflowEngine(request, user, acting_role)
+approval = engine.execute(action, comments='', extra_data=None)   # -> Approval
+actions  = engine.get_available_actions()                         # -> list[dict]
 ```
+
+Pasos de `execute` (dentro de `transaction.atomic`):
+1. `_validate_acting_role()`: el usuario debe tener asignado el `acting_role` que declara; si no, `PermissionDeniedForAction`.
+2. Relee el RQ con `select_for_update()` (SYSPCC-007).
+3. Rechaza acciones sobre estados terminales (salvo `CANCELLED`, que el handler también rechaza).
+4. `_find_transition(action)` por flujo, estado y acción; si no existe, `WorkflowError`.
+5. `_check_role_permission()`: el usuario debe tener el `required_role` de la transición.
+6. Calcula el destino (fijo o vía handler), asigna `current_step` y aplica efectos secundarios (`_apply_side_effects`).
+7. Guarda, crea `Approval`, `ActivityLog` y notificaciones in-app.
+8. `_execute_system_chain()` encadena las transiciones automáticas (por ejemplo `WITHIN_PROPOSAL` → `VALIDATED`).
+
+Handlers: `handle_ops_budget_classification` (`classification`), `handle_adm_budget_review` (`within_plan`), `handle_stock_check` (`has_stock`), `handle_cancellation`. Existe además `handle_quote_to_po`, pero ninguna entrada de `TRANSITIONS` lo referencia.
+
+Efectos secundarios: al validar, `SLACalculator.calculate_estimated_delivery` y `BudgetValidator.commit_budget`; al cancelar o rechazar de forma terminal, `BudgetValidator.release_budget`; en `RECEIVED`, vale de ingreso + `WarehouseReceipt`; en `DISPATCHED`, vale de egreso + `WarehouseDispatch`. Los errores de presupuesto, inventario y notificaciones se registran en el log y no anulan la transición. La resolución del producto usa el FK `inventory_item`; si no existe, intenta una coincidencia por texto (registrada como advertencia), y nunca para líneas `is_off_catalog`.
+
+### 3.3 Otros servicios de `rq`
+
+| Servicio | API pública |
+|----------|-------------|
+| `BudgetValidator` | `validate(request)`, `commit_budget(request)`, `release_budget(request)` |
+| `SLACalculator` | `calculate_estimated_delivery(acquisition_type, from_date=None, use_max=False)`, `get_sla_days(acquisition_type)` |
+| `RQNumberGenerator` / `PONumberGenerator` | `generate()` → `RQ-YYYY-NNNN` / `OC-YYYY-NNNN` |
+| `NotificationService` | `notify_on_transition(request, action, new_status, actor)`; destinatarios según `NOTIFY_MAP` |
+| `request_items` | `update_request_items(request_obj, items_data, user)` (confirmación de logística, bloqueo y 409 ante conflicto) |
+| `request_catalog` | `search_catalog(raw_term)`, `central_pool_available(inventory_ids)` |
+| `stock_availability` | `build_stock_availability(request_obj)` (cobertura por línea contra el pool central) |
 
 ---
 
-## 4. Core REST API Endpoints
+## 4. Endpoints REST principales
 
-### 4.1 URL Configuration
+### 4.1 Configuración de URLs
 
 ```python
-# config/urls.py
-
-from django.urls import path, include
-
+# config/urls.py (resumen)
 urlpatterns = [
-    path("api/v1/auth/",        include("apps.accounts.urls")),
-    path("api/v1/projects/",    include("apps.projects.urls")),
-    path("api/v1/requests/",    include("apps.requests.urls")),
-    path("api/v1/approvals/",   include("apps.approvals.urls")),
-    path("api/v1/procurement/", include("apps.procurement.urls")),
-    path("api/v1/warehouse/",   include("apps.warehouse.urls")),
-    path("api/v1/dashboard/",   include("apps.dashboard.urls")),
+    path('mgmt-panel/', admin.site.urls),
+    path('api/v1/', include([
+        path('auth/', include('apps.core.urls.auth', namespace='auth')),
+        path('', include('apps.core.urls.users', namespace='users')),
+        path('', include('apps.core.urls.projects', namespace='projects')),
+        path('', include('apps.core.urls.departments', namespace='departments')),
+        path('', include('apps.core.urls.personal', namespace='personal')),
+        path('', include('apps.rq.urls', namespace='rq')),
+        path('warehouse/', include('apps.warehouse.urls', namespace='warehouse')),
+        path('administracion/', include('apps.administracion.urls', namespace='administracion')),
+        path('hr/', include('apps.hr.urls', namespace='hr')),
+        path('support/', include('apps.support.urls', namespace='support')),
+    ])),
+    path('api/schema/', SpectacularAPIView.as_view(permission_classes=[IsAdminUser])),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema', permission_classes=[IsAdminUser])),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema', permission_classes=[IsAdminUser])),
 ]
 ```
 
-### 4.2 Auth Endpoints
+### 4.2 Autenticación (`/api/v1/auth/`)
 
-| Method | URL | Description | Roles |
-|--------|-----|-------------|-------|
-| `POST` | `/api/v1/auth/login/` | JWT login → `{access, refresh}` | All |
-| `POST` | `/api/v1/auth/refresh/` | Refresh access token | All |
-| `GET` | `/api/v1/auth/me/` | Current user + role + permissions | Authenticated |
-| `POST` | `/api/v1/auth/logout/` | Blacklist refresh token | Authenticated |
+| Método | URL | Descripción | Permiso |
+|--------|-----|-------------|---------|
+| `GET` | `csrf/` | Fija la cookie `csrftoken` | Público |
+| `POST` | `login/` | Fija `access_token` (15 min) y `refresh_token` (1 día) como cookies httpOnly; devuelve el perfil | Público, throttles `login` (5/min por IP) y `login_user` (10/min por usuario) |
+| `POST` | `token/refresh/` | `TokenRefreshView` estándar de SimpleJWT: lee `refresh` del cuerpo | Público |
+| `POST` | `token/verify/` | `TokenVerifyView` estándar | Público |
+| `POST` | `logout/` | Agrega el refresh a la blacklist y borra las cookies | Autenticado |
 
-### 4.3 Request Endpoints
+### 4.3 Usuarios, proyectos y catálogos de `core`
 
-| Method | URL | Description | Roles |
-|--------|-----|-------------|-------|
-| `GET` | `/api/v1/requests/` | List requests (filtered) | All authenticated |
-| `POST` | `/api/v1/requests/` | Create supply request | Requester, Resident |
-| `GET` | `/api/v1/requests/{id}/` | Request detail + items + history | All authenticated |
-| `PATCH` | `/api/v1/requests/{id}/` | Update draft request | Owner only |
-| `DELETE` | `/api/v1/requests/{id}/` | Delete draft request | Owner only |
-| `POST` | `/api/v1/requests/{id}/action/` | Execute state transition | Role-dependent |
-| `GET` | `/api/v1/requests/{id}/activity/` | Activity/audit log | All authenticated |
-| `POST` | `/api/v1/requests/{id}/attachments/` | Upload attachment | Owner, Resident |
-| `POST` | `/api/v1/requests/{id}/import-excel/` | Import items from Excel | Owner |
+| URL | Lectura | Escritura |
+|-----|---------|-----------|
+| `users/` | Autenticado | `is_superuser` (no hay borrado: `destroy` → 405) |
+| `users/me/`, `users/me/change-password/`, `users/me/signature/` | Usuario actual | Usuario actual |
+| `users/{id}/reset-password/`, `activate/`, `deactivate/` | — | `is_superuser` |
+| `user-roles/` | Autenticado | `is_superuser` (solo `POST` / `DELETE`) |
+| `projects/` (+ `activate/`, `deactivate/`) | Autenticado | `is_superuser` (no hay borrado) |
+| `project-budget-lines/`, `departments/`, `annual-plans/`, `annual-plan-lines/` | Autenticado | `is_staff` (`IsAdminOrReadOnly`) |
+| `personal/` (`list`, `retrieve`, `export/`) | `IsHRManager` (`ADMIN_MANAGER`, `PASAJES_MANAGER`, `GENERAL_MANAGER` o `is_staff`) | `is_staff` |
+| `personal/buscar-dni/` | `IsPasajesStaff` | — |
 
-#### Action Endpoint — Request/Response
+### 4.4 Requerimientos (`/api/v1/requests/`)
+
+| Método | URL | Descripción | Permiso |
+|--------|-----|-------------|---------|
+| `GET` | `requests/` | Lista filtrada (`RequestFilter`: `flow`, `status`, `status_in`, `priority`, `acquisition_type`, `project`, `department`, `requested_by`, `rq_number`) | Autenticado, con alcance |
+| `POST` | `requests/` | Crea el RQ con sus ítems (`RequestCreateSerializer`) directamente en `SUBMITTED`, con número generado por el servidor y un `Approval` `DRAFT` → `SUBMITTED`; no pasa por `WorkflowEngine` | Autenticado |
+| `GET` | `requests/{id}/` | Detalle | Autenticado, con alcance |
+| `PUT/PATCH/DELETE` | `requests/{id}/` | Solo en `DRAFT` | Autenticado, con alcance |
+| `POST` | `requests/{id}/action/` | Ejecuta una acción del workflow | `CanPerformWorkflowAction` + `WorkflowEngine` |
+| `GET` | `requests/{id}/available-actions/` | Acciones disponibles (`?role=`; por defecto el rol primario) | Autenticado, con alcance |
+| `GET` | `requests/{id}/approvals/`, `activity/`, `attachments/` | Historial, bitácora y adjuntos | Autenticado, con alcance |
+| `PATCH` | `requests/{id}/update-items/` | Logística confirma producto o fuera de catálogo, fuente y `supply_source` por línea | `IsLogisticsStaff` |
+| `GET` | `requests/{id}/stock-availability/` | Solicitado vs. stock neto del pool central | `IsLogisticsStaff` |
+| `GET` | `request-catalog/?search=` | Búsqueda del catálogo del almacén para armar el RQ | Autenticado, throttle `rq_catalog` (120/min por defecto) |
+
+Cuerpo de `action/` (`WorkflowActionSerializer`):
 
 ```json
-// POST /api/v1/requests/42/action/
-// Request:
 {
-    "action": "approve_technical",
-    "comments": "Especificaciones verificadas, proceder con revisión presupuestal",
-    "metadata": {
-        "technical_notes": "Usar encofrado ULMA modelo X"
-    }
-}
-
-// Response (200 OK):
-{
-    "id": 42,
-    "rq_number": "RQ-2026-0042",
-    "status": "TECHNICAL_APPROVED",
-    "status_display": "Aprobado Técnicamente",
-    "available_actions": [
-        {"action": "send_to_budget", "target_status": "BUDGET_REVIEW"}
-    ],
-    "last_action": {
-        "action": "approve_technical",
-        "performed_by": "B. Mendez",
-        "created_at": "2026-03-07T10:30:00Z"
-    }
+  "action": "BUDGET_CLASSIFIED",
+  "acting_role": "PROJECT_CONTROL",
+  "comments": "Dentro de la partida 02.01",
+  "extra_data": { "classification": "BC_WITHIN_PROPOSAL" }
 }
 ```
 
-### 4.4 Approval Endpoints
+Respuesta 200: el `Approval` creado (`ApprovalSerializer`). Errores: 400 si la transición no es válida, 403 si el usuario no tiene el rol.
 
-| Method | URL | Description | Roles |
-|--------|-----|-------------|-------|
-| `GET` | `/api/v1/approvals/pending/` | My pending approval queue | Resident, Control, GM |
-| `GET` | `/api/v1/approvals/history/` | My past approvals | All authenticated |
-| `GET` | `/api/v1/approvals/request/{id}/` | Full approval chain for a request | All authenticated |
+### 4.5 Proveedores, cotizaciones, OC y otros recursos de `rq`
 
-### 4.5 Procurement Endpoints
+| URL | Lectura | Escritura |
+|-----|---------|-----------|
+| `suppliers/` | Autenticado (catálogo global) | `is_staff` (`IsAdminOrReadOnly`) |
+| `quotations/` (+ `{id}/select/`) | Autenticado, filtrado por RQ accesible | `IsLogisticsStaff` |
+| `purchase-orders/` | Autenticado, filtrado por RQ accesible | `IsLogisticsStaff` (el número lo genera el servidor) |
+| `claims/` | Autenticado, con alcance | Crear: autenticado; editar/borrar: `IsLogisticsStaff` |
+| `notifications/` (+ `mark-read/`, `mark-all-read/`, `unread-count/`) | Propias | — |
+| `activity-logs/` | Autenticado, con alcance | — |
+| `attachments/` | Staff y logística: todos; resto: adjuntos de sus RQ | `GET`, `POST`, `DELETE` |
+| `acquisition-type-configs/`, `workflow-steps/` | Autenticado (solo lectura) | — |
 
-| Method | URL | Description | Roles |
-|--------|-----|-------------|-------|
-| `GET` | `/api/v1/procurement/suppliers/` | List suppliers | Logistics |
-| `POST` | `/api/v1/procurement/suppliers/` | Create supplier | Logistics, Admin |
-| `GET` | `/api/v1/procurement/quotations/` | List quotations | Logistics, GM |
-| `POST` | `/api/v1/procurement/quotations/` | Create quotation | Logistics |
-| `POST` | `/api/v1/procurement/quotations/{id}/select/` | Select winning quote | Logistics |
-| `GET` | `/api/v1/procurement/purchase-orders/` | List POs | Logistics, GM |
-| `POST` | `/api/v1/procurement/purchase-orders/` | Generate PO | Logistics |
-| `GET` | `/api/v1/procurement/purchase-orders/{id}/` | PO detail | Logistics, GM |
+### 4.6 Almacén (`/api/v1/warehouse/`)
 
-### 4.6 Warehouse Endpoints
+| URL | Descripción | Permiso |
+|-----|-------------|---------|
+| `inventory/` | CRUD del catálogo con stock | `IsWarehouseRole`; cambiar ubicación/piso/proyecto exige además `CanAssignLocations` |
+| `inventory/{id}/kardex/`, `recent-movements/` | Kardex y últimos movimientos del ítem | `IsWarehouseRole` |
+| `inventory/categories/`, `alerts/`, `check-stock/`, `summary/`, `location-layout/`, `export/` | Auxiliares de lectura | `IsWarehouseRole` |
+| `inventory/assign-locations/` | Asignación de ubicaciones (Fase 03) | `CanAssignLocations` |
+| `inventory/movement-summary/` (+ `export/`) | Resumen de movimiento (inicial, ingresos, egresos, stock) | `IsWarehouseRole` |
+| `movements/` (lectura) | Movimientos con filtros | `IsWarehouseRole` |
+| `movements/entry/`, `exit/`, `batch-entry/`, `batch-exit/` | Registro de ingresos y egresos | `IsWarehouseRole` + alcance por almacén (`movement_scope_error`) |
+| `movements/epp-delivery/` | Entrega de EPP con vale a un trabajador | `CanDeliverEPP` |
+| `movements/link-personal/` | Vincular destinos de texto a trabajadores | `CanLinkPersonal` |
+| `movements/{id}/voucher/`, `{id}/pdf/`, `groups/{id}/voucher/`, `groups/{id}/pdf/`, `export/` | Vales y exportaciones | `IsWarehouseRole` |
+| `pending-requests/list/`, `count/` | RQ pendientes de acción del almacén | `IsWarehouseRole` |
+| `personal-lookup/` | Búsqueda de trabajadores | `CanLookupPersonal` |
+| `imports/` (+ `{id}/problems/`, `problems/export/`, `template/`, `{id}/confirm/`) | Importación en dos pasos del Excel | Lectura: `IsWarehouseRole`; subir, confirmar y cancelar: `CanImportInventory` |
+| `onedrive/status/`, `connect/`, `poll/`, `disconnect/` | Conexión a OneDrive | `status/`: autenticado; el resto: `is_staff` o `is_superuser` (`IsAdminUser` local de `warehouse/views.py`) |
 
-| Method | URL | Description | Roles |
-|--------|-----|-------------|-------|
-| `GET` | `/api/v1/warehouse/inventory/` | Stock levels | Logistics, Warehouse |
-| `POST` | `/api/v1/warehouse/receptions/` | Register reception | Central Warehouse |
-| `POST` | `/api/v1/warehouse/receptions/{id}/quality-check/` | Submit QC | Central Warehouse |
-| `POST` | `/api/v1/warehouse/dispatches/` | Dispatch to site | Site Warehouse |
-| `POST` | `/api/v1/warehouse/claims/` | Register claim | Requester, Warehouse |
-| `GET` | `/api/v1/warehouse/claims/` | List claims | Logistics, Warehouse |
+### 4.7 Administración, RR. HH. y Soporte
 
-### 4.7 Dashboard Endpoints
-
-| Method | URL | Description | Roles |
-|--------|-----|-------------|-------|
-| `GET` | `/api/v1/dashboard/summary/` | Role-specific KPI cards | All authenticated |
-| `GET` | `/api/v1/dashboard/requests-by-status/` | Count by status | All authenticated |
-| `GET` | `/api/v1/dashboard/budget-consumption/` | Budget usage by project | Control, GM |
-| `GET` | `/api/v1/dashboard/recent-activity/` | Recent actions across system | All authenticated |
-
----
-
-## 5. Permissions
-
-```python
-# apps/accounts/permissions.py
-
-from rest_framework.permissions import BasePermission
-from apps.accounts.models import Role
-
-
-class IsRole(BasePermission):
-    """Base class for role-based permissions."""
-    required_roles: list[str] = []
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        return request.user.has_any_role(self.required_roles)
-
-
-class IsRequester(IsRole):
-    required_roles = [Role.REQUESTER, Role.ADMIN]
-
-
-class IsProjectResident(IsRole):
-    required_roles = [Role.PROJECT_RESIDENT, Role.ADMIN]
-
-
-class IsProjectControl(IsRole):
-    required_roles = [Role.PROJECT_CONTROL, Role.ADMIN]
-
-
-class IsGeneralManager(IsRole):
-    required_roles = [Role.GENERAL_MANAGER, Role.ADMIN]
-
-
-class IsLogistics(IsRole):
-    required_roles = [Role.LOGISTICS, Role.ADMIN]
-
-
-class IsCentralWarehouse(IsRole):
-    required_roles = [Role.CENTRAL_WAREHOUSE, Role.ADMIN]
-
-
-class IsSiteWarehouse(IsRole):
-    required_roles = [Role.SITE_WAREHOUSE, Role.ADMIN]
-
-
-class IsRequestOwner(BasePermission):
-    """Only the request creator can modify their own requests."""
-    def has_object_permission(self, request, view, obj):
-        return obj.requested_by == request.user
-```
+| Prefijo | Recursos | Permiso |
+|---------|----------|---------|
+| `/administracion/` | `pasajes/` (+ `por-dni/`, `calcular-devolucion/`, `{id}/marcar-pagado/`, `export/`), `proveedores-pasajes/` (+ `buscar-ruc/`), `politicas-devolucion/` (+ `por-tipo/`), `puestos/`, `tipo-cambio/` | `IsAdminOrAdminManager` (`ADMIN_MANAGER`, `GENERAL_MANAGER`, `PASAJES_MANAGER` o `is_staff`) |
+| `/hr/` | `templates/` (+ `activate/`, `deactivate/`, `download/`), `documents/` (+ `issue/`, `void/`, `render-pdf/`, `download/`, `events/`), `cv-analyses/` (+ `config/`, `progress/`, `retry-failed/`, `resume/`, `cancel/`, `posting/`, `posting/file/`, `posting/extract/`, `download-zip/`, `download-xlsx/`), `cv-analyses/{id}/items/` (+ `retry/`, `report/`, `file/`), `document-types/`, `personal/`, `assistant/status/`, `assistant/extract/` | Lectura: `IsHRDocumentsReader` (`HR_MANAGER`, `GENERAL_MANAGER`); escritura: `IsHRDocumentsManager` (`HR_MANAGER`) |
+| `/support/` | `tickets/` (+ `change-status/`, `add-comment/`, `my-stats/`) | Autenticado; cada usuario ve sus tickets, `is_staff` ve todos |
 
 ---
 
-## 6. Key Settings
+## 5. Permisos
+
+Clases en `apps/core/permissions.py`: `HasRole` (lee `role_required` de la vista), `IsGeneralManager`, `IsLogisticsStaff`, `IsWarehouseStaff`, `IsHRManager`, `IsHRDocumentsManager`, `IsHRDocumentsReader`, `IsPasajesStaff`, `IsAdminOrReadOnly`, `IsSuperUser`, `IsOwnerOrAdmin`.
+
+Clases en `apps/rq/permissions.py`: `CanPerformWorkflowAction` y la función `get_accessible_requests_queryset(user)`, única fuente del alcance de visibilidad de RQ (también la usan cotizaciones y OC).
+
+Clases en `apps/warehouse/permissions.py`: `IsWarehouseRole`, `CanImportInventory`, `CanAssignLocations`, `CanLinkPersonal`, `CanDeliverEPP`, `CanLookupPersonal` y el helper `movement_scope_error` (por ejemplo, `SITE_WAREHOUSE` solo opera el almacén de obra). Ninguna concede bypass por `is_staff` / `is_superuser`.
+
+Todos los roles se verifican contra `UserRole` en la base de datos, nunca solo contra el rol que declara el cliente.
+
+---
+
+## 6. Settings clave
 
 ```python
-# config/settings/base.py
-
-AUTH_USER_MODEL = "accounts.CustomUser"
-
-INSTALLED_APPS = [
-    # Django
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
-    # Third party
-    "rest_framework",
-    "rest_framework_simplejwt",
-    "rest_framework_simplejwt.token_blacklist",
-    "corsheaders",
-    "django_filters",
-    # Project apps
-    "apps.accounts",
-    "apps.projects",
-    "apps.requests",
-    "apps.approvals",
-    "apps.procurement",
-    "apps.warehouse",
-    "apps.dashboard",
-]
+# config/settings/base.py (extractos)
+AUTH_USER_MODEL = 'core.User'
+LOCAL_APPS = ['apps.core', 'apps.rq', 'apps.warehouse', 'apps.administracion', 'apps.support', 'apps.hr']
 
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
-    ],
-    "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardResultsPagination",
-    "PAGE_SIZE": 25,
-    "DEFAULT_FILTER_BACKENDS": [
-        "django_filters.rest_framework.DjangoFilterBackend",
-        "rest_framework.filters.SearchFilter",
-        "rest_framework.filters.OrderingFilter",
-    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': ['apps.core.authentication.CookieJWTAuthentication'],
+    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+    'DEFAULT_FILTER_BACKENDS': [DjangoFilterBackend, SearchFilter, OrderingFilter],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'EXCEPTION_HANDLER': 'apps.core.exceptions.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': ['apps.core.throttling.AnonThrottle', 'apps.core.throttling.UserThrottle'],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '30/min', 'user': '200/min', 'login': '5/min', 'login_user': '10/min',
+        'hr_assistant': '20/min', 'hr_download': '60/min',
+        'hr_cv_upload': '60/min', 'hr_cv_progress': '90/min', 'hr_cv_posting': '20/min',
+        'warehouse_lookup': '120/min', 'warehouse_import': '10/hour',
+    },
 }
-
-from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'TOKEN_OBTAIN_SERIALIZER': 'apps.core.serializers.auth.CustomTokenObtainPairSerializer',
 }
 
-# File uploads
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_UPLOAD_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".jpg", ".jpeg", ".png"]
-ALLOWED_UPLOAD_CONTENT_TYPES = [
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel",
-    "image/jpeg",
-    "image/png",
-]
+CACHES = {'default': {'BACKEND': 'django_redis.cache.RedisCache', 'LOCATION': REDIS_URL, ...}}
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+CELERY_TIMEZONE = 'America/Lima'
+LANGUAGE_CODE = 'es-pe'
+TIME_ZONE = 'America/Lima'
 ```
+
+La base de datos por defecto es SQLite (`DB_ENGINE` y `DB_NAME` por entorno); `production.py` fija PostgreSQL con `sslmode` configurable (`DB_SSLMODE`). `development.py` sube los límites de throttling (por ejemplo `anon` 300/min, `user` 1000/min, `login` 30/min) y abre CORS.
 
 ---
 
-## 7. Requirements
+## 7. Tareas asíncronas y comandos de gestión
+
+`CELERY_BEAT_SCHEDULE` (`base.py`), zona horaria America/Lima:
+
+| Entrada | Tarea | Horario | Qué hace |
+|---------|-------|---------|----------|
+| `check-sla-deadlines` | `rq.check_sla_deadlines` | 08:00 | Notificación in-app al solicitante por RQ vencidos o próximos a vencer |
+| `send-pending-approval-reminders` | `rq.send_pending_approval_reminders` | 09:00 y 14:00 | Recordatorio in-app de RQ sin cambios por más de 24 h en estados de revisión |
+| `invalidate-dashboard-caches` | `rq.invalidate_dashboard_caches` | Cada 15 min | Borra las claves `*dashboard_stats:*` |
+| `warehouse-low-stock-check` | `warehouse.check_low_stock` | 07:30 | Correo a `WAREHOUSE_ALERT_RECIPIENTS` con ítems bajo el stock mínimo |
+| `warehouse-purge-stale-imports` | `warehouse.purge_stale_imports` | 03:00 | Vence previsualizaciones y borra los Excel guardados de importaciones |
+| `hr-cv-requeue-stale` | `hr.cv_requeue_stale` | Cada 5 min | Reencola CVs atascados en `QUEUED` / `PROCESSING` |
+
+Tareas bajo demanda: `warehouse.upload_group_pdf` (sube el PDF del vale a OneDrive) y `hr.process_cv_item` (analiza un CV). `CELERY_TASK_ROUTES` envía `hr.process_cv_item` y `hr.cv_requeue_stale` a la cola `hr_cv`, que atiende el servicio `celery_worker_hr` (`celery -A config worker -Q hr_cv -c 3`). El despacho de CVs se elige con `HR_CV_DISPATCH` (`celery`, `thread` o `inline`).
+
+Comandos de gestión: `seed_data`, `seed_demo`, `seed_demo_extra`, `seed_screenshots` (core); `import_pasajes_csv`, `seed_administracion`, `seed_pasajes_demo` (administracion); `seed_hr_template`, `hr_cv_purge_orphans` (hr); `import_warehouse_excel` (warehouse); `check_central_project_stock`, `report_rq_stock_gaps`, `suggest_inventory_links` (rq).
+
+---
+
+## 8. Dependencias (`backend/requirements.txt`)
 
 ```
-# requirements.txt
-Django>=5.0,<6.0
-djangorestframework>=3.15
-djangorestframework-simplejwt>=5.3
-django-cors-headers>=4.3
-django-filter>=24.0
-psycopg2-binary>=2.9
-openpyxl>=3.1
-python-magic>=0.4
-gunicorn>=22.0
+Django==5.1.4
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.6.0
+django-filter==24.3
+drf-spectacular==0.27.2
+python-decouple==3.8
+psycopg2-binary==2.9.10
+pandas==2.2.3
+openpyxl==3.1.5
+Pillow==11.0.0
+python-magic==0.4.27
+reportlab==4.2.5
+requests==2.32.3
+cryptography==43.0.3
+docxtpl==0.20.2
+lxml==6.1.3
+python-docx==1.2.0
+num2words==0.5.14
+anthropic==1.11.0
+pydantic==2.13.5
+pypdf==6.19.0
+pytest==8.3.4
+pytest-django==4.9.0
+factory-boy==3.3.1
+django-redis==5.4.0
+redis==5.2.1
+celery==5.4.0
+django-celery-beat==2.7.0
+gunicorn==23.0.0
+whitenoise==6.8.2
+django-storages[s3]==1.14.4
+boto3==1.35.99
 ```

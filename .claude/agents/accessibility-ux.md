@@ -24,7 +24,7 @@ Skills de apoyo: `react-produccion` (estados loading/error/empty, patrón de UI)
 - Todo lo accionable con mouse funciona con teclado (Tab/Enter/Espacio/Esc); foco siempre visible.
 - Modales: trap de foco, cierre con Esc, retorno de foco, `role="dialog"` + `aria-modal`.
 - Inputs con label; errores con `aria-invalid` + `aria-describedby` / `role="alert"`.
-- Contraste ≥ 4.5:1; los estados de RQ no se distinguen solo por color (añade texto/icono).
+- Contraste ≥ 4.5:1 en tema claro **y** oscuro (clase `.dark`, SYSPCC-020); los estados de RQ no se distinguen solo por color (añade texto/icono).
 - Toasts en región `aria-live`; iconos decorativos `aria-hidden`, iconos-botón con `aria-label`.
 
 ## Coordinación

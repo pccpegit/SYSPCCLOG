@@ -10,7 +10,7 @@ description: Convenciones de commits y pull requests para SYSPCC — mensajes co
 Formato: `tipo(scope): descripción en imperativo`.
 
 Tipos: `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `chore`, `build`, `ci`.
-Scopes del proyecto: `core`, `rq`, `warehouse`, `administracion`, `support`, `frontend`, `workflow`, `auth`, `almacen`.
+Scopes del proyecto: `core`, `rq`, `warehouse`, `administracion`, `support`, `hr`, `frontend`, `workflow`, `auth`, `almacen`, `tickets` (actualizar `TICKETS.md`).
 
 Ejemplos:
 ```
@@ -26,8 +26,7 @@ Reglas:
 - Cuerpo (opcional) explica el **por qué**, no el qué (el diff ya dice el qué).
 - **No commitees** si no te lo piden. Si te lo piden y estás en `main`/`develop`, crea rama primero.
 - Nunca commitees secretos, `.env`, `db.sqlite3`, ni `console.log`/`print` de depuración.
-- Cierre de mensajes de commit con:
-  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+- **Sin atribución**: el mensaje termina en el cuerpo (con `Refs SYSPCC-NNN`). No añadas `Co-Authored-By`, firmas ni menciones de herramientas de IA.
 
 ## Ramas y tickets (obligatorio)
 - **Cada cambio sustantivo = un ticket + una rama + un PR.** No commitees trabajo sustantivo directo sobre `develop`/`main`.
@@ -54,13 +53,12 @@ Contexto / problema que resuelve.
 Pasos concretos (endpoints, pantallas, comandos).
 
 ## Checklist
-- [ ] Tests pasan (`pytest`, `npm run lint`).
+- [ ] Tests pasan (`pytest`, `npm test`, `npm run lint`).
 - [ ] Estándares aplicados (ver skill `code-review-syspcc`).
-- [ ] Sin cambios a los flujos de gerencia (o justificados y confirmados).
+- [ ] Sin cambios a los flujos de gerencia (o justificados y confirmados; `test_workflow_snapshot.py` en verde).
 - [ ] Migraciones seguras si hay cambios de modelo.
 ```
 
-- Cierre del cuerpo del PR con:
-  `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+- El cuerpo del PR termina en el checklist: sin firmas, sin "Generated with…" ni atribución de herramientas de IA.
 - PR pequeño y enfocado > PR gigante. Si crece, divídelo.
 - Usa `gh` para operaciones de GitHub.

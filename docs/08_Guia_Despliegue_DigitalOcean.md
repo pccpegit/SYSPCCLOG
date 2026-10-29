@@ -20,7 +20,7 @@ Complementa a `docs/05_Guia_Despliegue_y_Produccion.md` (servidor propio con Ngi
 6. [Paso 3 — Token y doctl](#paso-3--token-y-doctl)
 7. [Paso 4 — Spaces: buckets y llave de acceso](#paso-4--spaces-buckets-y-llave-de-acceso)
 8. [Paso 5 — Cluster PostgreSQL gestionado](#paso-5--cluster-postgresql-gestionado)
-9. [Paso 6 — Mergear SYSPCC-024 a develop](#paso-6--mergear-syspcc-024-a-develop)
+9. [Paso 6 — Verificar la rama develop](#paso-6--verificar-la-rama-develop)
 10. [Paso 7 — Preparar los secretos (.env.do)](#paso-7--preparar-los-secretos-envdo)
 11. [Paso 8 — Crear la app](#paso-8--crear-la-app)
 12. [Paso 9 — Verificar el despliegue](#paso-9--verificar-el-despliegue)
@@ -136,7 +136,7 @@ El código y el spec ya están preparados; lo siguiente **solo lo puedes hacer t
 - [ ] Crear un token de API y ejecutar `doctl auth init` en tu terminal (**no lo compartas en el chat**).
 - [ ] Crear los dos buckets de Spaces y una llave de acceso (Access Key + Secret).
 - [ ] Crear el cluster PostgreSQL `syspcc-pg`.
-- [ ] Revisar y mergear el PR de SYSPCC-024 a `develop` (el spec despliega desde `develop`).
+- [x] SYSPCC-024 ya está mergeado en `develop` (PR #30); el spec despliega desde `develop`.
 - [ ] Generar y guardar los secretos en `.env.do` (archivo local, fuera de git).
 - [ ] Ejecutar `doctl apps create` y, tras el primer despliegue, `createsuperuser`.
 - [ ] Al terminar la prueba, **destruir los recursos** o decidir a qué nivel quedarte.
@@ -214,12 +214,12 @@ doctl databases firewalls list "$CLUSTER_ID"      # verificación: ninguna regla
 - **TLS:** por defecto `sslmode=require` (cifra, pero **no** verifica el servidor). Para verificarlo, descarga el CA (`doctl databases get-ca "$CLUSTER_ID"`) y, tras comprobar en la Console que `${db.CA_CERT}` resuelve, agrega en `backend`, `worker` y `migrate`: `DB_SSLMODE=verify-ca` y `DB_CA_CERT=${db.CA_CERT}` (o `DB_SSLROOTCERT=<ruta>` si montas el archivo). Con `verify-full` además se valida el nombre del host, que puede fallar con hosts privados: prefiere `verify-ca`. Si el CA no es un certificado PEM válido el contenedor aborta el arranque (no degrada en silencio).
 - El cluster incluye respaldos diarios (7 días de retención).
 
-## Paso 6 — Mergear SYSPCC-024 a develop
+## Paso 6 — Verificar la rama develop
 
-El spec despliega la rama `develop`. Hasta que no estén en `develop` los arreglos de SYSPCC-024 (cabecera de proxy SSL, WhiteNoise, Spaces, `/healthz/`, scripts de arranque), el primer despliegue entraría en un bucle de redirecciones 301, el admin quedaría sin CSS y los archivos subidos se perderían.
+El spec despliega la rama `develop`. Los arreglos de SYSPCC-024 (cabecera de proxy SSL, WhiteNoise, Spaces, `/healthz/`, scripts de arranque) ya están en `develop` (PR #30); sin ellos el primer despliegue entraría en un bucle de redirecciones 301, el admin quedaría sin CSS y los archivos subidos se perderían.
 
-1. Revisa el PR de `chore/SYSPCC-024-despliegue-digitalocean` hacia `develop` y mergéalo (el push y el PR se hacen con tu confirmación).
-2. **Ojo con `deploy_on_push: true`:** a partir de aquí, **cada merge a `develop` despliega**. Esto aplica también a SYSPCC-023 (análisis de CVs): antes de mergearlo, verifica que `PrivateS3Storage` funciona contra Spaces y que `hr_cv_purge_orphans` y `cv_export` operan sobre S3. El worker del spec ya escucha la cola `hr_cv`, así que no hay que tocar el spec para 023.
+1. Confirma que la rama de los cuatro componentes en `.do/app.yaml` es `develop` (`backend`, `worker`, `migrate` y `frontend`).
+2. **Ojo con `deploy_on_push: true`:** una vez creada la app, **cada merge a `develop` despliega**. SYSPCC-023 (análisis de CVs) también está en `develop` y el worker del spec ya escucha la cola `hr_cv`; lo que no se ha probado es su almacenamiento contra Spaces reales: tras el primer despliegue verifica que `PrivateS3Storage`, `hr_cv_purge_orphans` y la exportación de CVs (`apps/hr/services/cv_export.py`) operan sobre S3.
 
 > Si `develop` apunta a una versión sin las migraciones esperadas o el app apunta a `main`, se despliega código viejo. La rama del spec debe ser `develop`.
 
@@ -322,7 +322,7 @@ Comprobaciones en el navegador:
 
 ### Prueba de humo de seguridad (OBLIGATORIA antes de dar acceso a usuarios)
 
-**Puerta de salida del despliegue:** ningún usuario recibe acceso hasta que esta prueba dé `401` cinco veces y luego `429`. Es una condición de cierre del PR de SYSPCC-024 y de cada despliegue nuevo que cambie el ingress.
+**Puerta de salida del despliegue:** ningún usuario recibe acceso hasta que esta prueba dé `401` cinco veces y luego `429`. Es condición de cierre del primer despliegue y de cada despliegue nuevo que cambie el ingress.
 
 El anti-fuerza-bruta del login depende de que el ingress de DigitalOcean **sobrescriba** la cabecera `do-connecting-ip` que envía el cliente. Compruébalo cambiando esa cabecera en cada intento. Usa siempre el **mismo** usuario inexistente:
 
@@ -487,7 +487,7 @@ Los tres deben estar sin recursos de SYSPCC.
 | El worker se reinicia por memoria | 512 MB con `-c 2` y pandas/openpyxl | `-c 1` o `apps-s-1vcpu-1gb-fixed` |
 | Recordatorios o alertas de stock repetidos | `worker` escalado a más de 1 instancia (beat duplicado) | Vuelve a `instance_count: 1` |
 | No llegan correos | Falta `EMAIL_HOST_PASSWORD` (van a los logs) o el puerto 25 bloqueado | Define la contraseña SMTP; usa el puerto 587 |
-| Cada análisis de CV queda `QUEUED` (tras mergear 023) | El worker no escucha `hr_cv` | El spec ya lleva `-Q celery,hr_cv`; verifica que el worker usa esa línea de comandos |
+| Cada análisis de CV queda `QUEUED` | El worker no escucha `hr_cv` | El spec ya lleva `-Q celery,hr_cv`; verifica que el worker usa esa línea de comandos |
 | `rediss://` falla con error de certificado (Valkey) | CA de DO no confiable | Ver "De Prueba a Estándar", punto 4 |
 | Se perdieron los secretos tras `doctl apps update` | Se aplicó la plantilla con `value: ""` sobre una app existente | Recarga los secretos en el panel; en adelante parte de `doctl apps spec get` |
 | Docker Hub limita la descarga de `redis` | Límite de pulls anónimos | Agrega `registry_credentials` a la imagen en el spec, o pasa a Valkey |

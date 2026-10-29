@@ -13,7 +13,7 @@ Revisión final que agrega los estándares de los demás skills. Para el detalle
 - [ ] Sin race conditions en escrituras concurrentes (`select_for_update` donde toca).
 
 ## 2. Workflow (si toca estados de RQ) → skill `workflow-engine`
-- [ ] **No se modificó ninguna transición del flujo de gerencia** (regla dura).
+- [ ] **No se modificó ninguna transición del flujo de gerencia** (regla dura); `apps/rq/tests/test_workflow_snapshot.py` sigue en verde sin tocar su snapshot.
 - [ ] Transición resuelta según `rq.flow` (OPS vs ADM difieren).
 - [ ] `WorkflowError` en transición ilegal; transiciones `(auto)` encadenadas.
 
@@ -46,7 +46,7 @@ Revisión final que agrega los estándares de los demás skills. Para el detalle
 ## 8. Calidad general
 - [ ] El código lee como el de alrededor (naming, idioma, densidad de comentarios).
 - [ ] Sin código muerto, TODOs sin ticket, `console.log`/`print` de depuración.
-- [ ] Nombres en el idioma correcto: mensajes de usuario en español, código en inglés (ver `español-consistente`).
+- [ ] Nombres en el idioma correcto: mensajes de usuario en español, código en inglés (ver `espanol-consistente`).
 - [ ] Migraciones seguras si hay cambios de modelo (`django-migrations`).
 
 ## Cómo reportar

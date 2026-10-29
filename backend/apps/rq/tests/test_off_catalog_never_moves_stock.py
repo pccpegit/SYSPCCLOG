@@ -2,17 +2,16 @@
 SYSPCC-026: a line marked OFF-CATALOG on purpose (services, items that do not go
 through the warehouse) must never move warehouse stock.
 
-The bug this pins: `WorkflowEngine._resolve_inventory_item` only looked at the FK. A line
-with no FK fell into a fuzzy fallback (description `icontains`, or the first word as a
-product code), so an off-catalog "Lentes de seguridad" bought by RQ matched the catalog
-product "LENTES DE SEGURIDAD CLARO" and the engine ingressed it at RECEIVED and took it
-out at DISPATCHED. The explicit off-catalog mark now short-circuits the resolution.
+History: `WorkflowEngine._resolve_inventory_item` used to fall into a fuzzy fallback
+(description `icontains`, or the first word as a product code), so an off-catalog
+"Lentes de seguridad" bought by RQ matched the catalog product "LENTES DE SEGURIDAD CLARO"
+and the engine moved its stock. SYSPCC-026 short-circuited it with the off-catalog mark;
+SYSPCC-028 removed the fuzzy fallback altogether (only a CONFIRMED link moves stock), so the
+"control" tests below now assert that the look-alike is left alone EVEN WITHOUT the mark.
 
 Covered through the REAL engine (`execute`), in both directions:
   * ENTRY  (RECEIVED, OPS):            PO_GENERATED -> RECEIVING
-  * EXIT   (DISPATCHED, ADMINISTRATIVE): IN_STOCK -> DELIVERED  (project NULL: the exit
-    works there today, so a missing movement is never explained by the known OPS stock
-    mismatch of the project-scoped exit)
+  * EXIT   (DISPATCHED, ADMINISTRATIVE): IN_STOCK -> DELIVERED
 
 The workflow itself (transitions, states, roles) is not touched; test_workflow_snapshot.py
 freezes it.
@@ -113,7 +112,7 @@ class TestResolveInventoryItem:
         warning.assert_not_called()
 
     def test_a_linked_line_still_resolves_to_its_product(self, ops_rq, requester, helmet):
-        item = make_item(ops_rq, 1, description='lo que escribió el solicitante', inventory_item=helmet)
+        item = make_item(ops_rq, 1, description='lo que escribió el solicitante', inventory_item=helmet, confirmed=True)
 
         assert _resolve(ops_rq, requester, item) == helmet
 
@@ -134,7 +133,7 @@ class TestEntryOnReceived:
         self, ops_rq, requester, helmet, look_alike_by_text,
     ):
         make_item(ops_rq, 1, description=SERVICE_TEXT, quantity=4, is_off_catalog=True)
-        make_item(ops_rq, 2, description='Casco', quantity=3, inventory_item=helmet)
+        make_item(ops_rq, 2, description='Casco', quantity=3, inventory_item=helmet, confirmed=True)
 
         data = WorkflowEngine(ops_rq, requester, 'REQUESTER')._build_items_data('ENTRY')
 
@@ -158,7 +157,7 @@ class TestEntryOnReceived:
         self, ops_rq, logistics_coordinator, helmet, look_alike_by_text,
     ):
         make_item(ops_rq, 1, description=SERVICE_TEXT, quantity=4, is_off_catalog=True)
-        make_item(ops_rq, 2, description='Casco', quantity=3, inventory_item=helmet)
+        make_item(ops_rq, 2, description='Casco', quantity=3, inventory_item=helmet, confirmed=True)
 
         _receive(ops_rq, logistics_coordinator)
 
@@ -167,21 +166,19 @@ class TestEntryOnReceived:
         moved = set(InventoryMovement.objects.values_list('inventory_id', flat=True))
         assert moved == {helmet.pk}
         receipt_lines = WarehouseReceiptItem.objects.filter(receipt__request=ops_rq)
-        assert receipt_lines.count() == 2        # documents follow the lines, stock follows the product
+        assert receipt_lines.count() == 1        # receipt rows only for lines that entered the pool
+        assert receipt_lines.get().request_item.line_number == 2
 
-    def test_the_off_catalog_line_alone_would_have_been_ingressed_before_the_fix(
+    def test_the_same_line_without_the_mark_and_without_a_link_ingresses_nothing_either(
         self, ops_rq, logistics_coordinator, look_alike_by_text,
     ):
-        """
-        Control: the very same line WITHOUT the off-catalog mark is still resolved by the
-        legacy fallback (removing it is Fase 3), so the test above is not passing for an
-        unrelated reason.
-        """
+        """SYSPCC-028: there is no text matching any more, with or without the off-catalog mark."""
         make_item(ops_rq, 1, description=SERVICE_TEXT, quantity=4)
 
         _receive(ops_rq, logistics_coordinator)
 
-        assert _pool(look_alike_by_text) == Decimal('14.000')
+        assert _pool(look_alike_by_text) == Decimal('10.000')
+        assert _no_stock_was_touched()
 
 
 # ──────────────────── EXIT: DISPATCHED (ADMINISTRATIVE, project NULL) ────────────────────
@@ -200,7 +197,7 @@ class TestExitOnDispatched:
         self, adm_rq, department_requester, helmet, look_alike_by_text,
     ):
         make_item(adm_rq, 1, description=SERVICE_TEXT, quantity=4, is_off_catalog=True)
-        make_item(adm_rq, 2, description='Casco', quantity=3, inventory_item=helmet)
+        make_item(adm_rq, 2, description='Casco', quantity=3, inventory_item=helmet, confirmed=True)
 
         data = WorkflowEngine(adm_rq, department_requester, 'REQUESTER')._build_items_data('EXIT')
 
@@ -225,7 +222,7 @@ class TestExitOnDispatched:
         self, adm_rq, central_warehouse, helmet, look_alike_by_text,
     ):
         off_catalog = make_item(adm_rq, 1, description=SERVICE_TEXT, quantity=4, is_off_catalog=True)
-        linked = make_item(adm_rq, 2, description='Casco', quantity=3, inventory_item=helmet)
+        linked = make_item(adm_rq, 2, description='Casco', quantity=3, inventory_item=helmet, confirmed=True)
 
         _dispatch(adm_rq, central_warehouse)
 
@@ -240,12 +237,13 @@ class TestExitOnDispatched:
         assert dispatched == {linked.pk}
         assert off_catalog.pk not in dispatched
 
-    def test_the_same_line_without_the_mark_is_still_resolved_by_the_legacy_fallback(
+    def test_the_same_line_without_the_mark_and_without_a_link_takes_nothing_out_either(
         self, adm_rq, central_warehouse, look_alike_by_text,
     ):
-        """Control (see the ENTRY twin): proves the exit would have taken the look-alike out."""
+        """SYSPCC-028 (see the ENTRY twin): no text matching, so the look-alike is untouched."""
         make_item(adm_rq, 1, description=SERVICE_TEXT, quantity=4)
 
         _dispatch(adm_rq, central_warehouse)
 
-        assert _pool(look_alike_by_text) == Decimal('6.000')
+        assert _pool(look_alike_by_text) == Decimal('10.000')
+        assert _no_stock_was_touched()

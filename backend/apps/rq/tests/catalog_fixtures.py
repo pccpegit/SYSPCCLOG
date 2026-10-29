@@ -11,6 +11,7 @@ import logging
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
@@ -80,7 +81,13 @@ def make_request(*, number, requester, flow=RQFlowChoices.OPERATIONS, project=No
 
 
 def make_item(request_obj, line_number=1, *, description='Casco de seguridad', quantity='10',
-              unit='UND', **extra):
+              unit='UND', confirmed=False, **extra):
+    """
+    `confirmed=True` stamps the logistics confirmation (SYSPCC-028: only a confirmed link
+    moves stock). By default the link stays "proposed", like a requester's.
+    """
+    if confirmed:
+        extra.setdefault('inventory_item_confirmed_at', timezone.now())
     return RequestItem.objects.create(
         request=request_obj,
         line_number=line_number,

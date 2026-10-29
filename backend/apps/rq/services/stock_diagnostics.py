@@ -3,24 +3,29 @@ SYSPCC-026 · Fase 0 — Diagnósticos de stock RQ ↔ almacén. SOLO LECTURA.
 
 Este módulo únicamente ejecuta SELECT: no crea, actualiza ni borra nada, no toma
 locks (`select_for_update`) y no llama a ningún servicio de escritura de almacén. Lo
-consumen los comandos `check_central_project_stock` y `report_rq_stock_gaps`, que dan
-la evidencia previa para corregir el bug R1 en la Fase 3:
+consumen los comandos `check_central_project_stock` y `report_rq_stock_gaps`, que dieron
+la evidencia previa para corregir el bug R1 (corregido en SYSPCC-028):
 
-    R1: `WorkflowEngine._on_dispatched` descuenta con `project_id=request.project_id`
-    (busca la fila CENTRAL + proyecto), pero `_on_material_received` ingresa con
-    `project_id=None` (pool central). En RQs OPS con proyecto la salida lanza
-    "Stock insuficiente", el `except Exception` lo reduce a un warning y el RQ pasa a
+    R1: `WorkflowEngine._on_dispatched` descontaba con `project_id=request.project_id`
+    (buscaba la fila CENTRAL + proyecto), pero `_on_material_received` ingresa con
+    `project_id=None` (pool central). En RQs OPS con proyecto la salida lanzaba
+    "Stock insuficiente", el `except Exception` lo reducía a un warning y el RQ pasaba a
     DISPATCHED_TO_SITE sin movimiento, sin WarehouseDispatch y sin descontar stock.
+
+    Desde SYSPCC-028 el despacho descuenta del pool (`rq_fulfillment`) y solo honra
+    vínculos de catálogo confirmados. Los reportes siguen siendo útiles para los RQs
+    HISTÓRICOS (despachados antes del arreglo, que no se reprocesan solos) y para ver qué
+    ítems de un RQ hoy NO moverían stock (`would_move_now`, `link_confirmed`).
 
 Pool central = InventoryStock con warehouse_type=CENTRAL, project=NULL y department=NULL
 (semántica de SYSPCC-025).
 
 Segundo hallazgo que cubre `report_rq_stock_gaps` (revisión de la Fase 1): el solicitante
 puede PROPONER un producto del catálogo al crear el RQ (`RequestItem.inventory_item`), pero
-solo Logística lo CONFIRMA (`inventory_item_confirmed_at`). El motor
-(`_resolve_inventory_item`) todavía usa la FK propuesta aunque no esté confirmada; hasta que
-la Fase 3 lo corrija, `unconfirmed_catalog_links()` lista los ítems en esa situación para
-revisarlos antes de desplegar.
+solo Logística lo CONFIRMA (`inventory_item_confirmed_at`). Desde SYSPCC-028 el motor
+(`_resolve_inventory_item`) ignora la FK propuesta sin confirmar: esos ítems NO mueven
+stock hasta que Logística los confirme. `unconfirmed_catalog_links()` los lista (incluye los
+vínculos de seeds e históricos, que se dejan sin mover a propósito).
 """
 from collections import defaultdict
 from decimal import Decimal
@@ -35,11 +40,11 @@ from apps.core.enums import (
     WarehouseOriginChoices,
 )
 from apps.rq.models import Approval, Request, RequestItem
+from apps.warehouse.services.rq_fulfillment import AUTO_DISPATCH_NOTES_PREFIX
 
-# Notas que escribe `WorkflowEngine._on_dispatched` en el MovementGroup de salida
-# ("Despacho automático RQ <rq_number>"). Debe coincidir con workflow_engine.py; solo se
-# usa para detectar salidas que SÍ ocurrieron aunque no tengan WarehouseDispatch.
-AUTO_DISPATCH_NOTES_PREFIX = 'Despacho automático RQ '
+# `AUTO_DISPATCH_NOTES_PREFIX` ("Despacho automático RQ <rq_number>") vive en
+# `rq_fulfillment` (única fuente); aquí solo sirve para detectar salidas que SÍ ocurrieron
+# aunque no tengan WarehouseDispatch.
 
 # Estados que solo se alcanzan después de la acción DISPATCHED en OPERATIONS. Sirven para
 # detectar RQs "despachados" que no tienen el Approval DISPATCHED (datos sembrados/importados).
@@ -60,7 +65,8 @@ VERDICT_NO_DISPATCH_APPROVAL = 'SIN_APROBACION_DISPATCHED'
 
 VERDICT_LABELS = {
     VERDICT_R1_PROBABLE: (
-        'Hay stock en el pool central pero el despacho lo buscó en la fila del proyecto (R1).'
+        'Hay stock en el pool central pero el despacho lo buscó en la fila del proyecto (R1, '
+        'corregido en SYSPCC-028: aplica a despachos anteriores al arreglo).'
     ),
     VERDICT_POOL_INSUFFICIENT: (
         'Con el stock de hoy, el pool central tampoco cubre la cantidad pedida.'
@@ -70,8 +76,8 @@ VERDICT_LABELS = {
         '(revisar el log del despacho).'
     ),
     VERDICT_NO_FK_LINK: (
-        'Ningún ítem tiene inventory_item: no se puede determinar si falló por R1 o por '
-        'falta de coincidencia del match difuso.'
+        'Ningún ítem tiene inventory_item: no hay producto de catálogo que mover (el match '
+        'por texto ya no existe); hay que vincularlos y confirmarlos.'
     ),
     VERDICT_NO_DISPATCH_APPROVAL: (
         'El estado es posterior al despacho pero no hay Approval DISPATCHED: dato sembrado '
@@ -198,6 +204,10 @@ def _evaluate_request(req, has_approval, stock_lookup):
     """Evidencia por ítem + indicio para un RQ candidato."""
     items = list(req.items.all())
     linked = [it for it in items if it.inventory_item_id]
+    # SYSPCC-028: solo los vínculos confirmados (y no fuera de catálogo) mueven stock hoy.
+    confirmed = [
+        it for it in linked if it.inventory_item_confirmed_at is not None and not it.is_off_catalog
+    ]
     item_rows = []
     r1_hits = pool_short = project_covers = 0
     for it in linked:
@@ -218,6 +228,7 @@ def _evaluate_request(req, has_approval, stock_lookup):
             'requested': it.quantity,
             'project_row_quantity': project_qty,
             'pool_quantity': pool_qty,
+            'link_confirmed': it in confirmed,
         })
 
     if not has_approval:
@@ -230,7 +241,7 @@ def _evaluate_request(req, has_approval, stock_lookup):
         verdict = VERDICT_POOL_INSUFFICIENT
     else:
         verdict = VERDICT_OTHER_CAUSE
-    return len(items), len(linked), item_rows, verdict
+    return len(items), len(linked), len(confirmed), item_rows, verdict
 
 
 def dispatched_requests_without_movement():
@@ -283,7 +294,7 @@ def dispatched_requests_without_movement():
     rows = []
     by_verdict = defaultdict(int)
     for r in pending:
-        items_total, items_linked, item_rows, verdict = _evaluate_request(
+        items_total, items_linked, items_confirmed, item_rows, verdict = _evaluate_request(
             r, r.has_dispatch_approval, lookup,
         )
         by_verdict[verdict] += 1
@@ -297,6 +308,8 @@ def dispatched_requests_without_movement():
             'has_dispatch_approval': r.has_dispatch_approval,
             'items_total': items_total,
             'items_linked': items_linked,
+            'items_confirmed': items_confirmed,
+            'would_move_now': items_confirmed > 0,
             'verdict': verdict,
             'items': item_rows,
         })
@@ -322,9 +335,9 @@ def unconfirmed_catalog_links(*, include_terminal=False):
     Por defecto solo cuenta RQs que aún pueden mover stock (no terminales); con
     `include_terminal=True` suma los cerrados, cancelados y rechazados.
 
-    Hoy el motor igual usa esa FK al recibir y despachar. Este listado es el insumo para
-    decidir, antes de activar la Fase 3 (que solo honrará vínculos confirmados), cuáles
-    se confirman en bloque y cuáles revisa Logística.
+    Desde SYSPCC-028 el motor NO mueve stock con esa FK mientras no esté confirmada. Este
+    listado es el insumo para decidir cuáles se confirman en bloque y cuáles revisa
+    Logística (los RQs en vuelo con vínculos de seeds o históricos quedan aquí).
 
     Solo SELECT, una consulta (los datos del RQ y del producto vienen con el JOIN).
 

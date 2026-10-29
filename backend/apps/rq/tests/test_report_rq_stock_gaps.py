@@ -11,6 +11,7 @@ from decimal import Decimal
 from io import StringIO
 
 import pytest
+from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -333,13 +334,12 @@ class TestReadOnly:
 
 # ── punta a punta con el motor real ───────────────────────────────────────────
 
-class TestReproducesR1WithTheRealEngine:
+class TestR1IsFixedByTheRealEngine:
     """
-    Caracterización del bug R1 TAL COMO EXISTE HOY (Fase 0, sin corregirlo): ejecuta
-    DISPATCHED con el motor real y comprueba que el diagnóstico lo detecta.
-
-    Cuando la Fase 3 corrija R1 (descontar del pool con project_id=None), esta clase DEBE
-    actualizarse: el despacho ya generará WarehouseDispatch y el RQ dejará de aparecer.
+    SYSPCC-028: R1 corregido. Antes (Fase 0) esta clase caracterizaba el bug: DISPATCHED con
+    stock en el pool dejaba el RQ "despachado" sin WarehouseDispatch ni descuento y el
+    diagnóstico lo marcaba R1_PROBABLE. Ahora el despacho descuenta del pool y el RQ ya no
+    aparece en el reporte; el reporte sigue sirviendo para los despachos HISTÓRICOS.
     """
 
     @pytest.fixture
@@ -348,30 +348,58 @@ class TestReproducesR1WithTheRealEngine:
         UserRole.objects.create(user=user, role=RoleChoices.CENTRAL_WAREHOUSE, is_primary=True)
         return user
 
-    def test_dispatch_with_pool_stock_leaves_no_movement_and_is_detected(
+    @staticmethod
+    def _confirmed_rq(number, project, requester, inv, qty):
+        rq = _ops_rq(number, project, requester, status=RQStatusChoices.IN_STOCK, items=[(inv, qty)])
+        RequestItem.objects.filter(request=rq).update(inventory_item_confirmed_at=timezone.now())
+        return rq
+
+    def test_dispatch_with_pool_stock_now_discounts_and_leaves_the_report(
         self, project, requester, central_warehouse_user,
     ):
         inv = _inventory()
         _stock(inv, 10)  # el stock está en el pool central (project=None)
-        rq = _ops_rq('RQ-R1', project, requester, status=RQStatusChoices.IN_STOCK, items=[(inv, 3)])
+        rq = self._confirmed_rq('RQ-R1', project, requester, inv, 3)
 
         WorkflowEngine(rq, central_warehouse_user, RoleChoices.CENTRAL_WAREHOUSE).execute(
             action=ApprovalActionChoices.DISPATCHED, comments='despacho de prueba',
         )
 
         rq.refresh_from_db()
-        assert rq.status == RQStatusChoices.DISPATCHED_TO_SITE        # el RQ avanza igual…
-        assert not WarehouseDispatch.objects.filter(request=rq).exists()  # …sin documento
-        assert InventoryStock.objects.get(inventory=inv, project=None).quantity == Decimal('10')  # …ni descuento
-
-        row = _rows()['RQ-R1']
-        assert row['verdict'] == VERDICT_R1_PROBABLE
-        assert row['has_dispatch_approval'] is True
-
-        # `register_exit_batch` es atómico: el intento fallido revierte su get_or_create, así
-        # que R1 NO deja filas CENTRAL + proyecto en cero (verificado; check_central_project_stock
-        # no las verá por esta causa).
+        assert rq.status == RQStatusChoices.DISPATCHED_TO_SITE
+        assert WarehouseDispatch.objects.filter(request=rq).exists()
+        assert InventoryStock.objects.get(inventory=inv, project=None).quantity == Decimal('7')
+        assert 'RQ-R1' not in _rows()
         assert not InventoryStock.objects.filter(inventory=inv, project=project).exists()
-        out = StringIO()
-        call_command('check_central_project_stock', '--json', stdout=out)
-        assert json.loads(out.getvalue())['summary']['total_rows'] == 0
+
+    def test_unconfirmed_link_still_moves_nothing_and_the_report_shows_it(
+        self, project, requester, central_warehouse_user,
+    ):
+        inv = _inventory()
+        _stock(inv, 10)
+        rq = _ops_rq('RQ-SINCONF', project, requester, status=RQStatusChoices.IN_STOCK, items=[(inv, 3)])
+
+        WorkflowEngine(rq, central_warehouse_user, RoleChoices.CENTRAL_WAREHOUSE).execute(
+            action=ApprovalActionChoices.DISPATCHED, comments='despacho de prueba',
+        )
+
+        rq.refresh_from_db()
+        assert rq.status == RQStatusChoices.DISPATCHED_TO_SITE        # el RQ avanza igual
+        assert not WarehouseDispatch.objects.filter(request=rq).exists()
+        assert InventoryStock.objects.get(inventory=inv, project=None).quantity == Decimal('10')
+
+        row = _rows()['RQ-SINCONF']
+        assert row['has_dispatch_approval'] is True
+        assert (row['items_linked'], row['items_confirmed'], row['would_move_now']) == (1, 0, False)
+        assert row['items'][0]['link_confirmed'] is False
+
+    def test_confirmed_item_is_reported_as_moving_now(self, project, requester):
+        inv = _inventory()
+        _stock(inv, 10)
+        rq = self._confirmed_rq('RQ-HIST', project, requester, inv, 3)
+        rq.status = RQStatusChoices.DISPATCHED_TO_SITE
+        rq.save(update_fields=['status'])  # histórico: despachado antes del arreglo, sin documento
+
+        row = _rows()['RQ-HIST']
+        assert (row['items_confirmed'], row['would_move_now']) == (1, True)
+        assert row['items'][0]['link_confirmed'] is True

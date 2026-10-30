@@ -6,7 +6,7 @@ Todos los cambios relevantes de SYSPCC se registran aquí. Formato [Keep a Chang
 
 ## [1.0.0] - 2026-10-31
 
-Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a SYSPCC-038.
+Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a SYSPCC-039. Desde esta versión producción se despliega solo desde `main`.
 
 ### Agregado
 - Requerimientos (RQ) con los flujos de gerencia Operaciones y Administración (WorkflowEngine, 5 fases), aprobaciones por rol, cotizaciones, órdenes de compra, recepción con control de calidad y ciclo de reclamo a proveedor.
@@ -18,7 +18,11 @@ Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a
 - Despliegue en DigitalOcean App Platform con PostgreSQL y Valkey gestionados, Spaces privados y opción Optimizada (SYSPCC-024, 033, 035).
 - CI en GitHub Actions (pytest contra PostgreSQL 16, migraciones, lint, Vitest y build) y flujo GitFlow con releases versionadas (SYSPCC-037, 038).
 
+### Eliminado
+- Demo de capa gratuita en Render, Supabase y Vercel (settings, blueprint, proxy y guía); producción vive solo en DigitalOcean (SYSPCC-039).
+
 ### Corregido
+- Documentos de RR. HH.: la lista ya no vuelve a la página 1 si se cambia de página antes de que corra el buscador (SYSPCC-037).
 - Sesión: la renovación lee el refresh token de la cookie HttpOnly; ya no expulsa al login a los 15 minutos ni al recargar la página (SYSPCC-034).
 - "Guardar Borrador" guarda el RQ como borrador en vez de enviarlo (SYSPCC-031).
 - Control de acceso, concurrencia, idempotencia y manejo de errores (SYSPCC-006 a 013, 015 a 017).

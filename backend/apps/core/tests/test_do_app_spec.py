@@ -88,7 +88,7 @@ class TestSpecStructure:
         for section in ('services', 'workers', 'jobs', 'static_sites'):
             for component in spec[section]:
                 if 'github' in component:
-                    assert component['github']['branch'] == 'develop'
+                    assert component['github']['branch'] == 'main'  # GitFlow: producción solo desde main (SYSPCC-038)
                     assert component['github']['repo'] == 'pccpegit/SYSPCCLOG'
 
     def test_referenced_source_files_exist(self, spec):

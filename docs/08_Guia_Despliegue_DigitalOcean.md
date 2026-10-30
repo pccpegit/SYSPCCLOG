@@ -21,7 +21,7 @@ Complementa a `docs/05_Guia_Despliegue_y_Produccion.md` (servidor propio con Ngi
 7. [Paso 4 — Spaces: buckets y llave de acceso](#paso-4--spaces-buckets-y-llave-de-acceso)
 8. [Paso 5 — Cluster PostgreSQL, pool de conexiones y CA](#paso-5--cluster-postgresql-pool-de-conexiones-y-ca)
 9. [Paso 6 — Cluster Valkey gestionado](#paso-6--cluster-valkey-gestionado)
-10. [Paso 7 — Verificar la rama develop](#paso-7--verificar-la-rama-develop)
+10. [Paso 7 — Verificar la rama de despliegue (main)](#paso-7--verificar-la-rama-de-despliegue-main)
 11. [Paso 8 — Preparar los secretos (.env.do)](#paso-8--preparar-los-secretos-envdo)
 12. [Paso 9 — Crear la app](#paso-9--crear-la-app)
 13. [Paso 10 — Verificar el despliegue](#paso-10--verificar-el-despliegue)
@@ -188,7 +188,7 @@ El código y el spec ya están preparados; lo siguiente **solo lo puedes hacer t
 - [ ] Crear los dos buckets de Spaces y las llaves de acceso.
 - [ ] Crear el cluster PostgreSQL `syspcc-pg`, su pool `syspccpool` y restringir sus trusted sources.
 - [ ] Crear el cluster Valkey `syspcc-valkey` y restringir sus trusted sources.
-- [x] SYSPCC-024 ya está mergeado en `develop` (PR #30); el spec despliega desde `develop`.
+- [x] SYSPCC-024 está en `main` desde la v1.0.0; el spec despliega desde `main` (GitFlow, SYSPCC-038).
 - [ ] Generar y guardar los secretos en `.env.do` (archivo local, fuera de git).
 - [ ] Ejecutar `doctl apps create` y, tras el primer despliegue, `createsuperuser`.
 - [ ] Completar la [lista de verificación previa a datos reales](#paso-12--lista-de-verificación-previa-a-datos-reales) antes de dar acceso a usuarios.
@@ -204,7 +204,7 @@ El código y el spec ya están preparados; lo siguiente **solo lo puedes hacer t
 
 ## Paso 2 — Conectar GitHub (cuenta pccpegit)
 
-App Platform necesita leer el repo `pccpegit/SYSPCCLOG` para construir y redesplegar en cada push a `develop`.
+App Platform necesita leer el repo `pccpegit/SYSPCCLOG` para construir y redesplegar en cada push a `main`.
 
 1. En **Apps → Create App → GitHub**, pulsa *Configure GitHub* e instala/autoriza la **GitHub App de DigitalOcean**.
 2. Hazlo con la cuenta que tenga permisos sobre el repo (la de la organización **pccpegit**); una cuenta sin permisos sobre el repositorio no lo verá.
@@ -333,14 +333,14 @@ doctl databases firewalls list "$VALKEY_ID"      # ninguna regla abierta (0.0.0.
 - **Verifica los bindables** con la Console (`echo $REDIS_URL` en `backend`): debe empezar con `rediss://default:` y llevar el host del cluster. Si `${cache.CA_CERT}` no resolviera, descarga el CA con `doctl databases get-ca "$VALKEY_ID"`, inclúyelo en la imagen y usa `REDIS_SSL_CA_CERTS=<ruta>`.
 - El cluster incluye respaldos y mantenimiento gestionado. Revisa en el panel la **ventana de mantenimiento** y fíjala fuera del horario laboral (de lunes a viernes de 8:00 a 18:00, hora de Lima): durante un reinicio de Valkey la API responde 5xx unos segundos (ver "Valkey y límites de intentos" en la sección 2).
 
-## Paso 7 — Verificar la rama develop
+## Paso 7 — Verificar la rama de despliegue (main)
 
-El spec despliega la rama `develop`. Los arreglos de SYSPCC-024 (cabecera de proxy SSL, WhiteNoise, Spaces, `/healthz/`, scripts de arranque) ya están en `develop` (PR #30); sin ellos el primer despliegue entraría en un bucle de redirecciones 301, el admin quedaría sin CSS y los archivos subidos se perderían.
+Desde SYSPCC-038 (GitFlow, ver `docs/09_Flujo_Git_y_Releases.md`) el spec despliega la rama **`main`**: solo llegan a producción las releases (`release/vX.Y.0`) y los hotfixes, con tag. `develop` es integración y no despliega. Los arreglos de SYSPCC-024 (cabecera de proxy SSL, WhiteNoise, Spaces, `/healthz/`, scripts de arranque) están en `main` desde la v1.0.0; sin ellos el despliegue entraría en un bucle de redirecciones 301, el admin quedaría sin CSS y los archivos subidos se perderían.
 
-1. Confirma que la rama de los cuatro componentes en `.do/app.yaml` es `develop` (`backend`, `worker`, `migrate` y `frontend`).
-2. **Ojo con `deploy_on_push: true`:** una vez creada la app, **cada merge a `develop` despliega**. `develop` ya incluye hasta SYSPCC-032 (almacén con importación del libro, vínculo RQ↔catálogo, despacho real, entregas parciales, Master de RQ, borradores, egresos sin destino) y el análisis de CVs (SYSPCC-023), que corre en `worker`; lo que no se ha probado es su almacenamiento contra Spaces reales: tras el primer despliegue verifica que `PrivateS3Storage`, `hr_cv_purge_orphans` y la exportación de CVs (`apps/hr/services/cv_export.py`) operan sobre S3.
+1. Confirma que la rama de los cuatro componentes en `.do/app.yaml` (y en el spec vivo) es `main` (`backend`, `worker`, `migrate` y `frontend`).
+2. **Ojo con `deploy_on_push: true`:** una vez creada la app, **cada merge a `main` despliega** (por eso a `main` solo entran releases y hotfixes, con OK explícito). `develop` ya incluye hasta SYSPCC-032 (almacén con importación del libro, vínculo RQ↔catálogo, despacho real, entregas parciales, Master de RQ, borradores, egresos sin destino) y el análisis de CVs (SYSPCC-023), que corre en `worker`; lo que no se ha probado es su almacenamiento contra Spaces reales: tras el primer despliegue verifica que `PrivateS3Storage`, `hr_cv_purge_orphans` y la exportación de CVs (`apps/hr/services/cv_export.py`) operan sobre S3.
 
-> Si `develop` apunta a una versión sin las migraciones esperadas o el app apunta a `main`, se despliega código viejo. La rama del spec debe ser `develop`.
+> Antes de cambiar el spec vivo a `main`, `main` debe tener la release vigente (v1.0.0 o posterior); si no, se despliega código viejo.
 
 
 ## Paso 8 — Preparar los secretos (.env.do)
@@ -561,7 +561,7 @@ El reporte tiene dos secciones: RQs ya despachados cuyo despacho no generó un m
 
 ## Operación diaria
 
-**Redespliegue:** cada push a `develop` redespliega todos los componentes; el job `migrate` corre primero.
+**Redespliegue:** cada push a `main` (merge de una release o hotfix) redespliega todos los componentes; el job `migrate` corre primero. Los merges a `develop` no despliegan.
 
 **Cambiar el spec o una variable (SIEMPRE partiendo del spec vivo):**
 
@@ -656,7 +656,7 @@ Los tres deben estar sin recursos de SYSPCC.
 
 | Síntoma | Causa probable | Arreglo |
 |---|---|---|
-| Bucle infinito de redirecciones `301` / healthcheck nunca pasa a sano | Falta `SECURE_PROXY_SSL_HEADER`, es decir, el despliegue sale de una rama sin SYSPCC-024 | Confirma que el app apunta a `develop` con SYSPCC-024 mergeado (`doctl apps spec get`) |
+| Bucle infinito de redirecciones `301` / healthcheck nunca pasa a sano | Falta `SECURE_PROXY_SSL_HEADER`, es decir, el despliegue sale de una rama sin SYSPCC-024 | Confirma que el app apunta a `main` con una release que incluya SYSPCC-024 (`doctl apps spec get`) |
 | El despliegue falla en `migrate` con `permission denied for schema public` | El usuario `syspcc` no tiene `CREATE` sobre el schema `public` (típico en PG 15+) | Conéctate con el usuario `doadmin` (`doctl databases connection <ID-cluster> --format URI`) y ejecuta: `ALTER DATABASE syspcc OWNER TO syspcc;` y `GRANT ALL ON SCHEMA public TO syspcc;` (conectado a la base `syspcc`). Redespliega con `doctl apps create-deployment`. Si usaras una Dev Database: está documentado que hay que borrarla, lograr un despliegue exitoso y recrearla |
 | El primer despliegue falla y los siguientes también | Una causa ajena a la BD (secreto vacío, healthcheck, imagen) impidió completar el primer deploy | Revisa `doctl apps logs "$APP_ID" migrate --type deploy` y `--type build`; corrige y vuelve a desplegar |
 | Healthcheck `/healthz/` devuelve `503` | La BD no responde (credenciales, *trusted sources*, cluster aún creándose) | `doctl apps logs "$APP_ID" backend`; revisa **Network Access** del cluster y que `DB_*` tengan valor en la Console |

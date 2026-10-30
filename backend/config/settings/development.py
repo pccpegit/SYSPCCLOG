@@ -49,6 +49,8 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'user': '1000/min',
     'login': '30/min',
     'login_user': '30/min',
+    # SYSPCC-034: token refresh per IP (an office behind one NAT refreshes together)
+    'token_refresh': '300/min',
     'hr_assistant': '20/min',
     'hr_download': '60/min',
     'hr_cv_upload': '60/min',

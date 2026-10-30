@@ -1,4 +1,4 @@
-import client from './client';
+import client, { refreshSession } from './client';
 
 /**
  * GET /auth/csrf/
@@ -28,11 +28,12 @@ export const logout = () =>
 
 /**
  * POST /auth/token/refresh/
- * Refresh cookie is sent automatically — no body needed.
- * Backend rotates the access cookie.
+ * Lee la cookie HttpOnly `refresh_token` y reescribe las cookies de sesión;
+ * exige X-CSRFToken. Reutiliza el helper deduplicado de api/client.js (el mismo
+ * del interceptor 401), por lo que no recursa por el interceptor. Rechaza con
+ * 401 si el refresh no sirve (no borra cookies).
  */
-export const refreshToken = () =>
-  client.post('/auth/token/refresh/');
+export { refreshSession };
 
 /**
  * GET /users/me/

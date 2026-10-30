@@ -102,7 +102,7 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
 # SYSPCC-024: TLS is terminated by the platform edge (DigitalOcean App
-# Platform / Render) and the container only sees plain HTTP. Without this
+# Platform) and the container only sees plain HTTP. Without this
 # header Django never considers a request secure: SECURE_SSL_REDIRECT loops
 # forever (301) and the CSRF Origin check rejects every POST.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -148,7 +148,7 @@ if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
 # Container disks are ephemeral and not shared between web and worker, so
 # uploads belong in object storage. Activated ONLY when
 # AWS_STORAGE_BUCKET_NAME is set; otherwise media keeps using
-# FileSystemStorage (Render demo, local Docker) exactly as before.
+# FileSystemStorage (local Docker) exactly as before.
 # Credentials/endpoint are shared with apps.hr.storage.PrivateS3Storage
 # (HR_FILE_STORAGE), which uses its own bucket (HR_PRIVATE_BUCKET_NAME).
 # Optional dedicated key pair for the HR bucket (HR_AWS_*): see apps/hr/storage.py.
@@ -203,8 +203,7 @@ CSRF_COOKIE_HTTPONLY = False
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
-# SYSPCC-023: the simulated CV provider is never allowed here (also covers demo.py,
-# which imports this module). DEBUG is False above, so `fake` aborts the boot.
+# SYSPCC-023: the simulated CV provider is never allowed here. DEBUG is False above, so `fake` aborts the boot.
 validate_cv_provider(HR_CV_PROVIDER, DEBUG)  # noqa: F405
 
 # ============================================================
@@ -212,7 +211,6 @@ validate_cv_provider(HR_CV_PROVIDER, DEBUG)  # noqa: F405
 # ============================================================
 # NUM_PROXIES: number of trusted proxy hops for DRF's X-Forwarded-For parsing.
 # Unset (None) keeps DRF's historical behaviour (trusts the header as sent).
-# Render's demo overrides it in demo.py (1).
 #
 # DigitalOcean App Platform: the ingress writes ITS OWN address into
 # X-Forwarded-For, so any NUM_PROXIES value makes every user share a few

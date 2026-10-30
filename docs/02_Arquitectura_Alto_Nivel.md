@@ -439,7 +439,6 @@ Entornos de configuración (`backend/config/settings/`):
 |--------|-----|
 | `development.py` | Desarrollo local y Docker Compose: `DEBUG=True`, SQLite por defecto, CORS abierto, correo por consola |
 | `production.py` | Producción: `DEBUG=False`, PostgreSQL con SSL, HSTS, cookies seguras, WhiteNoise, correo SMTP si hay credenciales |
-| `demo.py` | Hereda de producción y reemplaza lo que no existe en el entorno gratuito: sin Redis (caché en memoria), Celery en modo `ALWAYS_EAGER` (sin worker ni Beat, por lo que las tareas programadas no corren) y correo por consola |
 
 En Docker Compose local corren seis servicios: `redis`, `backend`, `frontend`, `celery_worker` (cola por defecto), `celery_worker_hr` (cola `hr_cv`) y `celery_beat`.
 

@@ -73,8 +73,9 @@ django-celery-beat==2.7.0
 # Production
 gunicorn==23.0.0
 
-# Static files on platforms without a CDN/object storage (SYSPCC-021 demo
-# deploy on Render free tier — see config/settings/demo.py)
+# Static files served by the app itself (WhiteNoiseMiddleware and
+# CompressedManifestStaticFilesStorage in config/settings/production.py;
+# DigitalOcean App Platform, no CDN in front)
 whitenoise==6.8.2
 
 # Object storage for uploads on platforms with ephemeral disks (SYSPCC-024:

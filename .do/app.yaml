@@ -547,8 +547,8 @@ static_sites:
       - key: VITE_API_URL
         value: /api/v1/
         scope: BUILD_TIME
-      # Vacio a proposito: SPA y API comparten origin (URLs relativas), igual que
-      # la demo en Vercel. render_spec.py lo conserva como "" (KEEP_EMPTY).
+      # Vacio a proposito: SPA y API comparten origin (URLs relativas).
+      # render_spec.py lo conserva como "" (KEEP_EMPTY).
       - key: VITE_BACKEND_URL
         value: ""
         scope: BUILD_TIME

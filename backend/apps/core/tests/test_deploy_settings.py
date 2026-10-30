@@ -1,4 +1,4 @@
-"""SYSPCC-024: production/demo settings under a controlled environment.
+"""SYSPCC-024: production settings under a controlled environment.
 
 Each case imports the settings module in a SUBPROCESS with a from-scratch env
 and python-decouple pointed at an empty repository (so a developer's local
@@ -58,7 +58,6 @@ def attrs(*names):
 
 
 PROD = 'config.settings.production'
-DEMO = 'config.settings.demo'
 
 
 class TestProxyAndHealth:
@@ -85,18 +84,6 @@ class TestWhiteNoise:
             mw.index('django.middleware.security.SecurityMiddleware') + 1
         )
         assert out['STORAGES']['staticfiles']['BACKEND'] == 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-    def test_demo_loads_without_aws_vars_and_whitenoise_appears_once(self):
-        out = load(DEMO, probe=attrs('MIDDLEWARE', 'STORAGES', 'REST_FRAMEWORK', 'EMAIL_BACKEND', 'ROOT_URLCONF', 'CACHES'))
-
-        assert out['MIDDLEWARE'].count('whitenoise.middleware.WhiteNoiseMiddleware') == 1
-        assert out['STORAGES']['default'] == {'BACKEND': 'django.core.files.storage.FileSystemStorage'}
-        assert out['STORAGES']['staticfiles']['BACKEND'] == 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-        # Render keeps its own behaviour.
-        assert out['REST_FRAMEWORK']['NUM_PROXIES'] == 1
-        assert out['EMAIL_BACKEND'].endswith('console.EmailBackend')
-        assert out['ROOT_URLCONF'] == 'config.urls_demo'
-        assert out['CACHES']['default']['BACKEND'].endswith('LocMemCache')
 
 
 class TestMediaStorageSelection:
@@ -263,9 +250,8 @@ class TestDatabase:
 
 
 class TestSettingsBootstrap:
-    @pytest.mark.parametrize('module', [PROD, DEMO])
-    def test_django_setup_succeeds_with_minimal_env(self, module):
-        out = load(module, probe='''
+    def test_django_setup_succeeds_with_minimal_env(self):
+        out = load(PROD, probe='''
             import django
             django.setup()
             from django.conf import settings

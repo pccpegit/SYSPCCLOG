@@ -343,7 +343,7 @@ def iter_light(queryset) -> Iterable[Light]:
     # Un solo agrupado de entregas para todo el conjunto (subconsulta de ids), no uno por ítem.
     dispatch = dispatch_aggregates(queryset.order_by().values('pk'))
     # Sin `.iterator()`: en PostgreSQL abre un cursor del lado del servidor, que no funciona
-    # detrás de un pooler en modo transacción (Supabase); son filas ligeras (`values()`).
+    # detrás de un pooler en modo transacción (el pool de DigitalOcean); son filas ligeras (`values()`).
     for row in queryset.values(*_FACT_VALUES):
         result = classify_item(facts_from_row(row, dispatch.get(row['pk'], _NO_DISPATCH)))
         yield Light(pk=row['pk'], request_id=row['request_id'], result=result)

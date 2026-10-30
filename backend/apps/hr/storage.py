@@ -47,7 +47,7 @@ def _build_private_s3_storage():
 
     django-storages pulls in boto3/botocore (~34 MB of RSS). Importing it at
     module level would tax every process that merely imports the HR models
-    (Render demo, local Docker) even though they never touch S3, so the class is
+    (local Docker) even though they never touch S3, so the class is
     created lazily and exposed through the module-level ``__getattr__``.
     """
     try:

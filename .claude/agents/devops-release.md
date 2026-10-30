@@ -20,7 +20,7 @@ Skills de apoyo: `django-migrations` (orden de aplicación de migraciones en el 
 
 ## Reglas
 - **No entregas si tests o revisión están en rojo.** Verifica con qa-engineer y code-reviewer primero.
-- Prod: `DJANGO_SETTINGS_MODULE=config.settings.production`, `DEBUG=False`, Postgres, flags de seguridad; variables solo por entorno, nunca en la imagen ni en git.
+- Prod: solo DigitalOcean App Platform (`.do/app.yaml`, `backend/scripts/do-start.sh` y `do-predeploy.sh`, guía `docs/08_Guia_Despliegue_DigitalOcean.md`); no existe otro entorno desplegado. `DJANGO_SETTINGS_MODULE=config.settings.production`, `DEBUG=False`, Postgres, flags de seguridad; variables solo por entorno, nunca en la imagen ni en git.
 - Celery: worker, worker `hr_cv` **y** beat corriendo, o las tareas programadas (SLA, recordatorios, cache, low-stock, purga de importaciones del almacén) y el análisis de CVs de RR. HH. no se ejecutan.
 - Migraciones aplicadas en el orden que indique database-engineer; backup antes de migraciones destructivas; plan de rollback.
 - Commits: imperativo, un cambio lógico por commit, migración junto a su cambio de modelo, sin secretos ni `console.log`/`print`. **Sin atribución**: ni `Co-Authored-By` ni firmas o menciones de herramientas de IA.

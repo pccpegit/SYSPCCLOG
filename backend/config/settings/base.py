@@ -454,7 +454,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Private storage OUTSIDE MEDIA_ROOT: templates and generated contracts hold
 # PII (DNI, salary, address). Never served by URL — only through permissioned
-# views (FileResponse). On ephemeral-disk platforms (Render free) files are
+# views (FileResponse). On ephemeral-disk platforms (App Platform) files are
 # lost on each deploy; production should swap HR_FILE_STORAGE for a private
 # bucket with short-lived signed URLs.
 HR_PRIVATE_ROOT = config('HR_PRIVATE_ROOT', default=str(BASE_DIR / 'private_media'))
@@ -507,7 +507,7 @@ HR_CV_MAX_TOKENS = config('HR_CV_MAX_TOKENS', default=6000, cast=int)
 HR_CV_TIMEOUT = config('HR_CV_TIMEOUT', default=120, cast=int)
 HR_CV_MAX_ATTEMPTS = config('HR_CV_MAX_ATTEMPTS', default=4, cast=int)
 HR_CV_SERVER_FALLBACK = config('HR_CV_SERVER_FALLBACK', default=False, cast=bool)
-# 'celery' (worker, queue hr_cv) | 'thread' (in-process pool, demo without worker)
+# 'celery' (worker, queue hr_cv) | 'thread' (in-process pool, no worker)
 # | 'inline' (synchronous; tests only)
 HR_CV_DISPATCH = config('HR_CV_DISPATCH', default='celery')
 HR_CV_THREAD_WORKERS = config('HR_CV_THREAD_WORKERS', default=2, cast=int)
@@ -546,7 +546,7 @@ HR_CV_POSTING_MAX_COST_USD = config('HR_CV_POSTING_MAX_COST_USD', default='0.50'
 HR_CV_POSTING_DAILY_LIMIT_PER_USER = config('HR_CV_POSTING_DAILY_LIMIT_PER_USER', default=40, cast=int)  # AI reads/day
 
 # Provider: 'anthropic' (real) | 'fake' (simulated "modo de prueba gratis"; only with
-# DEBUG=True: production.py / demo.py refuse to boot with it, see guards.py).
+# DEBUG=True: production.py refuses to boot with it, see guards.py).
 HR_CV_PROVIDER = check_cv_provider_value(config('HR_CV_PROVIDER', default='anthropic'))
 HR_CV_FAKE_DELAY_SECONDS = config('HR_CV_FAKE_DELAY_SECONDS', default=1.5, cast=float)
 # Percentage (0-100) of simulated CVs that fail on purpose, to try the error UI.

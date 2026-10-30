@@ -389,18 +389,3 @@ class TestDispatchModes:
         monkeypatch.setattr(cv_dispatch.connection, 'close', lambda: None)
         cv_dispatch._thread_job(3)
         assert timers == [(42, (3, 0))]  # RetryLater keeps its countdown and resets the attempt
-
-    def test_demo_settings_use_thread_mode(self):
-        import os
-        import subprocess
-        import sys
-
-        env = {**os.environ, 'DB_NAME': 'x', 'DB_USER': 'x', 'DB_PASSWORD': 'x', 'DB_HOST': 'x',
-               'DB_PORT': '5432', 'ALLOWED_HOSTS': 'x', 'DJANGO_SETTINGS_MODULE': 'config.settings.demo'}
-        env.pop('HR_CV_DISPATCH', None)
-        env['HR_CV_PROVIDER'] = 'anthropic'  # the dev container may export 'fake' (forbidden in demo)
-        out = subprocess.run(
-            [sys.executable, '-c',
-             'import config.settings.demo as d; print(d.HR_CV_DISPATCH, d.HR_CV_MAX_ITEMS_PER_ANALYSIS, d.HR_CV_MAX_FILE_BYTES)'],
-            env=env, capture_output=True, text=True, timeout=60)
-        assert out.stdout.split() == ['thread', '30', str(5 * 1024 * 1024)], out.stderr[-300:]

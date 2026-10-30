@@ -12,8 +12,6 @@ Pruebas con comportamiento REAL en lugar de mocks:
 * Cadena completa del login con `do-connecting-ip` (buckets de throttle).
 * Documentacion: `.env.example` cubre las variables que lee production.py y el
   spec de DO no tiene variables huerfanas (typos silenciosos).
-* Defectos de demo.py (fugas de toggles de produccion): corregidos en SYSPCC-024,
-  los tests quedan como regresion.
 
 Sin red: todo apunta a 127.0.0.1:1 (conexion rechazada al instante).
 """
@@ -35,10 +33,7 @@ from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.core.tests.test_deploy_settings import (
-    BACKEND_DIR, BASE_ENV, DEMO, PROD, attrs,
-)
-from apps.core.tests.test_deploy_settings_failures import RENDER_ENV, result_of, run
+from apps.core.tests.test_deploy_settings import BACKEND_DIR, BASE_ENV, PROD
 
 REPO_ROOT = BACKEND_DIR.parent
 SPEC_PATH = REPO_ROOT / '.do' / 'app.yaml'
@@ -329,34 +324,3 @@ class TestSpecHasNoOrphanVariables:
 
         assert keys
         assert orphans == [], f'variables del spec que ningun codigo lee (typo?): {orphans}'
-
-
-# ---------------------------------------------------------------------------
-# demo.py: production toggles leaked into the Render env must not reach the demo (regression)
-# ---------------------------------------------------------------------------
-
-
-class TestRenderDemoWithLeakedProductionToggles:
-    """demo.py replaces CACHES/REST_FRAMEWORK AFTER production.py reacted to env toggles."""
-
-    def test_throttle_cache_alias_exists_in_demo_caches(self):
-        out = result_of(run(DEMO, {**RENDER_ENV, 'DJANGO_REDIS_IGNORE_EXCEPTIONS': 'True'}, probe=attrs(
-            'THROTTLE_CACHE_ALIAS', 'CACHES',
-        )))
-
-        assert out['THROTTLE_CACHE_ALIAS'] in out['CACHES']
-
-    def test_demo_never_trusts_do_connecting_ip_header(self):
-        out = result_of(run(DEMO, {**RENDER_ENV, 'TRUST_DO_CONNECTING_IP': 'True'}, probe=attrs('MIDDLEWARE')))
-
-        assert 'apps.core.middleware.DOConnectingIPMiddleware' not in out['MIDDLEWARE']
-
-    def test_demo_still_loads_with_both_toggles_leaked(self):
-        # Control: the leak does not abort the boot (only misbehaves at request time).
-        proc = run(DEMO, {
-            **RENDER_ENV,
-            'DJANGO_REDIS_IGNORE_EXCEPTIONS': 'True',
-            'TRUST_DO_CONNECTING_IP': 'True',
-        }, probe='import django; django.setup()')
-
-        assert proc.returncode == 0, proc.stderr

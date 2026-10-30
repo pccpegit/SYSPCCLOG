@@ -2,7 +2,7 @@
 SYSPCC-030 · ningún servicio usa `.iterator()`.
 
 En PostgreSQL `QuerySet.iterator()` abre un cursor del lado del servidor, que no funciona detrás de
-un pooler en modo transacción (Supabase, el despliegue de la demo). Se revisa el AST (no el
+un pooler en modo transacción (el pool de conexiones de DigitalOcean). Se revisa el AST (no el
 texto, para que un comentario que lo mencione no cuente).
 """
 import ast

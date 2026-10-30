@@ -279,6 +279,8 @@ REST_FRAMEWORK = {
         'login': '5/min',
         # SYSPCC-024: per-username login limit (credential guessing from many IPs)
         'login_user': '10/min',
+        # SYSPCC-034: token refresh per IP (an office behind one NAT refreshes together)
+        'token_refresh': '300/min',
         # SYSPCC-022 (RR. HH.)
         'hr_assistant': '20/min',
         'hr_download': '60/min',

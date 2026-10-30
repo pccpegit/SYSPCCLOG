@@ -34,6 +34,25 @@ class CSRFCheck(CsrfViewMiddleware):
         return reason
 
 
+def enforce_csrf(request):
+    """
+    Validate the double-submit CSRF token (`csrftoken` cookie vs
+    `X-CSRFToken` header). Raises `exceptions.PermissionDenied` (-> 403) if
+    missing/invalid. Shared by `CookieJWTAuthentication` and by views that
+    authenticate on their own from a cookie (token refresh, SYSPCC-034).
+    """
+
+    def dummy_get_response(request):  # pragma: no cover - required by CsrfViewMiddleware's signature
+        return None
+
+    check = CSRFCheck(dummy_get_response)
+    # Populates request.META['CSRF_COOKIE'], read by process_view() below.
+    check.process_request(request)
+    reason = check.process_view(request, None, (), {})
+    if reason:
+        raise exceptions.PermissionDenied('CSRF Failed: %s' % reason)
+
+
 class CookieJWTAuthentication(JWTAuthentication):
     """
     Reads the JWT access token from the 'access_token' httpOnly cookie.
@@ -81,13 +100,4 @@ class CookieJWTAuthentication(JWTAuthentication):
         Validate the double-submit CSRF token for a non-safe request.
         Raises `exceptions.PermissionDenied` (-> 403) if missing/invalid.
         """
-
-        def dummy_get_response(request):  # pragma: no cover - required by CsrfViewMiddleware's signature
-            return None
-
-        check = CSRFCheck(dummy_get_response)
-        # Populates request.META['CSRF_COOKIE'], read by process_view() below.
-        check.process_request(request)
-        reason = check.process_view(request, None, (), {})
-        if reason:
-            raise exceptions.PermissionDenied('CSRF Failed: %s' % reason)
+        enforce_csrf(request)

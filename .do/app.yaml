@@ -1,5 +1,5 @@
 # ====================================================================
-# SYSPCC en DigitalOcean App Platform (SYSPCC-024)
+# SYSPCC en DigitalOcean App Platform (SYSPCC-024, opcion "Optimizada": SYSPCC-033)
 # Guia paso a paso: docs/08_Guia_Despliegue_DigitalOcean.md
 # ====================================================================
 #
@@ -14,16 +14,22 @@
 # para cambiar el spec (trae los secretos cifrados EV[...]). Aplicar esta
 # plantilla otra vez BORRARIA los secretos ya cargados.
 #
-# Prerrequisito: el cluster Managed PostgreSQL `syspcc-pg` debe existir
-# antes del create (App Platform solo lo ADJUNTA; ver la guia, paso 5).
+# Prerrequisitos (App Platform solo ADJUNTA clusters; ver la guia, pasos 5-6):
+#   * Cluster Managed PostgreSQL `syspcc-pg` con un connection pool
+#     `syspccpool` (modo transaction) sobre la base `syspcc`.
+#   * Cluster Managed Valkey `syspcc-valkey`.
+#   * Ambos con trusted sources restringidos a la app.
 #
-# Stack de prueba (~US$40/mes, region nyc):
-#   backend  apps-s-1vcpu-1gb-fixed  10.00
-#   worker   apps-s-1vcpu-0.5gb       5.00  (celery + beat embebido)
-#   redis    apps-s-1vcpu-0.5gb       5.00  (efimero, interno)
-#   Managed PG 1 GB                  15.15
-#   Spaces                            5.00
-#   frontend (static site)            0.00   + job PRE_DEPLOY: centavos
+# Costo mensual (US$, region nyc, precios verificados el 29-oct-2026):
+#   backend     apps-s-2vcpu-4gb   50.00   gunicorn 4 x 4 + LibreOffice
+#   worker      apps-s-1vcpu-1gb   12.00   colas celery + hr_cv, beat embebido (1 instancia)
+#   Managed PG 1 GiB               15.15
+#   Managed Valkey 1 GiB           15.00
+#   Spaces                          5.00
+#   frontend (static site)          0.00   + job PRE_DEPLOY: centavos
+#   TOTAL                          97.15   (US$1,165.80 al anio)
+# MEJORA OPCIONAL (+12.00 = 109.15): un `worker-hr` aparte para la cola hr_cv si los
+# lotes de CVs retrasan los recordatorios/SLA (ver la guia, seccion 1.3 y "Variantes").
 name: syspcc
 region: nyc
 
@@ -32,7 +38,7 @@ alerts:
   - rule: DOMAIN_FAILED
 
 # --------------------------------------------------------------------
-# Variables a nivel app (llegan a backend, worker y job; el static site
+# Variables a nivel app (llegan a backend, workers y job; el static site
 # solo usa las BUILD_TIME de su propio bloque).
 # Las que tienen value "" son SECRET (o datos de empresa) que
 # render_spec.py completa desde .env.do.
@@ -70,33 +76,43 @@ envs:
   - key: TRUST_DO_CONNECTING_IP
     value: "True"
     scope: RUN_TIME
-  # Conexiones persistentes a PG (60 s). Presupuesto de conexiones:
-  # hilos de gunicorn + procesos celery + job < limite del cluster (1 GB ~ 22).
+
+  # --- PostgreSQL: TLS verificado + conexiones persistentes ---
+  # verify-ca valida el certificado del servidor con el CA del cluster
+  # (DB_CA_CERT=${db.CA_CERT}, declarado en cada componente que usa la BD).
+  # Si el CA no es un PEM valido el contenedor aborta el arranque.
+  - key: DB_SSLMODE
+    value: verify-ca
+    scope: RUN_TIME
+  # Conexiones persistentes (60 s). Cada hilo de gunicorn y cada proceso de
+  # celery mantiene UNA conexion al pool de PgBouncer (no al servidor).
   - key: DB_CONN_MAX_AGE
     value: "60"
     scope: RUN_TIME
-
-  # --- Redis interno (service "redis"; sin TLS, solo red privada del app) ---
-  # ALTERNATIVA Managed Valkey (+US$15/mes): ver el bloque comentado al final
-  # de `databases:` y la seccion "Subir de nivel" de la guia.
-  - key: REDIS_URL
-    value: redis://redis:6379/0
-    scope: RUN_TIME
-  - key: CELERY_BROKER_URL
-    value: redis://redis:6379/1
-    scope: RUN_TIME
-  - key: CELERY_RESULT_BACKEND
-    value: redis://redis:6379/2
-    scope: RUN_TIME
-  # Redis efimero: si cae o se llena (noeviction), la cache/sesiones del panel
-  # degradan en vez de tumbar la API. Los throttles (login 5/min, anon, user)
-  # NO dependen de Redis en este modo: production.py los mueve a una cache
-  # local del proceso (THROTTLE_CACHE_ALIAS=throttle), asi el limite de login
-  # sigue vigente aunque Redis este caido (con 1 worker de gunicorn es exacto).
-  # Con la cache degradada las sesiones del admin se pierden y la cuota diaria
-  # del asistente RR. HH. responde 503 (falla cerrada).
-  - key: DJANGO_REDIS_IGNORE_EXCEPTIONS
+  # backend y workers hablan con el pool de PgBouncer en modo TRANSACTION
+  # (ver `databases:` y los bindables ${db.syspccpool.*}): sin cursores del
+  # lado del servidor. El job `migrate` va directo al cluster; la bandera es
+  # inocua alli.
+  - key: DB_DISABLE_SERVER_SIDE_CURSORS
     value: "True"
+    scope: RUN_TIME
+
+  # --- Managed Valkey (cluster `syspcc-valkey`, base `cache` en `databases:`) ---
+  # TLS (rediss://) con el certificado VERIFICADO contra el CA del cluster:
+  # REDIS_CA_CERT=${cache.CA_CERT} se declara en backend y workers. NUNCA pongas
+  # REDIS_SSL_CERT_REQS=none (no autentica al servidor).
+  - key: REDIS_SSL_CERT_REQS
+    value: required
+    scope: RUN_TIME
+  # Valkey es persistente y autenticado: la cache, las sesiones del panel y los
+  # contadores de throttling viven ahi (compartidos y EXACTOS entre los 4
+  # workers de gunicorn). Si Valkey cae, la API responde 5xx hasta que vuelva
+  # (falla cerrada: el limite de login 5/min nunca se degrada en silencio).
+  # Con "True" la cache degrada en vez de fallar y production.py mueve los
+  # throttles a una cache local por proceso (THROTTLE_CACHE_ALIAS=throttle):
+  # el limite pasaria a ser por worker de gunicorn (4x), por eso queda en False.
+  - key: DJANGO_REDIS_IGNORE_EXCEPTIONS
+    value: "False"
     scope: RUN_TIME
 
   # --- Spaces (django-storages / S3) ---
@@ -120,8 +136,31 @@ envs:
   # --- Secretos de integraciones: NO van aqui ---
   # AWS_*, HR_AWS_*, ANTHROPIC_API_KEY, ONEDRIVE_TOKEN_ENCRYPTION_KEY,
   # RUC_API_TOKEN y EMAIL_HOST_PASSWORD se declaran SOLO en los componentes
-  # que los usan (backend / worker). Asi el job PRE_DEPLOY `migrate` recibe
-  # unicamente SECRET_KEY y DB_* (minimo privilegio).
+  # que los usan (backend / worker). Asi el job PRE_DEPLOY
+  # `migrate` recibe unicamente SECRET_KEY y DB_* (minimo privilegio).
+
+  # --- Analisis de CVs de RR. HH. (SYSPCC-023) ---
+  # El proveedor SIMULADO ('fake') esta prohibido en produccion: production.py
+  # aborta el arranque si se define. Se fija explicito para que quede a la vista.
+  - key: HR_CV_PROVIDER
+    value: anthropic
+    scope: RUN_TIME
+  # Los CVs se analizan en la cola hr_cv del `worker`, no en hilos del backend.
+  - key: HR_CV_DISPATCH
+    value: celery
+    scope: RUN_TIME
+  # Los demas HR_CV_* / HR_ASSISTANT_* (modelo, esfuerzo, limites diarios,
+  # retencion HR_CV_RETENTION_DAYS) usan los defaults de settings/base.py; para
+  # ajustarlos agregalos aqui o en el spec vivo (lista en la guia, seccion 21).
+  #
+  # MEMORIA del worker unico (1 GiB, 2 procesos que pueden analizar un CV a la vez):
+  # decodificar una imagen cuesta ~114 MB (JPEG 16 Mpx) a ~420 MB (PNG con alfa 40 Mpx)
+  # POR PROCESO, sobre ~160 MB base cada uno. El default HR_CV_MAX_IMAGE_PIXELS es
+  # 40 millones: dos imagenes asi a la vez superan 1 GiB (OOM, y con el se reinicia
+  # tambien beat). Por eso se fija en 16 millones (cubre fotos de 16 MP y escaneos):
+  - key: HR_CV_MAX_IMAGE_PIXELS
+    value: "16000000"
+    scope: RUN_TIME
 
   # --- Correo (DO bloquea el puerto 25; 587 funciona) ---
   # EMAIL_HOST_PASSWORD va en backend y worker. Sin el, production.py envia los correos a la consola
@@ -140,6 +179,20 @@ envs:
     scope: RUN_TIME
   - key: WAREHOUSE_ALERT_RECIPIENTS
     value: sistemas@pcc.com.pe
+    scope: RUN_TIME
+
+  # --- OneDrive (PDF de despachos del almacen; OPCIONAL) ---
+  # Sin ONEDRIVE_CLIENT_ID la integracion responde "OneDrive no configurado"
+  # (no rompe nada). Se completan desde .env.do; si faltan se omiten del spec
+  # y rigen los defaults (tenant `consumers`, alcance `organization`).
+  - key: ONEDRIVE_CLIENT_ID
+    value: ""
+    scope: RUN_TIME
+  - key: ONEDRIVE_TENANT
+    value: ""
+    scope: RUN_TIME
+  - key: ONEDRIVE_SHARE_SCOPE
+    value: ""
     scope: RUN_TIME
 
   # --- RR. HH.: datos de la empresa impresos en los contratos ---
@@ -170,9 +223,18 @@ envs:
     scope: RUN_TIME
 
 # --------------------------------------------------------------------
-# Base de datos: Managed PostgreSQL (cluster creado ANTES, ver la guia).
+# Bases de datos: clusters gestionados creados ANTES (ver la guia, pasos 5-6).
 # NO se usa Dev Database: en PG 15+ no concede CREATE sobre el schema public
 # y el migrate del PRE_DEPLOY falla con "permission denied for schema public".
+#
+# Presupuesto de conexiones del cluster PG de 1 GiB (~22 utilizables):
+#   * backend y worker entran por el POOL (PgBouncer, modo transaction,
+#     size 15): ~19 conexiones de cliente (16 hilos de gunicorn + 2 procesos de
+#     celery + beat) comparten 15 conexiones reales.
+#   * el job `migrate` y las consolas entran directo (quedan ~7 libres).
+# El spec NO declara el pool (la referencia del app spec no tiene ese campo):
+# se crea con `doctl databases pool create` y se referencia por sus bindables
+# ${db.syspccpool.HOSTNAME|PORT|DATABASE|USERNAME|PASSWORD} (guia, paso 5).
 # --------------------------------------------------------------------
 databases:
   - name: db
@@ -184,27 +246,16 @@ databases:
     db_user: syspcc
     # SEGURIDAD: tras crear el cluster restringe sus trusted sources a esta app
     # (guia, paso 5): un cluster nuevo acepta conexiones desde cualquier IP.
-    # TLS: por defecto sslmode=require (cifra pero NO verifica el servidor).
-    # Para verificar, agrega en backend, worker y job (despues de comprobar que
-    # ${db.CA_CERT} resuelve): DB_SSLMODE=verify-ca y DB_CA_CERT=${db.CA_CERT}.
 
-  # ALTERNATIVA (Estandar/Propuesto, OBLIGATORIA antes de datos reales):
-  # Managed Valkey en lugar del service "redis" (este no tiene requirepass).
-  # Crea el cluster antes (doctl databases create syspcc-valkey --engine valkey
-  # ...), restringe sus trusted sources a la app, descomenta este bloque,
-  # elimina el service `redis` y cambia REDIS_URL / CELERY_BROKER_URL /
-  # CELERY_RESULT_BACKEND por:
-  #   rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/0   (/1 y /2)
-  # CERTIFICADO (recomendado): agrega en backend y worker
-  #   REDIS_CA_CERT=${cache.CA_CERT}      (texto PEM; o REDIS_SSL_CA_CERTS=<ruta>)
-  # y deja REDIS_SSL_CERT_REQS en su default `required`.
-  # REDIS_SSL_CERT_REQS=none NO autentica al servidor (un MITM podria leer la
-  # clave y las sesiones): solo como excepcion temporal sobre el host privado.
-  # Verifica los bindables con `echo $REDIS_URL` en la Console.
-  # - name: cache
-  #   engine: VALKEY
-  #   production: true
-  #   cluster_name: syspcc-valkey
+  # Valkey gestionado (reemplaza al Redis interno efimero y sin contrasena).
+  # Bindables usados: HOSTNAME, PORT, PASSWORD y CA_CERT. El usuario de Valkey
+  # es siempre `default`. Restringe sus trusted sources a la app (guia, paso 6)
+  # y confirma que la politica de evicion es `noeviction` (la cola de Celery
+  # no puede perder mensajes).
+  - name: cache
+    engine: VALKEY
+    production: true
+    cluster_name: syspcc-valkey
 
 # --------------------------------------------------------------------
 # Servicios HTTP
@@ -220,7 +271,10 @@ services:
     # collectstatic + gunicorn (sin migrate: lo hace el job PRE_DEPLOY).
     run_command: sh scripts/do-start.sh
     http_port: 8080
-    instance_size_slug: apps-s-1vcpu-1gb-fixed
+    # 2 vCPU compartidas / 4 GiB. gunicorn gthread 4 workers x 4 hilos = 16
+    # peticiones en paralelo (~200 MB por worker + picos de LibreOffice al
+    # convertir contratos y de openpyxl al importar el libro del almacen).
+    instance_size_slug: apps-s-2vcpu-4gb
     instance_count: 1
     health_check:
       # HealthCheckMiddleware responde antes de ALLOWED_HOSTS y del redirect SSL.
@@ -238,11 +292,17 @@ services:
       - key: INSTALL_LIBREOFFICE
         value: "true"
         scope: BUILD_TIME
+      # Leidas por scripts/do-start.sh.
       - key: GUNICORN_WORKERS
-        value: "1"
+        value: "4"
         scope: RUN_TIME
       - key: GUNICORN_THREADS
         value: "4"
+        scope: RUN_TIME
+      # Segundos por peticion: importacion del libro del almacen y conversion
+      # LibreOffice corren dentro de la peticion.
+      - key: GUNICORN_TIMEOUT
+        value: "120"
         scope: RUN_TIME
       # --- Secretos de este componente (opcionales se omiten si estan vacios) ---
       # Spaces: media general. Usa una Access Key limitada al bucket syspcc-media.
@@ -264,6 +324,7 @@ services:
         scope: RUN_TIME
         type: SECRET
         value: ""
+      # Asistente de RR. HH. y lectura de convocatorias (sincronos en la peticion).
       - key: ANTHROPIC_API_KEY
         scope: RUN_TIME
         type: SECRET
@@ -280,57 +341,61 @@ services:
         scope: RUN_TIME
         type: SECRET
         value: ""
-      # Los bindables ${db.*} van a nivel de componente (patron documentado).
+      # Los bindables ${db.*} / ${cache.*} van a nivel de componente (patron
+      # documentado). BD: POOL de PgBouncer (modo transaction).
       - key: DB_NAME
-        value: ${db.DATABASE}
+        value: ${db.syspccpool.DATABASE}
         scope: RUN_TIME
       - key: DB_USER
-        value: ${db.USERNAME}
+        value: ${db.syspccpool.USERNAME}
         scope: RUN_TIME
       - key: DB_PASSWORD
-        value: ${db.PASSWORD}
+        value: ${db.syspccpool.PASSWORD}
         scope: RUN_TIME
       - key: DB_HOST
-        value: ${db.HOSTNAME}
+        value: ${db.syspccpool.HOSTNAME}
         scope: RUN_TIME
       - key: DB_PORT
-        value: ${db.PORT}
+        value: ${db.syspccpool.PORT}
+        scope: RUN_TIME
+      - key: DB_CA_CERT
+        value: ${db.CA_CERT}
+        scope: RUN_TIME
+      # Valkey (rediss:// + CA verificado). /0 cache y sesiones, /1 broker, /2 resultados.
+      - key: REDIS_URL
+        value: rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/0
+        scope: RUN_TIME
+      - key: CELERY_BROKER_URL
+        value: rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/1
+        scope: RUN_TIME
+      - key: CELERY_RESULT_BACKEND
+        value: rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/2
+        scope: RUN_TIME
+      - key: REDIS_CA_CERT
+        value: ${cache.CA_CERT}
         scope: RUN_TIME
 
-  # Redis efimero SOLO para la prueba: sin ingress => no es publico, se
-  # alcanza como redis:6379 desde los demas componentes. Cada redeploy pierde
-  # cola, resultados y cache (tambien las sesiones del panel de admin).
-  # Sin `--save ""`: las comillas vacias no sobreviven al run_command sin
-  # shell; escribir dump.rdb en un contenedor efimero es inofensivo.
-  # Tras el primer deploy revisa `doctl apps logs <APP_ID> redis`.
-  - name: redis
-    image:
-      registry_type: DOCKER_HUB
-      registry: library
-      repository: redis
-      tag: 7-alpine
-      # Si Docker Hub limita los pulls anonimos, agrega registry_credentials
-      # ("usuario:token") a esta imagen.
-    # Sin requirepass: solo la red privada del app lo alcanza (sin ingress).
-    # Es aceptable UNICAMENTE para la prueba; ver la guia antes de cargar datos
-    # reales. Tras el primer deploy confirma que el service NO expone ningun
-    # puerto publico (`doctl apps get <APP_ID> -o json`; bug conocido que
-    # agrega 8080).
-    run_command: redis-server --appendonly no --maxmemory 200mb --maxmemory-policy noeviction
-    internal_ports:
-      - 6379
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    health_check:
-      port: 6379
-      initial_delay_seconds: 5
-
 # --------------------------------------------------------------------
-# Worker: UN contenedor con la cola por defecto + hr_cv (inocua hasta que
-# SYSPCC-023 este mergeado) y beat embebido (-B).
-# NO ESCALAR a mas de 1 instancia: beat quedaria duplicado y los
-# recordatorios / alertas saldrian repetidos (el tamano "fixed" ya lo limita).
-# Si aparece OOM: baja a -c 1 o sube a apps-s-1vcpu-1gb-fixed (+US$5).
+# Worker de Celery: UN contenedor para todo.
+#   * colas `celery` (SLA, recordatorios, cache, alertas de stock, PDF de
+#     despachos, purga de importaciones del almacen) y `hr_cv` (analisis de CVs
+#     de RR. HH. y su recuperacion).
+#   * BEAT embebido (-B): este es el UNICO componente que lo ejecuta.
+#
+# NO ESCALAR a mas de 1 instancia (ni con autoscaling): beat quedaria duplicado
+# y los recordatorios / alertas saldrian repetidos. `apps-s-1vcpu-1gb` (sin
+# -fixed) permite escalar a mano: no lo hagas. Mas capacidad = subir el tamano,
+# o separar la cola hr_cv en un `worker-hr` (mejora opcional de +US$12, guia).
+#
+# Opciones (existen en Celery 5.4, la version de requirements.txt):
+#   -c 2                      dos procesos.
+#   -O fair                   un proceso recibe tarea nueva solo cuando se libera.
+#   --prefetch-multiplier 1   no acaparar tareas por adelantado: un CV de 2 minutos no
+#                             retiene tareas cortas detras. (El codigo no define
+#                             CELERY_WORKER_PREFETCH_MULTIPLIER, por eso va en la linea.)
+#   --max-tasks-per-child 100 recicla el proceso (Pillow/PDF fragmentan memoria).
+# Limite conocido: dos CVs a la vez ocupan los dos procesos hasta ~2 minutos y
+# retrasan SLA/recordatorios en ese lapso. Si molesta, usa la mejora opcional.
 # --------------------------------------------------------------------
 workers:
   - name: worker
@@ -340,14 +405,19 @@ workers:
       deploy_on_push: true
     source_dir: backend
     dockerfile_path: backend/Dockerfile
-    run_command: celery -A config worker -B -Q celery,hr_cv -c 2 --max-tasks-per-child 100 --scheduler django_celery_beat.schedulers:DatabaseScheduler -l info
-    instance_size_slug: apps-s-1vcpu-0.5gb
+    run_command: celery -A config worker -B -Q celery,hr_cv -c 2 -O fair --prefetch-multiplier 1 --max-tasks-per-child 100 --scheduler django_celery_beat.schedulers:DatabaseScheduler -l info
+    instance_size_slug: apps-s-1vcpu-1gb
     instance_count: 1
+    termination:
+      # time_limit de la tarea de CV = 180 s: un apagado tibio deja terminar el CV en
+      # curso (si no alcanza, acks_late lo reentrega).
+      grace_period_seconds: 190
     envs:
       - key: INSTALL_LIBREOFFICE
         value: "false"
         scope: BUILD_TIME
       # --- Secretos de este componente (opcionales se omiten si estan vacios) ---
+      # Spaces: media general (PDF de despachos, libros del almacen) ...
       - key: AWS_ACCESS_KEY_ID
         scope: RUN_TIME
         type: SECRET
@@ -356,6 +426,7 @@ workers:
         scope: RUN_TIME
         type: SECRET
         value: ""
+      # ... y bucket de RR. HH. (los CVs se leen aqui) + API de analisis de CVs.
       - key: HR_AWS_ACCESS_KEY_ID
         scope: RUN_TIME
         type: SECRET
@@ -377,24 +448,41 @@ workers:
         type: SECRET
         value: ""
       - key: DB_NAME
-        value: ${db.DATABASE}
+        value: ${db.syspccpool.DATABASE}
         scope: RUN_TIME
       - key: DB_USER
-        value: ${db.USERNAME}
+        value: ${db.syspccpool.USERNAME}
         scope: RUN_TIME
       - key: DB_PASSWORD
-        value: ${db.PASSWORD}
+        value: ${db.syspccpool.PASSWORD}
         scope: RUN_TIME
       - key: DB_HOST
-        value: ${db.HOSTNAME}
+        value: ${db.syspccpool.HOSTNAME}
         scope: RUN_TIME
       - key: DB_PORT
-        value: ${db.PORT}
+        value: ${db.syspccpool.PORT}
+        scope: RUN_TIME
+      - key: DB_CA_CERT
+        value: ${db.CA_CERT}
+        scope: RUN_TIME
+      - key: REDIS_URL
+        value: rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/0
+        scope: RUN_TIME
+      - key: CELERY_BROKER_URL
+        value: rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/1
+        scope: RUN_TIME
+      - key: CELERY_RESULT_BACKEND
+        value: rediss://default:${cache.PASSWORD}@${cache.HOSTNAME}:${cache.PORT}/2
+        scope: RUN_TIME
+      - key: REDIS_CA_CERT
+        value: ${cache.CA_CERT}
         scope: RUN_TIME
 
 # --------------------------------------------------------------------
 # Jobs: antes de cada deploy migra el esquema y carga los datos de
 # referencia (seed_data es idempotente y no crea usuarios). Nunca seed_demo.
+# Conexion DIRECTA al cluster (no al pool): las migraciones usan DDL y bloqueos
+# que PgBouncer en modo transaction no garantiza.
 # --------------------------------------------------------------------
 jobs:
   - name: migrate
@@ -426,6 +514,9 @@ jobs:
         scope: RUN_TIME
       - key: DB_PORT
         value: ${db.PORT}
+        scope: RUN_TIME
+      - key: DB_CA_CERT
+        value: ${db.CA_CERT}
         scope: RUN_TIME
 
 # --------------------------------------------------------------------
@@ -460,6 +551,8 @@ static_sites:
 # Ingress: App Platform recorta el prefijo por defecto; Django necesita
 # el path completo, de ahi preserve_path_prefix en cada regla al backend.
 # Las reglas especificas van antes del catch-all "/".
+# Todo lo agregado en SYSPCC-025..032 (almacen, Master de RQ, borradores,
+# entregas parciales, importacion) cuelga de /api/v1/: no hay rutas nuevas.
 # /healthz NO se publica: el health_check de la plataforma llega directo al
 # componente (no pasa por el ingress) y exponerlo permitiria a cualquiera
 # consumir conexiones de BD. /media tampoco: con Spaces las URLs firmadas son

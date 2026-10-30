@@ -1,4 +1,4 @@
-"""SYSPCC-024 (QA ronda 1): spec de App Platform, renderizado de secretos y scripts.
+"""SYSPCC-024 / SYSPCC-033: spec de App Platform (opcion Optimizada), renderizado de secretos y scripts.
 
 Pruebas estaticas: no llaman a DigitalOcean ni a doctl. Si el repo se monta
 sin `.do/` (p. ej. el contenedor de desarrollo solo ve ./backend) se omiten.
@@ -6,6 +6,7 @@ sin `.do/` (p. ej. el contenedor de desarrollo solo ve ./backend) se omiten.
 
 import importlib.util
 import os
+import re
 import stat
 import sys
 import subprocess
@@ -29,6 +30,19 @@ SECRET_KEYS = {
     'HR_AWS_ACCESS_KEY_ID', 'HR_AWS_SECRET_ACCESS_KEY',
 }
 DB_KEYS = {'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT'}
+REDIS_KEYS = {'REDIS_URL', 'CELERY_BROKER_URL', 'CELERY_RESULT_BACKEND', 'REDIS_CA_CERT'}
+POOL = 'syspccpool'
+
+# Precios mensuales de App Platform (US$), verificados el 29-oct-2026.
+SLUG_PRICES = {
+    'apps-s-1vcpu-0.5gb': 5.00,
+    'apps-s-1vcpu-1gb-fixed': 10.00,
+    'apps-s-1vcpu-1gb': 12.00,
+    'apps-s-2vcpu-4gb': 50.00,
+}
+MANAGED_PG = 15.15
+MANAGED_VALKEY = 15.00
+SPACES = 5.00
 
 
 @pytest.fixture(scope='module')
@@ -52,10 +66,20 @@ def _component(spec, section, name):
     return next(c for c in spec[section] if c['name'] == name)
 
 
+def _celery_queues(run_command):
+    match = re.search(r'-Q\s+(\S+)', run_command)
+    return set(match.group(1).split(',')) if match else set()
+
+
+def _celery_concurrency(run_command):
+    return int(re.search(r'-c\s+(\d+)', run_command).group(1))
+
+
 class TestSpecStructure:
     def test_all_components_exist(self, spec):
-        assert {s['name'] for s in spec['services']} == {'backend', 'redis'}
-        assert [w['name'] for w in spec['workers']] == ['worker']
+        assert [s['name'] for s in spec['services']] == ['backend']  # sin Redis interno
+        assert [w['name'] for w in spec['workers']] == ['worker']  # un solo contenedor: celery + hr_cv + beat
+        assert {d['name'] for d in spec['databases']} == {'db', 'cache'}
         assert [j['name'] for j in spec['jobs']] == ['migrate']
         assert [s['name'] for s in spec['static_sites']] == ['frontend']
 
@@ -84,6 +108,17 @@ class TestSpecStructure:
         assert backend['health_check']['http_path'] == '/healthz/'
         assert (BACKEND_DIR / 'scripts' / 'do-start.sh').is_file()
 
+    def test_gunicorn_is_sized_for_2_vcpu_4gb_through_variables_the_script_reads(self, spec):
+        backend = _envs(_component(spec, 'services', 'backend'))
+        script = (BACKEND_DIR / 'scripts' / 'do-start.sh').read_text()
+
+        assert backend['GUNICORN_WORKERS']['value'] == '4'
+        assert backend['GUNICORN_THREADS']['value'] == '4'
+        assert backend['GUNICORN_TIMEOUT']['value'] == '120'
+        for key in ('GUNICORN_WORKERS', 'GUNICORN_THREADS', 'GUNICORN_TIMEOUT'):
+            assert f'${{{key}:-' in script, f'do-start.sh no lee {key}'
+        assert all(e['scope'] == 'RUN_TIME' for k, e in backend.items() if k.startswith('GUNICORN_'))
+
     def test_job_is_pre_deploy_and_runs_predeploy_script(self, spec):
         job = _component(spec, 'jobs', 'migrate')
 
@@ -92,27 +127,99 @@ class TestSpecStructure:
         assert (BACKEND_DIR / 'scripts' / 'do-predeploy.sh').is_file()
 
     def test_managed_postgres_not_dev_database(self, spec):
-        db = spec['databases'][0]
+        db = next(d for d in spec['databases'] if d['name'] == 'db')
 
         assert db['engine'] == 'PG'
         assert db['production'] is True  # Dev DB: sin CREATE en schema public (PG15+)
         assert db['cluster_name']
 
-    def test_worker_consumes_default_and_hr_cv_queues_with_single_beat(self, spec):
-        worker = _component(spec, 'workers', 'worker')
+    def test_valkey_is_a_managed_production_cluster(self, spec):
+        cache = next(d for d in spec['databases'] if d['name'] == 'cache')
 
-        assert '-B' in worker['run_command'].split()
-        assert '-Q celery,hr_cv' in worker['run_command']
-        assert '-c 2' in worker['run_command']
+        assert cache['engine'] == 'VALKEY'
+        assert cache['production'] is True
+        assert cache['cluster_name'] == 'syspcc-valkey'
+
+    def test_beat_runs_embedded_in_exactly_one_single_instance_worker(self, spec):
+        with_beat = [w for w in spec['workers'] if '-B' in w['run_command'].split()]
+
+        assert [w['name'] for w in with_beat] == ['worker']
+        worker = with_beat[0]
         assert 'django_celery_beat.schedulers:DatabaseScheduler' in worker['run_command']
         assert worker['instance_count'] == 1  # beat embebido: nunca escalar
+        assert 'autoscaling' not in worker
+        assert 'NO ESCALAR' in SPEC_PATH.read_text(encoding='utf-8')  # documentado junto al comando
 
-    def test_redis_is_internal_only(self, spec):
-        redis = _component(spec, 'services', 'redis')
+    def test_every_queue_the_code_routes_to_is_consumed_by_a_worker(self, spec):
+        from django.conf import settings
 
-        assert redis['internal_ports'] == [6379]
-        assert 'http_port' not in redis
-        assert '--save ""' not in redis['run_command']  # comillas vacias: sin shell se rompen
+        consumed = set()
+        for worker in spec['workers']:
+            queues = _celery_queues(worker['run_command'])
+            assert queues, f"{worker['name']} debe declarar -Q (sin -Q consume cualquier cola, incluida hr_cv)"
+            consumed |= queues
+        routed = {'celery'} | {route['queue'] for route in settings.CELERY_TASK_ROUTES.values()}
+
+        assert routed <= consumed, f'colas sin consumidor: {routed - consumed}'
+
+    def test_single_worker_consumes_both_queues_with_two_fair_processes(self, spec):
+        worker = _component(spec, 'workers', 'worker')
+        command = worker['run_command']
+
+        assert command == (
+            'celery -A config worker -B -Q celery,hr_cv -c 2 -O fair --prefetch-multiplier 1 '
+            '--max-tasks-per-child 100 --scheduler django_celery_beat.schedulers:DatabaseScheduler -l info'
+        )
+        assert _celery_queues(command) == {'celery', 'hr_cv'}
+        assert _celery_concurrency(command) == 2
+        assert worker['instance_count'] == 1
+        assert 'worker-hr' not in [w['name'] for w in spec['workers']]
+        # Un apagado tibio debe poder terminar el CV en curso (time_limit de la tarea: 180 s).
+        assert worker['termination']['grace_period_seconds'] >= 180
+
+    def test_every_celery_option_of_the_worker_exists_in_the_pinned_celery(self, spec):
+        from celery.bin.worker import worker as worker_command
+
+        known = {opt for param in worker_command.params for opt in param.opts}
+        command = _component(spec, 'workers', 'worker')['run_command'].split()
+        used = {token for token in command if token.startswith('-') and not token.startswith('-A')}
+
+        assert used <= known, f'opciones que Celery no conoce: {sorted(used - known)}'
+
+    def test_cv_image_pixel_limit_fits_two_cv_processes_in_the_worker(self, spec):
+        # 2 procesos en 1 GiB: con 40 Mpx dos imagenes a la vez no caben (OOM y se
+        # reinicia beat); 16 Mpx cubre fotos de celular y escaneos.
+        limits = [e['value'] for e in spec['envs'] if e['key'] == 'HR_CV_MAX_IMAGE_PIXELS']
+
+        assert limits == ['16000000']
+
+    def test_cv_tasks_are_never_simulated_or_run_in_web_threads(self, spec):
+        envs = {e['key']: e['value'] for e in spec['envs']}
+
+        assert envs['HR_CV_PROVIDER'] == 'anthropic'  # 'fake' aborta el arranque en produccion
+        assert envs['HR_CV_DISPATCH'] == 'celery'
+
+    def test_instance_sizes_match_the_optimizada_option(self, spec):
+        assert _component(spec, 'services', 'backend')['instance_size_slug'] == 'apps-s-2vcpu-4gb'
+        assert _component(spec, 'workers', 'worker')['instance_size_slug'] == 'apps-s-1vcpu-1gb'
+        assert _component(spec, 'jobs', 'migrate')['instance_size_slug'] == 'apps-s-1vcpu-0.5gb'
+
+    def test_monthly_cost_is_the_one_documented_in_the_spec_and_the_guide(self, spec):
+        monthly = MANAGED_PG + MANAGED_VALKEY + SPACES
+        for section in ('services', 'workers'):
+            for component in spec[section]:
+                monthly += SLUG_PRICES[component['instance_size_slug']] * component['instance_count']
+        header = SPEC_PATH.read_text(encoding='utf-8')[:2500]
+        guide = (REPO_ROOT / 'docs' / '08_Guia_Despliegue_DigitalOcean.md').read_text(encoding='utf-8')
+
+        assert monthly == pytest.approx(97.15)
+        assert f'{monthly:.2f}' in header
+        assert f'{monthly:.2f}' in guide
+        assert f'{monthly * 12:,.2f}' in guide  # 1,165.80
+        # Mejora opcional documentada: un worker de CVs aparte (+12).
+        with_cv_worker = monthly + SLUG_PRICES['apps-s-1vcpu-1gb']
+        assert f'{with_cv_worker:.2f}' in header and f'{with_cv_worker:.2f}' in guide
+        assert f'{with_cv_worker * 12:,.2f}' in guide
 
     def test_frontend_build_does_not_reinstall_dependencies(self, spec):
         frontend = _component(spec, 'static_sites', 'frontend')
@@ -184,12 +291,82 @@ class TestSpecSecrets:
         app_level = {e['key'] for e in spec['envs']}
         assert not (app_level & DB_KEYS)  # nunca a nivel app
 
-        for section, name in (('services', 'backend'), ('workers', 'worker'), ('jobs', 'migrate')):
+        for section, name in (('services', 'backend'), ('workers', 'worker'),
+                              ('jobs', 'migrate')):
             envs = _envs(_component(spec, section, name))
             assert DB_KEYS <= set(envs), name
             for key in DB_KEYS:
                 assert 'type' not in envs[key], f'{name}.{key} no debe ser SECRET (el bindable no se interpola)'
                 assert envs[key]['value'].startswith('${db.'), f'{name}.{key}'
+
+    def test_runtime_components_use_the_pgbouncer_pool_and_the_job_connects_directly(self, spec):
+        for section, name in (('services', 'backend'), ('workers', 'worker')):
+            envs = _envs(_component(spec, section, name))
+            for key, bindable in (('DB_NAME', 'DATABASE'), ('DB_USER', 'USERNAME'), ('DB_PASSWORD', 'PASSWORD'),
+                                  ('DB_HOST', 'HOSTNAME'), ('DB_PORT', 'PORT')):
+                assert envs[key]['value'] == f'${{db.{POOL}.{bindable}}}', f'{name}.{key}'
+        job = _envs(_component(spec, 'jobs', 'migrate'))
+        for key, bindable in (('DB_NAME', 'DATABASE'), ('DB_HOST', 'HOSTNAME'), ('DB_PORT', 'PORT')):
+            assert job[key]['value'] == f'${{db.{bindable}}}', 'migrate/DDL va directo al cluster'
+
+        app = {e['key']: e['value'] for e in spec['envs']}
+        assert app['DB_DISABLE_SERVER_SIDE_CURSORS'] == 'True'  # PgBouncer en modo transaction
+
+    def test_postgres_tls_is_verified_with_the_cluster_ca_in_every_component_that_connects(self, spec):
+        app = {e['key']: e['value'] for e in spec['envs']}
+        assert app['DB_SSLMODE'] == 'verify-ca'  # sin esto el default es `require` (no verifica)
+
+        for section, name in (('services', 'backend'), ('workers', 'worker'),
+                              ('jobs', 'migrate')):
+            envs = _envs(_component(spec, section, name))
+            assert envs['DB_CA_CERT']['value'] == '${db.CA_CERT}', name
+            assert 'type' not in envs['DB_CA_CERT'], name
+
+    def test_valkey_urls_use_tls_and_a_verified_certificate(self, spec):
+        app = {e['key']: e['value'] for e in spec['envs']}
+        assert app['REDIS_SSL_CERT_REQS'] == 'required'
+        assert not (REDIS_KEYS & set(app))  # bindables a nivel de componente
+
+        for section, name in (('services', 'backend'), ('workers', 'worker')):
+            envs = _envs(_component(spec, section, name))
+            for db_number, key in enumerate(('REDIS_URL', 'CELERY_BROKER_URL', 'CELERY_RESULT_BACKEND')):
+                assert envs[key]['value'] == (
+                    f'rediss://default:${{cache.PASSWORD}}@${{cache.HOSTNAME}}:${{cache.PORT}}/{db_number}'
+                ), f'{name}.{key}'
+            assert envs['REDIS_CA_CERT']['value'] == '${cache.CA_CERT}', name
+        assert not (REDIS_KEYS & set(_envs(_component(spec, 'jobs', 'migrate'))))  # migrate no toca Valkey
+        assert 'REDIS_SSL_CERT_REQS=none' not in ''.join(
+            line for line in SPEC_PATH.read_text().splitlines() if not line.lstrip().startswith('#')
+        )
+
+    def test_no_internal_redis_remains(self):
+        text = SPEC_PATH.read_text(encoding='utf-8')
+        code = '\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('#'))
+
+        assert 'redis://' not in code.replace('rediss://', '')
+        assert 'internal_ports' not in code
+        assert 'registry_type' not in code
+
+    def test_every_env_the_spec_sets_is_read_by_the_code(self, spec):
+        # Atrapa errores de tipeo (una variable mal escrita se ignora en silencio).
+        sources = '\n'.join(
+            path.read_text(encoding='utf-8', errors='ignore')
+            for folder in ('config', 'apps', 'scripts')
+            for path in (BACKEND_DIR / folder).rglob('*')
+            if path.is_file() and path.suffix in {'.py', '.sh'} and '/tests/' not in str(path)
+        ) + (BACKEND_DIR / 'Dockerfile').read_text()
+        frontend = '\n'.join(
+            path.read_text(encoding='utf-8', errors='ignore')
+            for path in (REPO_ROOT / 'frontend' / 'src').rglob('*.js*')
+        )
+        keys = {e['key'] for e in spec['envs']}
+        for section in COMPONENT_SECTIONS:
+            for component in spec[section]:
+                keys |= {e['key'] for e in component.get('envs', [])}
+
+        unread = {k for k in keys if k not in sources and k not in frontend}
+
+        assert not unread, f'el spec define variables que el codigo no lee: {sorted(unread)}'
 
     def test_integration_secrets_are_component_scoped_for_least_privilege(self, spec):
         app_secrets = {e['key'] for e in spec['envs'] if e.get('type') == 'SECRET'}
@@ -204,8 +381,9 @@ class TestSpecSecrets:
         worker = {k for k, e in _envs(_component(spec, 'workers', 'worker')).items() if e.get('type') == 'SECRET'}
         assert {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'ANTHROPIC_API_KEY', 'RUC_API_TOKEN',
                 'ONEDRIVE_TOKEN_ENCRYPTION_KEY', 'EMAIL_HOST_PASSWORD'} <= backend
-        assert {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'ANTHROPIC_API_KEY',
-                'ONEDRIVE_TOKEN_ENCRYPTION_KEY', 'EMAIL_HOST_PASSWORD'} <= worker
+        # El worker unico corre tambien la cola hr_cv: lee los CVs del bucket de RR. HH. y llama al API.
+        assert {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'HR_AWS_ACCESS_KEY_ID', 'HR_AWS_SECRET_ACCESS_KEY',
+                'ANTHROPIC_API_KEY', 'ONEDRIVE_TOKEN_ENCRYPTION_KEY', 'EMAIL_HOST_PASSWORD'} <= worker
         assert 'RUC_API_TOKEN' not in worker  # only the web API calls apisperu
 
     def test_hr_bucket_can_use_its_own_spaces_key(self, spec):
@@ -214,12 +392,20 @@ class TestSpecSecrets:
             assert envs['HR_AWS_ACCESS_KEY_ID']['value'] == ''
             assert envs['HR_AWS_SECRET_ACCESS_KEY']['value'] == ''
 
-    def test_redis_errors_are_swallowed_only_because_throttles_have_their_own_cache(self, spec):
+    def test_throttles_live_in_the_shared_valkey_so_redis_errors_are_not_swallowed(self, spec):
         envs = {e['key']: e for e in spec['envs']}
 
-        assert envs['DJANGO_REDIS_IGNORE_EXCEPTIONS']['value'] == 'True'
+        # Con Valkey gestionado los contadores son compartidos y exactos entre los
+        # 4 workers de gunicorn; "True" los pasaria a una cache local por proceso (4x).
+        assert envs['DJANGO_REDIS_IGNORE_EXCEPTIONS']['value'] == 'False'
         text = SPEC_PATH.read_text(encoding='utf-8')
         assert 'THROTTLE_CACHE_ALIAS' in text  # documented next to the toggle
+
+    def test_onedrive_settings_are_optional_and_not_versioned(self, spec):
+        envs = {e['key']: e for e in spec['envs']}
+
+        for key in ('ONEDRIVE_CLIENT_ID', 'ONEDRIVE_TENANT', 'ONEDRIVE_SHARE_SCOPE'):
+            assert envs[key]['value'] == ''  # render_spec.py los omite si no estan en .env.do
 
     def test_do_specific_toggles_and_no_num_proxies(self, spec):
         envs = {e['key']: e for e in spec['envs']}
@@ -305,13 +491,17 @@ class TestRenderSpec:
         assert envs['SECRET_KEY'] == 's'
         assert envs['HR_COMPANY_NAME'] == 'PCC'
         # Opcionales sin valor: se eliminan (el backend usa su default)
-        for key in ('ANTHROPIC_API_KEY', 'RUC_API_TOKEN', 'EMAIL_HOST_PASSWORD', 'HR_COMPANY_RUC', 'HR_MIN_WAGE'):
+        for key in ('ANTHROPIC_API_KEY', 'RUC_API_TOKEN', 'EMAIL_HOST_PASSWORD', 'HR_COMPANY_RUC', 'HR_MIN_WAGE',
+                    'ONEDRIVE_CLIENT_ID', 'ONEDRIVE_TENANT', 'ONEDRIVE_SHARE_SCOPE'):
             assert key not in envs
         # Placeholders de DO y valores fijos intactos
         assert envs['ALLOWED_HOSTS'] == '${APP_DOMAIN}'
         assert envs['TRUST_DO_CONNECTING_IP'] == 'True'
         backend_envs = {e['key']: e['value'] for e in _component(rendered, 'services', 'backend')['envs']}
-        assert backend_envs['DB_HOST'] == '${db.HOSTNAME}'
+        assert backend_envs['DB_HOST'] == '${db.syspccpool.HOSTNAME}'
+        assert backend_envs['DB_CA_CERT'] == '${db.CA_CERT}'
+        assert backend_envs['REDIS_CA_CERT'] == '${cache.CA_CERT}'
+        assert backend_envs['REDIS_URL'].startswith('rediss://default:${cache.PASSWORD}@')
         # Ningun valor vacio queda en el spec renderizado, salvo VITE_BACKEND_URL
         # (vacio a proposito: SPA y API comparten origin).
         every = list(rendered['envs'])
@@ -360,6 +550,59 @@ class TestRenderSpec:
         assert stat.S_IMODE(out.stat().st_mode) == 0o600
         assert SPEC_PATH.read_text() == before
         assert yaml.safe_load(out.read_text())['envs'][0]['key'] == 'DJANGO_SETTINGS_MODULE'
+
+    def test_render_reports_the_optional_keys_it_dropped(self, render_spec):
+        secrets = {
+            'SECRET_KEY': 's', 'AWS_ACCESS_KEY_ID': 'a', 'AWS_SECRET_ACCESS_KEY': 'b',
+            'ONEDRIVE_TOKEN_ENCRYPTION_KEY': 'f', 'ANTHROPIC_API_KEY': 'k',
+        }
+        dropped = []
+
+        render_spec.render(yaml.safe_load(SPEC_PATH.read_text()), secrets, dropped)
+
+        assert 'EMAIL_HOST_PASSWORD' in dropped and 'ONEDRIVE_CLIENT_ID' in dropped
+        assert 'ANTHROPIC_API_KEY' not in dropped  # backend y worker si lo recibieron
+
+    def test_render_injects_the_api_key_into_backend_and_worker_only(self, render_spec):
+        secrets = {
+            'SECRET_KEY': 's', 'AWS_ACCESS_KEY_ID': 'a', 'AWS_SECRET_ACCESS_KEY': 'b',
+            'ONEDRIVE_TOKEN_ENCRYPTION_KEY': 'f', 'ANTHROPIC_API_KEY': 'k',
+        }
+
+        rendered = render_spec.render(yaml.safe_load(SPEC_PATH.read_text()), secrets)
+
+        assert _envs(_component(rendered, 'services', 'backend'))['ANTHROPIC_API_KEY']['value'] == 'k'
+        assert _envs(_component(rendered, 'workers', 'worker'))['ANTHROPIC_API_KEY']['value'] == 'k'
+        assert 'ANTHROPIC_API_KEY' not in _envs(_component(rendered, 'jobs', 'migrate'))
+
+    def test_direct_db_mode_replaces_the_pool_by_the_cluster_bindables(self, render_spec):
+        spec = render_spec.use_direct_db(yaml.safe_load(SPEC_PATH.read_text()))
+
+        for section, name in (('services', 'backend'), ('workers', 'worker')):
+            envs = _envs(_component(spec, section, name))
+            assert envs['DB_HOST']['value'] == '${db.HOSTNAME}'
+            assert envs['DB_NAME']['value'] == '${db.DATABASE}'
+            assert envs['DB_PORT']['value'] == '${db.PORT}'
+        assert 'syspccpool' not in yaml.safe_dump(spec)
+        assert {e['key']: e['value'] for e in spec['envs']}['DB_DISABLE_SERVER_SIDE_CURSORS'] == 'False'
+        # El CA y los secretos no se tocan.
+        assert _envs(_component(spec, 'services', 'backend'))['DB_CA_CERT']['value'] == '${db.CA_CERT}'
+
+    def test_direct_db_flag_on_the_cli_leaves_the_template_untouched(self, tmp_path):
+        env_file = tmp_path / '.env.do'
+        env_file.write_text(self.ENV_TEXT)
+        out = tmp_path / 'direct.yaml'
+        before = SPEC_PATH.read_text()
+
+        proc = subprocess.run(
+            [sys.executable, str(RENDER_SCRIPT), '--env', str(env_file), '--out', str(out), '--direct-db'],
+            capture_output=True, text=True, timeout=60,
+        )
+
+        assert proc.returncode == 0, proc.stderr
+        assert 'syspccpool' not in out.read_text()
+        assert SPEC_PATH.read_text() == before
+        assert '--direct-db' in proc.stdout
 
     def test_cli_fails_without_env_file(self, tmp_path):
         proc = subprocess.run(
@@ -439,6 +682,41 @@ class TestShellScripts:
         assert '--bind 0.0.0.0:9090' in gunicorn_calls[0]
         assert '--bind 0.0.0.0:8080' in gunicorn_calls[1]
         assert '--workers 1 --threads 4' in gunicorn_calls[1]
+
+    def test_start_sizes_gunicorn_from_the_environment_the_spec_sets(self, tmp_path):
+        # SYSPCC-033: 2 vCPU / 4 GB -> 4 workers x 4 threads, timeout 120.
+        fake_bin = tmp_path / 'bin'
+        fake_bin.mkdir()
+        for name in ('python', 'gunicorn'):
+            tool = fake_bin / name
+            tool.write_text(f'#!/bin/sh\necho "{name} $@" >> "{tmp_path}/calls"\nexit 0\n')
+            tool.chmod(0o755)
+        env = {'PATH': f'{fake_bin}:/usr/bin:/bin', 'GUNICORN_WORKERS': '4', 'GUNICORN_THREADS': '4',
+               'GUNICORN_TIMEOUT': '120'}
+
+        subprocess.run(['sh', str(self.START)], env=env, capture_output=True, text=True, timeout=30, check=True)
+        call = next(ln for ln in (tmp_path / 'calls').read_text().splitlines() if ln.startswith('gunicorn'))
+
+        assert '--workers 4 --threads 4 --timeout 120' in call
+        assert '--max-requests 1000' in call and '--max-requests-jitter 100' in call
+        assert '--worker-tmp-dir /dev/shm' in call
+
+    def test_start_timeout_defaults_to_120_and_can_be_overridden(self, tmp_path):
+        fake_bin = tmp_path / 'bin'
+        fake_bin.mkdir()
+        for name in ('python', 'gunicorn'):
+            tool = fake_bin / name
+            tool.write_text(f'#!/bin/sh\necho "{name} $@" >> "{tmp_path}/calls"\nexit 0\n')
+            tool.chmod(0o755)
+        base = {'PATH': f'{fake_bin}:/usr/bin:/bin'}
+
+        subprocess.run(['sh', str(self.START)], env=base, capture_output=True, text=True, timeout=30, check=True)
+        subprocess.run(['sh', str(self.START)], env={**base, 'GUNICORN_TIMEOUT': '300'},
+                       capture_output=True, text=True, timeout=30, check=True)
+        calls = [ln for ln in (tmp_path / 'calls').read_text().splitlines() if ln.startswith('gunicorn')]
+
+        assert '--timeout 120' in calls[0]
+        assert '--timeout 300' in calls[1]
 
     def test_predeploy_stops_if_migrate_fails_and_does_not_seed(self, tmp_path):
         fake_bin = tmp_path / 'bin'

@@ -149,3 +149,80 @@ class TestThrottleCacheFailsClosedWhenRedisIsDown:
         out = result_of(run(PROD, self.DOWN, probe=self.PROBE))
 
         assert out['raised'] is True
+
+
+class TestDigitalOceanOptimizedEnvironment:
+    """SYSPCC-033: the environment the Optimizada spec (.do/app.yaml) gives to backend/workers.
+
+    Pool de PgBouncer (modo transaction) con TLS verificado + Valkey gestionado por
+    rediss:// con el CA verificado. Mismos nombres de variable que el spec.
+    """
+
+    ENV = {
+        'DJANGO_ENV': 'production',
+        'TRUST_DO_CONNECTING_IP': 'True',
+        'DB_NAME': 'syspccpool',
+        'DB_USER': 'syspcc',
+        'DB_PASSWORD': 'pw',
+        'DB_HOST': 'syspcc-pg-pool-do-user-1-0.g.db.ondigitalocean.com',
+        'DB_PORT': '25061',
+        'DB_SSLMODE': 'verify-ca',
+        'DB_CA_CERT': PEM,
+        'DB_CONN_MAX_AGE': '60',
+        'DB_DISABLE_SERVER_SIDE_CURSORS': 'True',
+        'REDIS_URL': 'rediss://default:pw@syspcc-valkey-do-user-1-0.g.db.ondigitalocean.com:25061/0',
+        'CELERY_BROKER_URL': 'rediss://default:pw@syspcc-valkey-do-user-1-0.g.db.ondigitalocean.com:25061/1',
+        'CELERY_RESULT_BACKEND': 'rediss://default:pw@syspcc-valkey-do-user-1-0.g.db.ondigitalocean.com:25061/2',
+        'REDIS_SSL_CERT_REQS': 'required',
+        'REDIS_CA_CERT': PEM,
+        'DJANGO_REDIS_IGNORE_EXCEPTIONS': 'False',
+        'HR_CV_PROVIDER': 'anthropic',
+        'HR_CV_DISPATCH': 'celery',
+    }
+
+    def test_database_is_the_pool_with_verified_tls_and_no_server_side_cursors(self):
+        out = result_of(run(PROD, self.ENV, probe=attrs('DATABASES')))
+        db = out['DATABASES']['default']
+
+        assert db['HOST'].startswith('syspcc-pg-pool') and db['PORT'] == '25061' and db['NAME'] == 'syspccpool'
+        assert db['OPTIONS']['sslmode'] == 'verify-ca'
+        assert db['OPTIONS']['sslrootcert'].endswith('syspcc-db-ca.pem')
+        assert db['DISABLE_SERVER_SIDE_CURSORS'] is True
+        assert db['CONN_MAX_AGE'] == 60
+
+    def test_server_side_cursors_stay_enabled_for_a_direct_connection(self):
+        out = result_of(run(PROD, {}, probe=attrs('DATABASES')))
+
+        assert out['DATABASES']['default']['DISABLE_SERVER_SIDE_CURSORS'] is False
+
+    def test_valkey_over_tls_with_verified_certificate_everywhere(self):
+        probe = attrs('CELERY_BROKER_USE_SSL', 'CELERY_REDIS_BACKEND_USE_SSL', 'CACHES', 'REDIS_SSL_CERT_REQS',
+                      'THROTTLE_CACHE_ALIAS', 'DJANGO_REDIS_IGNORE_EXCEPTIONS')
+        out = result_of(run(PROD, self.ENV, probe=probe))
+        pool = out['CACHES']['default']['OPTIONS']['CONNECTION_POOL_KWARGS']
+
+        assert out['REDIS_SSL_CERT_REQS'] == 'required'
+        assert out['CELERY_BROKER_USE_SSL']['ssl_ca_certs'].endswith('syspcc-redis-ca.pem')
+        assert out['CELERY_REDIS_BACKEND_USE_SSL']['ssl_ca_certs'] == out['CELERY_BROKER_USE_SSL']['ssl_ca_certs']
+        assert pool['ssl_cert_reqs'] == 'required' and pool['ssl_ca_certs'].endswith('syspcc-redis-ca.pem')
+        # Valkey estable: los throttles viven en el cache compartido (exactos entre workers).
+        assert out['DJANGO_REDIS_IGNORE_EXCEPTIONS'] is False
+        assert out['THROTTLE_CACHE_ALIAS'] == 'default'
+
+    def test_simulated_cv_provider_aborts_the_boot_in_this_environment(self):
+        proc = run(PROD, {**self.ENV, 'HR_CV_PROVIDER': 'fake'})
+
+        assert proc.returncode != 0
+        assert 'HR_CV_PROVIDER' in proc.stderr
+
+    def test_the_whole_environment_boots_with_django_setup(self):
+        out = result_of(run(PROD, self.ENV, probe='''
+            import django
+            django.setup()
+            from django.conf import settings
+            out['provider'] = settings.HR_CV_PROVIDER
+            out['dispatch'] = settings.HR_CV_DISPATCH
+            out['num_proxies'] = settings.REST_FRAMEWORK['NUM_PROXIES']
+        '''))
+
+        assert out == {'provider': 'anthropic', 'dispatch': 'celery', 'num_proxies': 0}

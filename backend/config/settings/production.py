@@ -53,6 +53,10 @@ def _ca_bundle_path(path_env, pem_env, filename):
 # (DB_SSLROOTCERT = file path, or DB_CA_CERT = PEM text such as the App
 # Platform bindable ${db.CA_CERT}); verify-full also checks the host name and
 # may fail against private (VPC) host names.
+# DB_DISABLE_SERVER_SIDE_CURSORS (SYSPCC-033): True when DB_HOST is a PgBouncer
+# pool in TRANSACTION mode (DigitalOcean connection pool): a server-side cursor
+# (QuerySet.iterator()) outlives the transaction and breaks there. Default
+# False for a direct connection.
 DB_SSLMODE = config('DB_SSLMODE', default='require').strip().lower()
 if DB_SSLMODE not in ('require', 'verify-ca', 'verify-full'):
     raise ImproperlyConfigured(
@@ -82,6 +86,7 @@ DATABASES = {
         # app spec; keep the budget in mind: connections per process x threads.
         'CONN_MAX_AGE': config('DB_CONN_MAX_AGE', default=0, cast=int),
         'CONN_HEALTH_CHECKS': True,
+        'DISABLE_SERVER_SIDE_CURSORS': config('DB_DISABLE_SERVER_SIDE_CURSORS', default=False, cast=bool),
     }
 }
 

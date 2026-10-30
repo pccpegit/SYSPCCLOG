@@ -193,6 +193,13 @@ class TestSpecStructure:
 
         assert limits == ['16000000']
 
+    def test_cv_stale_window_outlasts_a_batch_in_the_single_worker(self, spec):
+        # Un lote de 100 CVs tarda ~27 min: con el default de 600 s el beat
+        # re-encolaria items que solo esperan su turno.
+        stale = [e['value'] for e in spec['envs'] if e['key'] == 'HR_CV_STALE_SECONDS']
+
+        assert stale == ['3600']
+
     def test_cv_tasks_are_never_simulated_or_run_in_web_threads(self, spec):
         envs = {e['key']: e['value'] for e in spec['envs']}
 

@@ -422,6 +422,17 @@ El primer despliegue construye cuatro imágenes (`backend`, `worker`, `migrate` 
 
 **Después del primer despliegue sano:** crea el pool de PgBouncer y pasa la app a él (Paso 5.2). Ese segundo cambio se hace sobre el spec vivo y deja la app idéntica a `.do/app.yaml`.
 
+### 9.1 Si la cuenta solo admite una base gestionada adjunta (despliegue real del 2026-10-30)
+
+En la cuenta de PCC, `doctl apps create` rechazó el spec con `databases.limit_exceeded: (2) new databases requested… limit (1)`, aunque los dos clusters ya existían. La app `syspcc` se creó así:
+
+- **Spec sin el bloque `databases`.** Los valores de `${db.*}` y `${cache.*}` (host, puerto, usuario, contraseña y CA) se escribieron en el spec renderizado como variables `SECRET` (archivo local `.do/app.direct.rendered.yaml`, gitignored por `*.rendered.yaml`). Como la app no "adjunta" los clusters, App Platform **no** crea la base ni el usuario: se crearon con `doctl databases db create … syspcc` y `doctl databases user create … syspcc`, y como `doadmin` se ejecutó `ALTER DATABASE syspcc OWNER TO syspcc` (sin eso `migrate` falla con `permission denied for schema public`).
+- **Firewall manual.** Por la misma razón la plataforma no agrega la regla `app:`; se agregó a mano en ambos clusters (`doctl databases firewalls append <ID> --rule app:<APP_ID>`).
+- **Sin pool, `GUNICORN_WORKERS=3`.** Con conexión directa al cluster de ~22 conexiones, el spec vivo usa 3 × 4 hilos (12) en lugar de 4 × 4, como indica el Paso 5.2. La prueba de carga (99 usuarios + 100 CVs) llegó a 16 conexiones con 4 procesos y respondió con p95 de 56 ms.
+- **Rotar la contraseña de la base** obliga a editar `DB_PASSWORD` en el spec vivo de `backend`, `worker` y `migrate`, porque ya no la entrega un bindable.
+
+El pool (Paso 5.2) se puede crear igual con `doctl databases pool create`; para usarlo, escribe a mano su host, puerto y base en los `DB_*` del spec vivo.
+
 ## Paso 10 — Verificar el despliegue
 
 ```bash
@@ -725,7 +736,7 @@ Todas son opcionales para Docker local y la demo de Render (sin ellas su comport
 
 Otros ya existentes que el spec fija: `DJANGO_SETTINGS_MODULE=config.settings.production`, `DJANGO_ENV=production`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `CORS_ALLOWED_ORIGINS`, `DB_*` (del pool), `REDIS_URL`, `CELERY_*`, `EMAIL_*`, `WAREHOUSE_ALERT_RECIPIENTS` y `HR_COMPANY_*`.
 
-**Ajustes opcionales que usan su valor por defecto** (agrégalos al spec vivo solo si los necesitas): `HR_CV_MODEL`, `HR_CV_EFFORT`, `HR_CV_MAX_ATTEMPTS`, `HR_CV_DAILY_LIMIT_PER_USER`, `HR_CV_MAX_ITEMS_PER_ANALYSIS`, `HR_CV_MAX_FILE_BYTES`, `HR_CV_MAX_FILES_PER_REQUEST`, `HR_CV_MAX_PAGES`, `HR_CV_MAX_IMAGE_PIXELS`, `HR_CV_STALE_SECONDS`, `HR_CV_RETENTION_DAYS` (retención de CVs; `0` = no se purgan solos), `HR_CV_POSTING_*`, `HR_ASSISTANT_*`, `HR_PDF_ENABLED`, `HR_PDF_TIMEOUT`. Los límites de peticiones por minuto (login, RR. HH., almacén, Master de RQ) están fijos en `settings/base.py`, no son variables de entorno.
+**Ajustes opcionales que usan su valor por defecto** (agrégalos al spec vivo solo si los necesitas): `HR_CV_MODEL`, `HR_CV_EFFORT`, `HR_CV_MAX_ATTEMPTS`, `HR_CV_DAILY_LIMIT_PER_USER`, `HR_CV_MAX_ITEMS_PER_ANALYSIS`, `HR_CV_MAX_FILE_BYTES`, `HR_CV_MAX_FILES_PER_REQUEST`, `HR_CV_MAX_PAGES`, `HR_CV_RETENTION_DAYS` (retención de CVs; `0` = no se purgan solos), `HR_CV_POSTING_*`, `HR_ASSISTANT_*`, `HR_PDF_ENABLED`, `HR_PDF_TIMEOUT`. El spec ya fija `HR_CV_MAX_IMAGE_PIXELS=16000000` (memoria del worker, ver 1.3) y `HR_CV_STALE_SECONDS=3600` (un lote de 100 CVs tarda ~27 min; con el default de 600 s se re-encolarían ítems que solo esperan turno). Los límites de peticiones por minuto (login, RR. HH., almacén, Master de RQ) están fijos en `settings/base.py`, no son variables de entorno.
 
 ---
 

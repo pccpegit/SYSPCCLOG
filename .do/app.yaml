@@ -270,7 +270,7 @@ services:
   - name: backend
     github:
       repo: pccpegit/SYSPCCLOG
-      branch: develop
+      branch: main
       deploy_on_push: true
     source_dir: backend
     dockerfile_path: backend/Dockerfile
@@ -407,7 +407,7 @@ workers:
   - name: worker
     github:
       repo: pccpegit/SYSPCCLOG
-      branch: develop
+      branch: main
       deploy_on_push: true
     source_dir: backend
     dockerfile_path: backend/Dockerfile
@@ -495,7 +495,7 @@ jobs:
     kind: PRE_DEPLOY
     github:
       repo: pccpegit/SYSPCCLOG
-      branch: develop
+      branch: main
       deploy_on_push: true
     source_dir: backend
     dockerfile_path: backend/Dockerfile
@@ -534,7 +534,7 @@ static_sites:
   - name: frontend
     github:
       repo: pccpegit/SYSPCCLOG
-      branch: develop
+      branch: main
       deploy_on_push: true
     source_dir: frontend
     environment_slug: node-js

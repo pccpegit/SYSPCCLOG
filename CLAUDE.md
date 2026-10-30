@@ -21,16 +21,17 @@ Reglas del modo equipo:
 
 Detalle completo (roster, fases, gates, handoff): skill `orquestador-syspcc`.
 
-## Flujo de trabajo Git — Ramas, tickets y PRs (SIEMPRE)
+## Flujo de trabajo Git — GitFlow con releases (SIEMPRE)
 
-**Cada cambio sustantivo va en su propia rama con ticket y PR.** No se commitea trabajo sustantivo directo sobre `develop` ni `main`. (Aplica el mismo escape hatch que el modo equipo: preguntas de solo lectura o ediciones triviales no requieren rama.)
+**Producción se despliega solo desde `main`.** Modelo completo, procedimientos de release y hotfix: `docs/09_Flujo_Git_y_Releases.md`. Resumen obligatorio:
 
-Procedimiento por cada cambio:
-1. **Ticket**: toma el próximo `SYSPCC-NNN` de `TICKETS.md` (mayor ID + 1) y registra la fila (tipo, rama, descripción, estado).
-2. **Rama** desde `develop`: `<tipo>/SYSPCC-NNN-<slug-en-kebab>`. Tipos: `feature`, `fix`, `chore`, `refactor`, `perf`, `docs`, `test`. Ej: `feature/SYSPCC-014-validacion-presupuesto`.
-3. **Commit** en Conventional Commits (`tipo(scope): descripción`), cuerpo con `Refs SYSPCC-NNN`. **Sin atribución:** los commits no llevan `Co-Authored-By` ni ninguna firma o mención de herramientas de IA. Commitea **solo** los archivos del cambio, nunca `git add -A` a ciegas (el repo tiene cambios de trabajo pre-existentes).
-4. **Push + PR** hacia `develop`: **muestra el plan y confirma con el usuario antes de subir** (push y PR son acciones externas). Usa `gh` para abrir el PR con la plantilla del skill `commits-y-prs`; el cuerpo del PR tampoco lleva firma ni atribución de IA. Requiere `gh` instalado y autenticado; si no lo está, haz push y entrega el link de comparación.
-5. Al mergear, actualiza el estado del ticket en `TICKETS.md`.
+- **Ramas:** `main` = producción (solo recibe `release/vX.Y.0` y `hotfix/*` por PR, con tag `vX.Y.Z`; cada merge despliega DigitalOcean). `develop` = integración (no despliega). Un ticket = una rama `<tipo>/SYSPCC-NNN-<slug-en-kebab>` desde `develop` (tipos: `feature`, `fix`, `chore`, `refactor`, `perf`, `docs`, `test`), PR a `develop` con squash.
+- **Ticket:** próximo `SYSPCC-NNN` de `TICKETS.md` (mayor ID + 1), registrado en la misma rama. El paso a `Mergeado` (con link del PR) se registra en el siguiente PR (otra rama de ticket o la release), para no relanzar la CI solo por esa línea.
+- **Commits:** Conventional Commits (`tipo(scope): descripción`), cuerpo con `Refs SYSPCC-NNN`. **Sin atribución:** ni `Co-Authored-By` ni firmas o menciones de herramientas de IA, tampoco en PRs. Commitea **solo** los archivos del cambio, nunca `git add -A` a ciegas (el repo tiene cambios de trabajo pre-existentes).
+- **Push + PR:** **muestra el plan y confirma con el usuario antes de subir** (acciones externas). PR con `gh` y la plantilla `.github/pull_request_template.md`. Push con la cuenta `pccpegit` (ver skill `commits-y-prs`).
+- **Puertas (protección de ramas en GitHub, también para administradores):** CI en verde (`backend-tests`: pytest contra PostgreSQL 16 en paralelo + `makemigrations --check`; `frontend`: lint, Vitest y build en Node 22), rama al día con su base, conversaciones resueltas, sin force push. Si la CI falla se corrige la causa, nunca se reintenta hasta que pase.
+- **Releases:** `release/vX.Y.0` desde `develop` → PR a `main` (merge commit) → tag + GitHub Release + `CHANGELOG.md`. Merge a `main` solo con OK explícito del usuario (despliega producción).
+- **Repositorio público a propósito:** con el plan gratuito, privado elimina la protección de ramas. Nunca subir secretos ni datos personales.
 
 Detalle de formato: skills `commits-y-prs` y `docker-deploy` (agente `devops-release`).
 

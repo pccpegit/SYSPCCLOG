@@ -5,7 +5,7 @@ import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import LogisticsActionPage from './LogisticsActionPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as suppliersApi from '../../api/suppliers';
 
@@ -14,7 +14,7 @@ import * as suppliersApi from '../../api/suppliers';
 //    sugiere nada y no se afirma cobertura, en la tabla y en el panel;
 //  - el 409 ITEMS_ALREADY_RECEIVED (y el de despachos) marca las líneas afectadas, explica por qué
 //    y deja la pantalla utilizable.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/suppliers');
 

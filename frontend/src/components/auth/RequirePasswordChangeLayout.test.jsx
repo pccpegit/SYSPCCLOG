@@ -3,9 +3,9 @@ import { screen } from '@testing-library/react';
 import { Routes, Route, Outlet } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequirePasswordChangeLayout from './RequirePasswordChangeLayout';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 

@@ -20,13 +20,13 @@ import {
   SendHorizonal,
 } from 'lucide-react';
 import { ROLES, STATUS } from '../../data/constants';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { getRequest, getRequests, getApprovals, performAction } from '../../api/requests';
 import ApprovalChain from '../../components/requests/ApprovalChain';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -362,7 +362,7 @@ function ReceptionPanel({ submitting, notes, onNotes, guideNumber, onGuide, onAc
 }
 
 // RECEIVING — quality control per item
-function QualityControlPanel({ submitting, notes, onNotes, qcChecked, onQcToggle, onApprove, onReject }) {
+function QualityControlPanel({ submitting, notes, onNotes, qcChecked, onApprove, onReject }) {
   const hasIssues = qcChecked.size > 0;
 
   return (
@@ -835,7 +835,6 @@ export default function WarehouseActionPage() {
             notes={notes}
             onNotes={setNotes}
             qcChecked={qcChecked}
-            onQcToggle={handleQcToggle}
             onApprove={handleQualityApproved}
             onReject={handleQualityRejected}
           />

@@ -9,7 +9,7 @@ import { ToastProvider } from '../context/ToastContext';
  *
  * `AuthContext` is deliberately NOT wrapped here: every page/guard under
  * test in this module calls `useAuth()` directly, and each test mocks
- * `../../context/AuthContext` (`vi.mock` + `useAuth.mockReturnValue(...)`)
+ * `../../context/useAuth` (`vi.mock` + `useAuth.mockReturnValue(...)`)
  * to control `currentUser`/`isSuperUser`/etc. per case, instead of driving
  * the real provider's CSRF-bootstrap/`getMe` side effects for every test.
  */

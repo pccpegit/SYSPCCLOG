@@ -6,7 +6,7 @@ import { HR_ERROR_MESSAGES } from '../../../utils/hrErrors';
 import { classifyFiles, fileKey } from '../../../utils/cvFiles';
 import { formatUsd } from '../../../utils/cvFormat';
 import { toCards } from '../../../utils/cvRequirements';
-import { useToast } from '../../../context/ToastContext';
+import { useToast } from '../../../context/useToast';
 import useCVUpload from '../../../hooks/useCVUpload';
 import CVDisclaimer from './CVDisclaimer';
 import CVDropzone from './CVDropzone';

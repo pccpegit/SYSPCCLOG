@@ -3,11 +3,11 @@ import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { SUMMARY } from '../../test/almacenFixtures';
 import AlmacenDashboardPage from './AlmacenDashboardPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const NEVER = () => new Promise(() => {});
 

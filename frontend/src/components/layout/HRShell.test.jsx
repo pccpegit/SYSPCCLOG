@@ -4,11 +4,11 @@ import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import HRShell from './HRShell';
 import RoleRoute from '../auth/RoleRoute';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 // Header renders ThemeToggleButton (SYSPCC-020); the theme is not under test.
-vi.mock('../../context/ThemeContext', () => ({
+vi.mock('../../context/useTheme', () => ({
   useTheme: () => ({ resolvedTheme: 'light', toggleTheme: vi.fn() }),
 }));
 

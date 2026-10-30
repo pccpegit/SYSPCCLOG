@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Plus, RefreshCw, ScanSearch, Search } from 'lucide-react';
 import { getCVAnalyses } from '../../api/hr';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { COPY } from '../../utils/cvCopy';
 import { hrErrorMessage } from '../../utils/hrErrors';
 import { normalizeText } from '../../utils/cvFormat';

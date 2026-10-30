@@ -6,11 +6,11 @@ import { exactItem, makeItem } from '../../test/almacenFixtures';
 import EntradaPage from './EntradaPage';
 import SalidaPage from './SalidaPage';
 import TransferenciaPage from './TransferenciaPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 // SYSPCC-025 · react-frontend ronda 1 — correcciones de accesibilidad y UX de los formularios de
 // Ingreso, Entrega/Egreso y Transferencia: foco al primer error, resumen de errores, error de

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { getProjects } from '../../api/core';
 import { activateProject, deactivateProject } from '../../api/projects';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { extractErrorMessage } from '../../utils/apiErrors';
 import { formatDate } from '../../utils/format';
 import ConfirmModal from '../../components/ui/ConfirmModal';

@@ -5,9 +5,9 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import HRSidebar from './HRSidebar';
 import RoleRoute from '../auth/RoleRoute';
 import { authAs } from '../../test/cvFixtures';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const nav = () => screen.getByRole('navigation', { name: /secciones de rr\. hh\./i });
 

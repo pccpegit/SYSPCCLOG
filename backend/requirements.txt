@@ -59,6 +59,7 @@ pypdf==6.19.0
 # Development / Testing
 pytest==8.3.4
 pytest-django==4.9.0
+pytest-xdist==3.6.1
 factory-boy==3.3.1
 
 # Redis & Caching

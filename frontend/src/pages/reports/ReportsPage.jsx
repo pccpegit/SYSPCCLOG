@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { getRequests } from '../../api/requests';
 import { getProjects } from '../../api/core';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../context/useTheme';
 import SummaryCard from '../../components/ui/SummaryCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
@@ -141,14 +141,13 @@ function DonutChart({ segments }) {
     );
   }
 
-  let accumulated = 0;
-  const conicStops = segments
-    .filter((s) => s.count > 0)
-    .map((seg) => {
+  // El porcentaje acumulado se calcula por tramo (sin reasignar variables durante el render).
+  const visible = segments.filter((s) => s.count > 0);
+  const conicStops = visible
+    .map((seg, i) => {
+      const start = visible.slice(0, i).reduce((sum, s) => sum + (s.count / total) * 100, 0);
       const pct = (seg.count / total) * 100;
-      const stop = `${seg.hexColor} ${accumulated.toFixed(1)}% ${(accumulated + pct).toFixed(1)}%`;
-      accumulated += pct;
-      return stop;
+      return `${seg.hexColor} ${start.toFixed(1)}% ${(start + pct).toFixed(1)}%`;
     })
     .join(', ');
 

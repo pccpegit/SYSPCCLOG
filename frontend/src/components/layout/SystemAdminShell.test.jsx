@@ -4,14 +4,14 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import SystemAdminShell from './SystemAdminShell';
 import SuperUserRoute from '../auth/SuperUserRoute';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
 // SYSPCC-018 (rediseño) — SystemAdminShell es el shell del módulo separado
 // "Administración del Sistema" (/sistema), calco estructural de AdminShell
 // (que no tiene test propio, no hay precedente que copiar). `useAuth` se
 // mockea directo para variar isLoading/isAuthenticated sin tocar el
 // bootstrap CSRF/getMe real.
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 

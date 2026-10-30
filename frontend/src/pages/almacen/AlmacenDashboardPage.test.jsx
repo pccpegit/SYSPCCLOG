@@ -5,11 +5,11 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import { SUMMARY } from '../../test/almacenFixtures';
 import { addDaysISO, localISODate } from '../../utils/almacen';
 import AlmacenDashboardPage from './AlmacenDashboardPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const ALERTS = [
   { id: 1, product_code: 'EPP000001', description: 'Casco blanco', unit: 'EA', min_stock: 5, current_stock: 2, deficit: 3 },

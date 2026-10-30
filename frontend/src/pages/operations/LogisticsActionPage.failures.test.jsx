@@ -5,7 +5,7 @@ import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import LogisticsActionPage from './LogisticsActionPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as suppliersApi from '../../api/suppliers';
 
@@ -21,7 +21,7 @@ configure({ asyncUtilTimeout: 4000 });
 // Rule under test: if saving the decisions fails, STOCK_CHECKED is NOT sent, the reason is
 // on screen, the page is not stuck, and the same click works again once the cause is gone.
 // Nothing here is a new gate on the transition: it protects the data, not the workflow.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/suppliers');
 

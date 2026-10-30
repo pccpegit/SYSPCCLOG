@@ -1,11 +1,6 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { CheckCircle, XCircle, Info, X } from 'lucide-react';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Context
-// ─────────────────────────────────────────────────────────────────────────────
-
-const ToastContext = createContext(null);
+import { ToastContext } from './contexts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Single toast item
@@ -131,14 +126,4 @@ export function ToastProvider({ children }) {
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </ToastContext.Provider>
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hook
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used inside ToastProvider');
-  return ctx;
 }

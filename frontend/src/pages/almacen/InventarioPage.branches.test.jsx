@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { LAYOUT, SUMMARY, exactItem, makeItem, page } from '../../test/almacenFixtures';
 import InventarioPage from './InventarioPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 // SYSPCC-025 · QA ronda 2 — ramas de «Empezar a ubicar», asignación por fila y alta de ítems.
 

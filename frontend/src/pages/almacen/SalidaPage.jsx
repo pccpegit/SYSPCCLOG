@@ -6,8 +6,8 @@ import {
 import {
   downloadGroupPdf, getInventory, getMovements, registerEppDelivery, registerExitBatch,
 } from '../../api/almacen';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/useAuth';
+import { useToast } from '../../context/useToast';
 import useFileDownload from '../../hooks/useFileDownload';
 import useFocusFirstInvalid from '../../hooks/useFocusFirstInvalid';
 import NumberInput from '../../components/ui/NumberInput';

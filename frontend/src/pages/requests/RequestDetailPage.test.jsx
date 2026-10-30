@@ -3,12 +3,12 @@ import { screen, within } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestDetailPage from './RequestDetailPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 
 // SYSPCC-026 — el detalle del RQ muestra el Área del RQ y, por ítem, la Fuente
 // y el vínculo con el catálogo (o "Fuera de catálogo" / "Sin vincular").
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 // SYSPCC-030: el detalle incluye el seguimiento por ítem; aquí no es el objeto de la prueba.
 vi.mock('../../api/requestMaster', () => ({

@@ -3,7 +3,7 @@ import { screen, within, fireEvent, configure } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestCreatePage from './RequestCreatePage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as coreApi from '../../api/core';
 import * as requestsApi from '../../api/requests';
 import * as exportRQ from '../../utils/exportRQ';
@@ -17,7 +17,7 @@ configure({ asyncUtilTimeout: 4000 });
 // the backend (and the proxy in front of it) really give. The tests of the pure helpers are in
 // utils/requestCapture.serverErrors.test.js and utils/apiErrors.test.js; these show that the
 // message reaches the screen, in the error summary for a 400 and in a toast otherwise.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/core');
 vi.mock('../../api/requests');
 vi.mock('../../utils/exportRQ');

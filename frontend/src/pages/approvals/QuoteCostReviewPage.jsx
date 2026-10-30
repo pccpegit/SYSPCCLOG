@@ -10,7 +10,7 @@ import {
   Calendar,
   TrendingUp,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import { getProject } from '../../api/core';
 import { getQuotations } from '../../api/suppliers';
@@ -18,7 +18,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import ApprovalChain from '../../components/requests/ApprovalChain';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 function formatCurrency(val) {
   if (!val && val !== 0) return 'S/ 0';
@@ -153,7 +153,6 @@ export default function QuoteCostReviewPage() {
   );
 
   const rqNumber = req.rq_number ?? req.rqNumber;
-  const items = req.items ?? [];
   const totalBudget = project?.total_budget ?? 0;
   const quotationAmount = selectedQuotation ? Number(selectedQuotation.total_amount) : 0;
   const budgetPct = totalBudget > 0 ? ((quotationAmount / totalBudget) * 100).toFixed(2) : null;

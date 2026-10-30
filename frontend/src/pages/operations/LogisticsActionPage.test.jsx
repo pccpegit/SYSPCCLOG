@@ -5,14 +5,14 @@ import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import LogisticsActionPage from './LogisticsActionPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as suppliersApi from '../../api/suppliers';
 
 // SYSPCC-026 — verificación de stock del Coordinador Logístico: disponibilidad
 // real por ítem, vínculo con el catálogo, aborto si update-items falla y aviso
 // (sin bloqueo) cuando se marca stock para un ítem que el almacén no cubre.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/suppliers');
 

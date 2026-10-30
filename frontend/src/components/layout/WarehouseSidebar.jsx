@@ -14,7 +14,7 @@ import {
   Warehouse,
   Settings,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { COUNTER_ROLES, IMPORT_ROLES } from '../../data/almacenRoles';
 
 // `roles` (opcional) oculta el enlace a quien no tiene ninguno de esos roles.

@@ -4,9 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import WarehouseSidebar from './WarehouseSidebar';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 // SYSPCC-025 · QA ronda 2 — navegación del menú de almacén: enlace activo, cierre en móvil y salidas del módulo.
 

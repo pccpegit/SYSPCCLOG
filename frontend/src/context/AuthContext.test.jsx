@@ -21,7 +21,9 @@ describe('AuthContext — CSRF bootstrap integration', () => {
     authApi.bootstrapCsrf.mockResolvedValue({});
     authApi.getMe.mockRejectedValue({ response: { status: 401 } });
 
-    const { AuthProvider, useAuth } = await import('./AuthContext');
+    const { AuthProvider } = await import('./AuthContext');
+
+    const { useAuth } = await import('./useAuth');
     const { result } = renderHook(() => useAuth(), {
       wrapper: ({ children }) => <AuthProvider>{children}</AuthProvider>,
     });
@@ -48,7 +50,9 @@ describe('AuthContext — CSRF bootstrap integration', () => {
       return { data: { user: { id: 1, username: 'demo', roles: [] } } };
     });
 
-    const { AuthProvider, useAuth } = await import('./AuthContext');
+    const { AuthProvider } = await import('./AuthContext');
+
+    const { useAuth } = await import('./useAuth');
     const { result } = renderHook(() => useAuth(), {
       wrapper: ({ children }) => <AuthProvider>{children}</AuthProvider>,
     });
@@ -87,7 +91,8 @@ describe('AuthContext — restauración de sesión con refresh (SYSPCC-034)', ()
 
   async function mountProvider(authApi) {
     authApi.bootstrapCsrf.mockResolvedValue({});
-    const { AuthProvider, useAuth } = await import('./AuthContext');
+    const { AuthProvider } = await import('./AuthContext');
+    const { useAuth } = await import('./useAuth');
     const hook = renderHook(() => useAuth(), {
       wrapper: ({ children }) => <AuthProvider>{children}</AuthProvider>,
     });
@@ -120,7 +125,9 @@ describe('AuthContext — restauración de sesión con refresh (SYSPCC-034)', ()
       order.push('refresh');
     });
 
-    const { AuthProvider, useAuth } = await import('./AuthContext');
+    const { AuthProvider } = await import('./AuthContext');
+
+    const { useAuth } = await import('./useAuth');
     const { result } = renderHook(() => useAuth(), {
       wrapper: ({ children }) => <AuthProvider>{children}</AuthProvider>,
     });

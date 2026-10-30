@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Plus, Trash2, ArrowLeft, Save, Send, AlertCircle, Download } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { getProjects, getDepartments } from '../../api/core';
 import { createRequest, createDraft, getRequest, submitDraft, updateRequest } from '../../api/requests';
 import { exportRQToExcel } from '../../utils/exportRQ';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { isOficinaCentral } from '../../data/constants';
 import { ITEM_SOURCES, MAX_REQUEST_ITEMS, REQUESTING_AREAS, RFI_FWO_MAX_LENGTH, itemSourceLabel } from '../../data/requestCapture';
 import { extractFieldErrors } from '../../utils/apiErrors';
@@ -259,6 +259,8 @@ export default function RequestCreatePage() {
       }
     };
     fetchData();
+    // Solo al montar: recargar al cambiar el usuario o el borrador pisaría lo que ya escribió quien captura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reopen a saved draft: the form is filled with what the server kept.
@@ -300,6 +302,9 @@ export default function RequestCreatePage() {
       }
     })();
     return () => { cancelled = true; };
+    // Solo debe recargar cuando cambia el borrador de la ruta; navigate/showToast/userDepartmentId
+    // no pueden disparar una nueva lectura del borrador.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeDraftId]);
 
   const selectedProject = destType === 'project' ? projects.find((p) => p.id === destId) : null;

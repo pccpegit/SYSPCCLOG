@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, configure } from '@testing-library/react';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestCreatePage from './RequestCreatePage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as coreApi from '../../api/core';
 import * as requestsApi from '../../api/requests';
 import * as exportRQ from '../../utils/exportRQ';
@@ -19,7 +19,7 @@ vi.mock('../../data/requestCapture', async (importOriginal) => ({
   ...(await importOriginal()),
   MAX_REQUEST_ITEMS: 8,
 }));
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/core');
 vi.mock('../../api/requests');
 vi.mock('../../utils/exportRQ');

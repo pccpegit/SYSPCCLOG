@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import SuperUserRoute from './SuperUserRoute';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
 // SYSPCC-018 (rediseño) — SuperUserRoute ahora gatea el módulo separado
 // /sistema completo (Usuarios + Proyectos viven bajo un único shell,
@@ -13,7 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 // ya no cuelga de /admin. `useAuth` se mockea directo (no el AuthProvider
 // real) para poder variar `isLoading`/`isAuthenticated`/`isSuperUser` por
 // caso sin tocar el bootstrap CSRF/getMe real.
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 

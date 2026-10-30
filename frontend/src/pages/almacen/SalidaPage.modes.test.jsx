@@ -5,11 +5,11 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import { exactItem, makeItem } from '../../test/almacenFixtures';
 import { addDaysISO, localISODate } from '../../utils/almacen';
 import SalidaPage from './SalidaPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 // SYSPCC-025 · QA ronda 2 — egresos que no son entregas de EPP (proyecto, departamento, ajuste), fechas atrasadas,
 // stock en cero y el resultado con uno o varios ítems.

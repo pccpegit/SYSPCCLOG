@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import HRDialog from '../rrhh/HRDialog';
 import { createInventoryItem, getLocationLayout, patchInventoryItem } from '../../api/almacen';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import useFocusFirstInvalid from '../../hooks/useFocusFirstInvalid';
 import { extractErrorMessage, extractFieldErrors } from '../../utils/apiErrors';
 import { FLOOR_OPTIONS, ITEM_TYPES } from '../../data/almacenConstants';

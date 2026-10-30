@@ -217,7 +217,7 @@ describe('loadStoredTheme', () => {
     // Spy on the live `localStorage` instance directly rather than
     // `Storage.prototype` — robust whether the test environment is using a
     // real jsdom Storage or the in-memory polyfill from test/setup.js.
-    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(localStorage), 'getItem').mockImplementation(() => {
       throw new DOMException('acceso denegado');
     });
     expect(() => loadStoredTheme()).not.toThrow();
@@ -239,7 +239,7 @@ describe('saveStoredTheme', () => {
   });
 
   it('devuelve false y no lanza si localStorage.setItem falla (ej. cuota excedida)', () => {
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(localStorage), 'setItem').mockImplementation(() => {
       throw new DOMException('QuotaExceededError');
     });
 

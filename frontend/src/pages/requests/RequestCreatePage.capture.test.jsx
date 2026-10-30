@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import RequestCreatePage from './RequestCreatePage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as coreApi from '../../api/core';
 import * as requestsApi from '../../api/requests';
 import * as exportRQ from '../../utils/exportRQ';
@@ -17,7 +17,7 @@ configure({ asyncUtilTimeout: 4000 });
 // SYSPCC-026 (QA ronda 1) — complements RequestCreatePage.test.jsx: rows added/removed, the
 // way back from "fuera de catálogo", failures of the server and of the catalog, what is NOT sent,
 // and the exit after a successful submit.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/core');
 vi.mock('../../api/requests');
 vi.mock('../../utils/exportRQ');

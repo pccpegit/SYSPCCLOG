@@ -218,7 +218,8 @@ class TestConfirmEndpoint:
         assert confirm(client, preview, destination_map={key: person.pk}).status_code == 200
         assert InventoryMovement.objects.filter(destination_personal=person).count() == 1
 
-    @pytest.mark.parametrize('bad_id', [str(uuid.uuid4()), 'z' * 36, '1234'])
+    # Fixed UUID (not uuid4()): test IDs must be identical in every pytest-xdist worker.
+    @pytest.mark.parametrize('bad_id', ['00000000-0000-4000-8000-000000000000', 'z' * 36, '1234'])
     def test_unknown_or_malformed_ids_are_404(self, client, bad_id):
         assert client.get(f'{API}{bad_id}/').status_code == 404
         assert client.post(f'{API}{bad_id}/confirm/', {'expected_plan_digest': 'x'}, format='json').status_code == 404

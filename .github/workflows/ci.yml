@@ -21,7 +21,7 @@ jobs:
   backend-tests:
     name: backend-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -86,8 +86,11 @@ jobs:
       - name: Migraciones pendientes
         run: python manage.py makemigrations --check --dry-run
 
+      # En paralelo (pytest-xdist, un proceso por vCPU del runner): en serie la
+      # suite pasa de 30 min. --dist loadfile mantiene juntos los tests de un
+      # mismo archivo; cada worker usa su propia BD de test y de caché (ci.py).
       - name: Pytest (PostgreSQL 16)
-        run: pytest -q -p no:cacheprovider --junitxml=pytest-report.xml
+        run: pytest -n auto --dist loadfile -q -p no:cacheprovider --junitxml=pytest-report.xml
 
       - name: Subir reporte de pytest
         if: failure()

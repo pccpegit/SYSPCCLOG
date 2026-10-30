@@ -70,7 +70,7 @@ Services in `docker-compose.yml`: `redis`, `backend` (runserver, SQLite in the `
 ## Architecture
 
 ### Backend (`backend/`)
-- **Settings split:** `config/settings/{base,development,production,demo}.py` (`demo` inherits from `production`); `config/settings/guards.py` holds pure startup checks
+- **Settings split:** `config/settings/{base,development,production}.py` (production runs only on DigitalOcean App Platform: spec `.do/app.yaml`, `backend/scripts/do-start.sh` / `do-predeploy.sh`, guide `docs/08_Guia_Despliegue_DigitalOcean.md`); `config/settings/guards.py` holds pure startup checks
 - **Django apps (`INSTALLED_APPS`):** `core` (users/roles, auth, projects, departments + annual plans, personal), `rq` (requests, approvals, suppliers, quotations, POs, claims, notifications, workflow), `warehouse` (inventory catalog, movements/kardex, receipts, dispatch, EPP deliveries, Excel import), `administracion` (pasajes), `support` (IT tickets), `hr` (RR. HH.: contract generator from Word templates + bulk CV analysis)
 - **Models** live in `apps/<app>/models/` with `__init__.py` re-exports, one file per entity (`core`, `rq`, `warehouse`, `hr`); `administracion` and `support` use a single `models.py`
 - **Services** hold business logic out of views: `apps/<app>/services/` (`core`, `rq`, `warehouse`, `hr`) or `services.py` (`administracion`, `support`). `WorkflowEngine` (`apps/rq/services/workflow_engine.py`) is the central state-machine orchestrator for request lifecycle transitions: `RQStatusChoices` has 47 values (10 of them are not used by any transition), `ApprovalActionChoices` 37, `TRANSITIONS` 71 entries, 5 phases per flow

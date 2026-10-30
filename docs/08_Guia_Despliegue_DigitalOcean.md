@@ -6,7 +6,7 @@ Esta guía explica cómo publicar SYSPCC en **DigitalOcean App Platform** usando
 
 > **Estado actual:** el código y el spec están preparados para la **opción Optimizada** (US$97.15 al mes), pero **no se creó ningún recurso en DigitalOcean**. Nada de lo que está aquí se cobra hasta que ejecutes el Paso 9. El spec ya cubre todo lo agregado hasta SYSPCC-032 (almacén con importación del libro, vínculo RQ↔catálogo, despacho real, entregas parciales, Master de RQ, borradores, egresos sin destino, análisis de CVs).
 
-Complementa a `docs/05_Guia_Despliegue_y_Produccion.md` (servidor propio con Nginx) y a `docs/07_Guia_Demo_Supabase_Vercel.md` (demo gratuita). No reemplaza a ninguna: la demo de Render/Vercel sigue funcionando igual.
+Complementa a `docs/05_Guia_Despliegue_y_Produccion.md` (servidor propio con Nginx). Es el único entorno de producción desplegado: la demo gratuita de Render + Supabase + Vercel (SYSPCC-021) se retiró del repositorio en SYSPCC-039.
 
 ---
 
@@ -706,12 +706,12 @@ Los tres deben estar sin recursos de SYSPCC.
 
 ## Variables de entorno
 
-Todas son opcionales para Docker local y la demo de Render (sin ellas su comportamiento no cambia); el spec de DigitalOcean fija las que se marcan. Están documentadas en `backend/.env.example`.
+Todas son opcionales para Docker local (sin ellas su comportamiento no cambia); el spec de DigitalOcean fija las que se marcan. Están documentadas en `backend/.env.example`.
 
 | Variable | Para qué | Valor en DO |
 |---|---|---|
 | `TRUST_DO_CONNECTING_IP` | Usar `do-connecting-ip` como IP del cliente y `NUM_PROXIES=0` | `True` |
-| `NUM_PROXIES` | Saltos de proxy confiables para `X-Forwarded-For` (Render usa 1) | no definir |
+| `NUM_PROXIES` | Saltos de proxy confiables para `X-Forwarded-For` (solo aplica si `TRUST_DO_CONNECTING_IP` está apagado) | no definir |
 | `DB_CONN_MAX_AGE` | Conexiones persistentes a PostgreSQL (segundos); por defecto 0 | `60` |
 | `AWS_STORAGE_BUCKET_NAME` | Activa Spaces para media; vacío = disco local | `syspcc-media` |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Llave de Spaces | secretos |
@@ -730,7 +730,7 @@ Todas son opcionales para Docker local y la demo de Render (sin ellas su comport
 | `GUNICORN_TIMEOUT` | Segundos máximos por petición (importación del libro, LibreOffice); por defecto 120 | `120` |
 | `GUNICORN_MAX_REQUESTS` / `GUNICORN_MAX_REQUESTS_JITTER` | Reciclar cada proceso tras N peticiones (+ variación); por defecto 1000 y 100 | por defecto |
 | `HR_CV_PROVIDER` | `anthropic` (real). `fake` está prohibido en producción: el backend no arranca | `anthropic` |
-| `HR_CV_DISPATCH` | `celery` (cola `hr_cv`, la consume `worker`) / `thread` (demo sin worker) | `celery` |
+| `HR_CV_DISPATCH` | `celery` (cola `hr_cv`, la consume `worker`) / `thread` (sin worker, hilos en el proceso web) | `celery` |
 | `ONEDRIVE_CLIENT_ID` / `ONEDRIVE_TENANT` / `ONEDRIVE_SHARE_SCOPE` | Integración OneDrive del almacén (opcionales) | desde `.env.do` si se usan |
 | `EMAIL_BACKEND` | Backend de correo explícito; si no, SMTP solo con `EMAIL_HOST_PASSWORD` y consola si no | no definir |
 

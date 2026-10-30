@@ -84,7 +84,7 @@ class _CatalogIndex:
         self.by_code = defaultdict(list)
         self.by_description = defaultdict(list)
         # Sin `.iterator()`: en PostgreSQL abre un cursor del lado del servidor, que no
-        # funciona detrás de un pooler en modo transacción (Supabase) y aquí no ahorra nada,
+        # funciona detrás de un pooler en modo transacción (el pool de DigitalOcean) y aquí no ahorra nada,
         # porque el catálogo se indexa completo en memoria de todas formas.
         for inv in Inventory.objects.only('id', 'product_code', 'description', 'unit'):
             code = normalize_text(inv.product_code)

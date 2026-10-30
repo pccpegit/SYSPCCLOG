@@ -130,10 +130,8 @@ backend/
 │   │   ├── base.py              # configuración común
 │   │   ├── development.py       # DEBUG, SQLite, CORS abierto
 │   │   ├── production.py        # PostgreSQL con SSL, HSTS, WhiteNoise
-│   │   ├── demo.py              # hereda de production (sin Redis ni worker)
 │   │   └── guards.py            # validaciones de arranque (proveedor de CVs)
 │   ├── urls.py                  # /api/v1/, /mgmt-panel/, /api/docs/
-│   ├── urls_demo.py
 │   ├── celery.py
 │   ├── wsgi.py
 │   └── asgi.py
@@ -1084,7 +1082,7 @@ graph TB
     W --> RES
 ```
 
-Las notificaciones de las transiciones del RQ, de SLA y de recordatorios son notificaciones dentro de la aplicación (modelo `Notification`); el único correo que envía el sistema es la alerta de stock bajo. En el entorno `demo` no hay worker ni Beat: Celery corre en modo eager y las tareas programadas no se ejecutan.
+Las notificaciones de las transiciones del RQ, de SLA y de recordatorios son notificaciones dentro de la aplicación (modelo `Notification`); el único correo que envía el sistema es la alerta de stock bajo.
 
 ### 7.2 Configuración de Celery
 
@@ -1143,7 +1141,6 @@ La API no cachea listados ni consultas generales. Lo que existe es:
 - **Rate limiting**: los contadores de DRF viven en la caché indicada por `THROTTLE_CACHE_ALIAS`. Si se activa `DJANGO_REDIS_IGNORE_EXCEPTIONS`, producción los mueve a una caché local de proceso para que los límites no desaparezcan con una caída de Redis.
 - **Tipo de cambio**: `GET /administracion/tipo-cambio/` guarda la respuesta del servicio externo por 4 horas.
 - **Ayudantes de `apps/rq/cache.py`**: funciones para cachear los pasos del workflow y la configuración de tipos de adquisición (TTL de 1 hora) y para invalidar las claves `dashboard_stats:*`. Hoy solo se usa `safe_delete_pattern`, desde la tarea `rq.invalidate_dashboard_caches`; no hay llamadores de lectura/escritura de esas claves en vistas o servicios.
-- **Entorno demo**: la caché es `LocMemCache` (por proceso), sin Redis.
 
 ---
 

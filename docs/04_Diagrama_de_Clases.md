@@ -1255,7 +1255,7 @@ classDiagram
 graph TB
     subgraph "Backend (Django)"
         subgraph "config"
-            SETTINGS["settings/<br/>base.py<br/>development.py<br/>production.py<br/>demo.py"]
+            SETTINGS["settings/<br/>base.py<br/>development.py<br/>production.py"]
             URLS["urls.py"]
             CELERYCONF["celery.py"]
             WSGI["wsgi.py"]

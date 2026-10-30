@@ -146,7 +146,6 @@ SYSPCCLOG/
 │   │   │   ├── base.py
 │   │   │   ├── development.py
 │   │   │   ├── production.py
-│   │   │   ├── demo.py
 │   │   │   └── guards.py
 │   │   ├── urls.py
 │   │   └── celery.py

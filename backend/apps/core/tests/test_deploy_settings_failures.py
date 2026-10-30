@@ -15,23 +15,8 @@ import textwrap
 import pytest
 
 from apps.core.tests.test_deploy_settings import (
-    BACKEND_DIR, BASE_ENV, DEMO, FOOTER, HEADER, PROD, attrs, load,
+    BACKEND_DIR, BASE_ENV, FOOTER, HEADER, PROD, attrs, load,
 )
-
-# Entorno que Render inyecta a la demo (render.yaml): modulo demo, DJANGO_ENV=demo
-# y SOLO las variables listadas alli (sin AWS_*, sin REDIS_*, sin TRUST_DO_*).
-RENDER_ENV = {
-    'DJANGO_ENV': 'demo',
-    'SECRET_KEY': 'render-generated-secret',
-    'DB_NAME': 'postgres',
-    'DB_USER': 'postgres.abcdefgh',
-    'DB_PASSWORD': 'pooler-pw',
-    'DB_HOST': 'aws-0-us-east-2.pooler.supabase.com',
-    'DB_PORT': '5432',
-    'ALLOWED_HOSTS': 'syspcc-demo-backend.onrender.com',
-    'CSRF_TRUSTED_ORIGINS': 'https://syspcc-demo.vercel.app',
-}
-
 
 def run(module, env, probe='', *, base=None):
     """Like test_deploy_settings.load but returns the CompletedProcess (no assert)."""
@@ -76,66 +61,6 @@ class TestMissingEnvironment:
         out = result_of(run(PROD, env, probe=attrs('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_S3_ENDPOINT_URL')))
 
         assert out == {'AWS_ACCESS_KEY_ID': None, 'AWS_SECRET_ACCESS_KEY': None, 'AWS_S3_ENDPOINT_URL': None}
-
-
-class TestRenderDemoStillLoads:
-    """La demo Render hereda production.py: el entorno de Render no puede romperla."""
-
-    def test_demo_with_render_env_keeps_its_behaviour(self):
-        out = result_of(run(DEMO, RENDER_ENV, probe=attrs(
-            'DEBUG', 'MIDDLEWARE', 'STORAGES', 'REST_FRAMEWORK', 'EMAIL_BACKEND', 'ROOT_URLCONF',
-            'CELERY_TASK_ALWAYS_EAGER', 'SECURE_PROXY_SSL_HEADER', 'SECURE_SSL_REDIRECT',
-            'CELERY_BROKER_USE_SSL', 'DJANGO_ENV',
-        ) + '\nfrom decouple import config\nout["DB"] = module.DATABASES["default"]["HOST"]'))
-
-        assert out['DEBUG'] is False
-        assert out['CELERY_TASK_ALWAYS_EAGER'] is True
-        assert out['EMAIL_BACKEND'].endswith('console.EmailBackend')
-        assert out['ROOT_URLCONF'] == 'config.urls_demo'
-        assert out['REST_FRAMEWORK']['NUM_PROXIES'] == 1
-        assert out['SECURE_PROXY_SSL_HEADER'] == ['HTTP_X_FORWARDED_PROTO', 'https']
-        assert out['SECURE_SSL_REDIRECT'] is True
-        assert out['STORAGES']['default'] == {'BACKEND': 'django.core.files.storage.FileSystemStorage'}
-        assert out['CELERY_BROKER_USE_SSL'] is None
-        assert out['DB'] == 'aws-0-us-east-2.pooler.supabase.com'
-
-    def test_demo_middleware_order_has_health_first_and_whitenoise_once(self):
-        out = result_of(run(DEMO, RENDER_ENV, probe=attrs('MIDDLEWARE')))
-        mw = out['MIDDLEWARE']
-
-        assert mw[0] == 'apps.core.middleware.HealthCheckMiddleware'
-        assert mw.count('whitenoise.middleware.WhiteNoiseMiddleware') == 1
-        assert mw.index('whitenoise.middleware.WhiteNoiseMiddleware') == (
-            mw.index('django.middleware.security.SecurityMiddleware') + 1
-        )
-        assert 'apps.core.middleware.DOConnectingIPMiddleware' not in mw
-
-    def test_demo_keeps_db_conn_max_age_zero_for_supabase_pooler(self):
-        out = result_of(run(DEMO, RENDER_ENV, probe="out['age'] = module.DATABASES['default']['CONN_MAX_AGE']"))
-
-        assert out['age'] == 0
-
-    def test_demo_ignores_do_variables_that_leak_into_its_env(self):
-        # NUM_PROXIES de demo.py es fijo (1) aunque alguien defina TRUST_DO_CONNECTING_IP.
-        env = {**RENDER_ENV, 'TRUST_DO_CONNECTING_IP': 'True'}
-        out = result_of(run(DEMO, env, probe=attrs('REST_FRAMEWORK')))
-
-        assert out['REST_FRAMEWORK']['NUM_PROXIES'] == 1
-
-    def test_demo_setup_and_collectstatic_config_are_consistent(self):
-        out = result_of(run(DEMO, RENDER_ENV, probe='''
-            import django
-            django.setup()
-            from django.conf import settings
-            from django.core.files.storage import storages
-            out['static'] = type(storages['staticfiles']).__name__
-            out['media'] = type(storages['default']).__name__
-            out['static_root_set'] = bool(settings.STATIC_ROOT)
-        '''))
-
-        assert out['static'] == 'CompressedManifestStaticFilesStorage'
-        assert out['media'] == 'FileSystemStorage'
-        assert out['static_root_set'] is True
 
 
 class TestRedisTlsEdgeCases:
@@ -293,8 +218,8 @@ class TestStorageSelectionEdgeCases:
         assert 'HR_PRIVATE_BUCKET_NAME' in proc.stderr
 
     def test_hr_models_do_not_import_boto3_unless_s3_is_selected(self):
-        # django-storages/boto3 cost ~34 MB RSS; filesystem deployments (Render demo,
-        # local Docker) must not pay for them.
+        # django-storages/boto3 cost ~34 MB RSS; filesystem deployments (local
+        # Docker) must not pay for them.
         proc = run(PROD, {}, probe='''
             import django
             django.setup()

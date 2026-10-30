@@ -92,7 +92,7 @@ graph LR
 | anthropic | 1.11.0 | Asistente de RR. HH. y análisis de CVs |
 | pydantic | 2.13.5 | Salida estructurada del asistente |
 | pypdf | 6.19.0 | Validación de PDFs de CVs |
-| whitenoise | 6.8.2 | Archivos estáticos servidos por Django (Render / App Platform) |
+| whitenoise | 6.8.2 | Archivos estáticos servidos por Django (App Platform) |
 | django-storages[s3] | 1.14.4 | Media en almacenamiento S3 (opcional) |
 | boto3 | 1.35.99 | Cliente S3 |
 | pytest | 8.3.4 | Testing |

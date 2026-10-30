@@ -27,7 +27,7 @@ En producción el backend corre con Gunicorn (no `runserver`) sobre PostgreSQL.
 Tareas programadas (`CELERY_BEAT_SCHEDULE`, TZ Lima): SLA 8 AM, recordatorios de aprobación 9 AM/2 PM, invalidación de cache cada 15 min, low-stock 7:30 AM, purga de importaciones vencidas del almacén 3 AM, reencolado de CVs atascados cada 5 min (cola `hr_cv`). Verifica que los workers **y** beat estén corriendo o no se ejecutan.
 
 ## Entornos / settings
-- `DJANGO_SETTINGS_MODULE=config.settings.production` en prod (dev usa `.development`).
+- `DJANGO_SETTINGS_MODULE=config.settings.production` en prod (dev usa `.development`). Producción vive **solo** en DigitalOcean App Platform: spec `.do/app.yaml`, arranque `backend/scripts/do-start.sh`, migraciones en el job PRE_DEPLOY `backend/scripts/do-predeploy.sh`, guía `docs/08_Guia_Despliegue_DigitalOcean.md`. La demo de capa gratuita (Render + Supabase + Vercel, SYSPCC-021) fue retirada en SYSPCC-039.
 - Variables **solo** por entorno (`.env.docker`, secrets del orquestador), nunca en la imagen ni en git.
 - Prod: `DEBUG=False`, `ALLOWED_HOSTS` real, Postgres, flags de seguridad (ver skill `seguridad-owasp`).
 

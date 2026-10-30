@@ -478,7 +478,7 @@ Browser ──▶ Vite dev server :5173 (SPA)
    │            └── proxy /api y /media ──▶ Django runserver :8000
    └── /api/v1/* (VITE_API_URL) ─────────▶ Django runserver :8000 ──▶ SQLite / PostgreSQL
 
-Producción (scripts/do-start.sh, scripts/render-start.sh):
+Producción (scripts/do-start.sh):
 Browser ──▶ SPA compilada (npm run build)
    └── /api/v1/* ──▶ Gunicorn (config.wsgi) ──▶ PostgreSQL
                      WhiteNoise sirve /static/ desde el contenedor
@@ -1666,7 +1666,7 @@ celery -A config beat -l info --scheduler django_celery_beat.schedulers:Database
 
 # 6. Manual de Producción
 
-> **Alcance de esta sección.** Es una referencia para una instalación manual en un servidor propio (VPS con Nginx, Gunicorn y systemd). El repositorio no incluye configuración de Nginx ni unidades systemd: sus archivos de despliegue son `.do/app.yaml` (DigitalOcean App Platform, guía `08_Guia_Despliegue_DigitalOcean.md`) y `render.yaml` + `frontend/vercel.json` (demo, guía `07_Guia_Demo_Supabase_Vercel.md`). `config/settings/production.py` sirve `/static/` con WhiteNoise y espera que el TLS termine en un proxy (`SECURE_PROXY_SSL_HEADER`).
+> **Alcance de esta sección.** Es una referencia para una instalación manual en un servidor propio (VPS con Nginx, Gunicorn y systemd). El repositorio no incluye configuración de Nginx ni unidades systemd: su archivo de despliegue es `.do/app.yaml` (DigitalOcean App Platform, guía `08_Guia_Despliegue_DigitalOcean.md`). `config/settings/production.py` sirve `/static/` con WhiteNoise y espera que el TLS termine en un proxy (`SECURE_PROXY_SSL_HEADER`).
 
 ## 6.1 Arquitectura de Despliegue en Producción
 

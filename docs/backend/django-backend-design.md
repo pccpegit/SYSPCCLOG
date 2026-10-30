@@ -21,7 +21,6 @@ backend/
 │   │   ├── base.py                # común a todos los entornos
 │   │   ├── development.py         # DEBUG=True, CORS abierto, throttles altos
 │   │   ├── production.py          # PostgreSQL, HSTS, cookies seguras, WhiteNoise, S3 opcional
-│   │   ├── demo.py                # hereda de production (demo en capa gratuita)
 │   │   └── guards.py              # valida HR_CV_PROVIDER
 │   ├── urls.py                    # /mgmt-panel/, /api/v1/, /api/schema|docs|redoc/
 │   ├── celery.py

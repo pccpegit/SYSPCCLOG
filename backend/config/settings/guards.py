@@ -2,8 +2,8 @@
 
 SYSPCC-023 iteration 2: the simulated CV provider ("modo de prueba gratis")
 returns made-up reports. It must never run where real decisions are taken, so
-`fake` is refused unless DEBUG is on. production.py (and demo.py, which imports
-it) call this with DEBUG=False, so there `fake` always fails to boot.
+`fake` is refused unless DEBUG is on. production.py calls this with
+DEBUG=False, so there `fake` always fails to boot.
 """
 
 from django.core.exceptions import ImproperlyConfigured
@@ -23,5 +23,5 @@ def validate_cv_provider(provider: str, debug: bool) -> str:
     if provider == 'fake' and not debug:
         raise ImproperlyConfigured(
             'HR_CV_PROVIDER=fake (modo de prueba) solo se permite con DEBUG=True. '
-            'No se puede usar en producción ni en la demo desplegada.')
+            'No se puede usar en producción.')
     return provider

@@ -1,6 +1,6 @@
-// `??` (not `||`) so an explicitly empty string survives: Vercel demo sets
-// VITE_API_URL=/api/v1/ and VITE_BACKEND_URL='' for same-origin relative
-// URLs through the vercel.json proxy. Vite env vars are always string or
+// `??` (not `||`) so an explicitly empty string survives: the DigitalOcean
+// static site sets VITE_API_URL=/api/v1/ and VITE_BACKEND_URL='' for same-origin
+// relative URLs (SPA and API share the origin; see .do/app.yaml). Vite env vars are always string or
 // undefined, so `??` only falls back when the var is unset — local dev
 // behavior (no .env override) is unchanged.
 export const API_BASE_URL =

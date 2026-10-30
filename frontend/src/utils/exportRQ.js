@@ -1,6 +1,5 @@
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
-
+// SYSPCC-036: exceljs (~1 MB) and file-saver are loaded with import() only when
+// the user exports, so they stay out of the initial bundle.
 /**
  * Downloads the official RQ Excel template filled with form data.
  *
@@ -45,6 +44,14 @@ function calcXAtender(item) {
 }
 
 export async function exportRQToExcel({ form, items, currentUser, rqNumber }) {
+  const [excelModule, fileSaverModule] = await Promise.all([
+    import('exceljs'),
+    import('file-saver'),
+  ]);
+  // exceljs is CommonJS: the class may come as `default` or as the namespace itself.
+  const ExcelJS = excelModule.default ?? excelModule;
+  const saveAs = fileSaverModule.saveAs ?? fileSaverModule.default?.saveAs;
+
   // Fetch the template
   const response = await fetch('/excel/FORMATO_RQ.xlsx');
   const arrayBuffer = await response.arrayBuffer();

@@ -1,67 +1,86 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { ThemeProvider } from './context/ThemeContext';
-import AppShell from './components/layout/AppShell';
-import WarehouseShell from './components/layout/WarehouseShell';
-import AdminShell from './components/layout/AdminShell';
-import SupportShell from './components/layout/SupportShell';
-import SupportDashboardPage from './pages/support/SupportDashboardPage';
-import TicketCreatePage from './pages/support/TicketCreatePage';
-import TicketListPage from './pages/support/TicketListPage';
-import TicketDetailPage from './pages/support/TicketDetailPage';
-import AdminMenuPage      from './pages/admin/AdminMenuPage';
-import AdminDashboardPage from './pages/admin/AdminDashboardPage';
-import PasajesPage        from './pages/admin/PasajesPage';
-import PagosPage          from './pages/admin/PagosPage';
-import PoliticasPage      from './pages/admin/PoliticasPage';
-import ProveedoresPage    from './pages/admin/ProveedoresPage';
-import HRShell from './components/layout/HRShell';
-import HRDocumentsListPage from './pages/rrhh/HRDocumentsListPage';
-import HRDocumentCreatePage from './pages/rrhh/HRDocumentCreatePage';
-import HRDocumentDetailPage from './pages/rrhh/HRDocumentDetailPage';
-import HRTemplatesPage from './pages/rrhh/HRTemplatesPage';
-import HRCVAnalysesListPage from './pages/rrhh/HRCVAnalysesListPage';
-import HRCVWizardPage from './pages/rrhh/HRCVWizardPage';
-import HRCVAnalysisPage from './pages/rrhh/HRCVAnalysisPage';
-import SystemAdminShell   from './components/layout/SystemAdminShell';
-import UsersPage          from './pages/sistema/UsersPage';
-import UserFormPage       from './pages/sistema/UserFormPage';
-import ProjectsPage       from './pages/sistema/ProjectsPage';
-import ProjectFormPage    from './pages/sistema/ProjectFormPage';
+import ErrorBoundary from './components/ui/ErrorBoundary';
+import PageLoader from './components/ui/PageLoader';
 import RoleRoute from './components/auth/RoleRoute';
 import SuperUserRoute from './components/auth/SuperUserRoute';
 import RequirePasswordChangeLayout from './components/auth/RequirePasswordChangeLayout';
-import ChangePasswordRequiredPage from './pages/auth/ChangePasswordRequiredPage';
-import AlmacenDashboardPage from './pages/almacen/AlmacenDashboardPage';
-import InventarioPage       from './pages/almacen/InventarioPage';
-import KardexPage           from './pages/almacen/KardexPage';
-import EntradaPage          from './pages/almacen/EntradaPage';
-import SalidaPage           from './pages/almacen/SalidaPage';
-import VoucherPrint         from './pages/almacen/VoucherPrint';
-import MovimientosPage      from './pages/almacen/MovimientosPage';
-import PendientesPage       from './pages/almacen/PendientesPage';
-import PickingPage          from './pages/almacen/PickingPage';
-import ResumenPage          from './pages/almacen/ResumenPage';
-import TransferenciaPage    from './pages/almacen/TransferenciaPage';
-import ImportarPage         from './pages/almacen/ImportarPage';
 import LoginPage           from './pages/auth/LoginPage';
 import SystemSelectPage    from './pages/auth/SystemSelectPage';
-import DashboardPage       from './pages/dashboard/DashboardPage';
-import RequestCreatePage   from './pages/requests/RequestCreatePage';
-import RequestListPage     from './pages/requests/RequestListPage';
-import RequestDetailPage   from './pages/requests/RequestDetailPage';
-import RequestMasterPage   from './pages/requests/RequestMasterPage';
-import ApprovalsPage       from './pages/approvals/ApprovalsPage';
-import TechReviewPage      from './pages/approvals/TechReviewPage';
-import BudgetReviewPage    from './pages/approvals/BudgetReviewPage';
-import ManagerApprovalPage from './pages/approvals/ManagerApprovalPage';
-import QuoteCostReviewPage from './pages/approvals/QuoteCostReviewPage';
-import CostOverrunReviewPage from './pages/approvals/CostOverrunReviewPage';
-import LogisticsPage        from './pages/operations/LogisticsPage';
-import LogisticsActionPage  from './pages/operations/LogisticsActionPage';
-import ReportsPage         from './pages/reports/ReportsPage';
-import SettingsPage        from './pages/settings/SettingsPage';
+
+// SYSPCC-036 — every module/screen is loaded on demand (one chunk each), so the
+// bundle needed to paint /login and the module selector stays small. Kept eager:
+// login, selector, the route guards and the providers. Shells are lazy too; each
+// shell wraps its <Outlet /> in <RouteOutlet /> (Suspense + ErrorBoundary).
+const AppShell                   = lazy(() => import('./components/layout/AppShell'));
+const WarehouseShell             = lazy(() => import('./components/layout/WarehouseShell'));
+const AdminShell                 = lazy(() => import('./components/layout/AdminShell'));
+const SupportShell               = lazy(() => import('./components/layout/SupportShell'));
+const SupportDashboardPage       = lazy(() => import('./pages/support/SupportDashboardPage'));
+const TicketCreatePage           = lazy(() => import('./pages/support/TicketCreatePage'));
+const TicketListPage             = lazy(() => import('./pages/support/TicketListPage'));
+const TicketDetailPage           = lazy(() => import('./pages/support/TicketDetailPage'));
+const AdminMenuPage              = lazy(() => import('./pages/admin/AdminMenuPage'));
+const AdminDashboardPage         = lazy(() => import('./pages/admin/AdminDashboardPage'));
+const PasajesPage                = lazy(() => import('./pages/admin/PasajesPage'));
+const PagosPage                  = lazy(() => import('./pages/admin/PagosPage'));
+const PoliticasPage              = lazy(() => import('./pages/admin/PoliticasPage'));
+const ProveedoresPage            = lazy(() => import('./pages/admin/ProveedoresPage'));
+const HRShell                    = lazy(() => import('./components/layout/HRShell'));
+const HRDocumentsListPage        = lazy(() => import('./pages/rrhh/HRDocumentsListPage'));
+const HRDocumentCreatePage       = lazy(() => import('./pages/rrhh/HRDocumentCreatePage'));
+const HRDocumentDetailPage       = lazy(() => import('./pages/rrhh/HRDocumentDetailPage'));
+const HRTemplatesPage            = lazy(() => import('./pages/rrhh/HRTemplatesPage'));
+const HRCVAnalysesListPage       = lazy(() => import('./pages/rrhh/HRCVAnalysesListPage'));
+const HRCVWizardPage             = lazy(() => import('./pages/rrhh/HRCVWizardPage'));
+const HRCVAnalysisPage           = lazy(() => import('./pages/rrhh/HRCVAnalysisPage'));
+const SystemAdminShell           = lazy(() => import('./components/layout/SystemAdminShell'));
+const UsersPage                  = lazy(() => import('./pages/sistema/UsersPage'));
+const UserFormPage               = lazy(() => import('./pages/sistema/UserFormPage'));
+const ProjectsPage               = lazy(() => import('./pages/sistema/ProjectsPage'));
+const ProjectFormPage            = lazy(() => import('./pages/sistema/ProjectFormPage'));
+const ChangePasswordRequiredPage = lazy(() => import('./pages/auth/ChangePasswordRequiredPage'));
+const AlmacenDashboardPage       = lazy(() => import('./pages/almacen/AlmacenDashboardPage'));
+const InventarioPage             = lazy(() => import('./pages/almacen/InventarioPage'));
+const KardexPage                 = lazy(() => import('./pages/almacen/KardexPage'));
+const EntradaPage                = lazy(() => import('./pages/almacen/EntradaPage'));
+const SalidaPage                 = lazy(() => import('./pages/almacen/SalidaPage'));
+const VoucherPrint               = lazy(() => import('./pages/almacen/VoucherPrint'));
+const MovimientosPage            = lazy(() => import('./pages/almacen/MovimientosPage'));
+const PendientesPage             = lazy(() => import('./pages/almacen/PendientesPage'));
+const PickingPage                = lazy(() => import('./pages/almacen/PickingPage'));
+const ResumenPage                = lazy(() => import('./pages/almacen/ResumenPage'));
+const TransferenciaPage          = lazy(() => import('./pages/almacen/TransferenciaPage'));
+const ImportarPage               = lazy(() => import('./pages/almacen/ImportarPage'));
+const DashboardPage              = lazy(() => import('./pages/dashboard/DashboardPage'));
+const RequestCreatePage          = lazy(() => import('./pages/requests/RequestCreatePage'));
+const RequestListPage            = lazy(() => import('./pages/requests/RequestListPage'));
+const RequestDetailPage          = lazy(() => import('./pages/requests/RequestDetailPage'));
+const RequestMasterPage          = lazy(() => import('./pages/requests/RequestMasterPage'));
+const ApprovalsPage              = lazy(() => import('./pages/approvals/ApprovalsPage'));
+const TechReviewPage             = lazy(() => import('./pages/approvals/TechReviewPage'));
+const BudgetReviewPage           = lazy(() => import('./pages/approvals/BudgetReviewPage'));
+const ManagerApprovalPage        = lazy(() => import('./pages/approvals/ManagerApprovalPage'));
+const QuoteCostReviewPage        = lazy(() => import('./pages/approvals/QuoteCostReviewPage'));
+const CostOverrunReviewPage      = lazy(() => import('./pages/approvals/CostOverrunReviewPage'));
+const LogisticsPage              = lazy(() => import('./pages/operations/LogisticsPage'));
+const LogisticsActionPage        = lazy(() => import('./pages/operations/LogisticsActionPage'));
+const ReportsPage                = lazy(() => import('./pages/reports/ReportsPage'));
+const SettingsPage               = lazy(() => import('./pages/settings/SettingsPage'));
+
+// Outermost boundary: covers the lazy shells (before any layout is on screen) and
+// recovers when the user navigates away from a screen that failed to load.
+function RoutesBoundary({ children }) {
+  const { pathname } = useLocation();
+  return (
+    <ErrorBoundary fullScreen resetKey={pathname}>
+      <Suspense fallback={<PageLoader fullScreen />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
+}
 
 export default function App() {
   return (
@@ -69,6 +88,7 @@ export default function App() {
     <ToastProvider>
     <AuthProvider>
       <BrowserRouter>
+        <RoutesBoundary>
         <Routes>
           {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
@@ -336,6 +356,7 @@ export default function App() {
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </RoutesBoundary>
       </BrowserRouter>
     </AuthProvider>
     </ToastProvider>

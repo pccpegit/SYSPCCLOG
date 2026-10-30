@@ -12,7 +12,7 @@ export default function LoginPage() {
   }, [authLoading, isAuthenticated, navigate]);
 
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('Demo2026Pcc!');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

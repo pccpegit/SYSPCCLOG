@@ -53,9 +53,9 @@ function visit(path, roles, { authenticated = true, loading = false } = {}) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('/almacen — acceso al módulo', () => {
-  it.each(WAREHOUSE_ROLES)('%s entra al tablero', (role) => {
+  it.each(WAREHOUSE_ROLES)('%s entra al tablero', async (role) => {
     visit('/almacen', [role]);
-    expect(screen.getByText('PANTALLA Tablero')).toBeInTheDocument();
+    expect(await screen.findByText('PANTALLA Tablero')).toBeInTheDocument();
   });
 
   it.each(OTHER_ROLES)('%s no entra: vuelve al selector de sistema', (role) => {
@@ -76,33 +76,33 @@ describe('/almacen — acceso al módulo', () => {
 });
 
 describe('/almacen/importar — solo Almacén Central y Jefatura de Logística', () => {
-  it.each(['CENTRAL_WAREHOUSE', 'LOGISTICS_CHIEF'])('%s ve la pantalla', (role) => {
+  it.each(['CENTRAL_WAREHOUSE', 'LOGISTICS_CHIEF'])('%s ve la pantalla', async (role) => {
     visit('/almacen/importar', [role]);
-    expect(screen.getByText('PANTALLA Importar')).toBeInTheDocument();
+    expect(await screen.findByText('PANTALLA Importar')).toBeInTheDocument();
   });
 
-  it.each(['SITE_WAREHOUSE', 'LOGISTICS_COORDINATOR', 'LOGISTICS_SUPERVISOR'])('%s vuelve al tablero', (role) => {
+  it.each(['SITE_WAREHOUSE', 'LOGISTICS_COORDINATOR', 'LOGISTICS_SUPERVISOR'])('%s vuelve al tablero', async (role) => {
     visit('/almacen/importar', [role]);
+    expect(await screen.findByText('PANTALLA Tablero')).toBeInTheDocument();
     expect(screen.queryByText('PANTALLA Importar')).not.toBeInTheDocument();
-    expect(screen.getByText('PANTALLA Tablero')).toBeInTheDocument();
   });
 
-  it('un usuario con varios roles entra si alguno lo permite', () => {
+  it('un usuario con varios roles entra si alguno lo permite', async () => {
     visit('/almacen/importar', ['SITE_WAREHOUSE', 'LOGISTICS_CHIEF']);
-    expect(screen.getByText('PANTALLA Importar')).toBeInTheDocument();
+    expect(await screen.findByText('PANTALLA Importar')).toBeInTheDocument();
   });
 });
 
 describe('/almacen/transferencia — solo Almacén Central y de Obra', () => {
-  it.each(['CENTRAL_WAREHOUSE', 'SITE_WAREHOUSE'])('%s ve la pantalla', (role) => {
+  it.each(['CENTRAL_WAREHOUSE', 'SITE_WAREHOUSE'])('%s ve la pantalla', async (role) => {
     visit('/almacen/transferencia', [role]);
-    expect(screen.getByText('PANTALLA Transferencia')).toBeInTheDocument();
+    expect(await screen.findByText('PANTALLA Transferencia')).toBeInTheDocument();
   });
 
-  it.each(['LOGISTICS_COORDINATOR', 'LOGISTICS_SUPERVISOR', 'LOGISTICS_CHIEF'])('%s vuelve al tablero', (role) => {
+  it.each(['LOGISTICS_COORDINATOR', 'LOGISTICS_SUPERVISOR', 'LOGISTICS_CHIEF'])('%s vuelve al tablero', async (role) => {
     visit('/almacen/transferencia', [role]);
+    expect(await screen.findByText('PANTALLA Tablero')).toBeInTheDocument();
     expect(screen.queryByText('PANTALLA Transferencia')).not.toBeInTheDocument();
-    expect(screen.getByText('PANTALLA Tablero')).toBeInTheDocument();
   });
 });
 
@@ -115,9 +115,9 @@ describe('/almacen — pantallas abiertas a los cinco roles', () => {
 
   it.each(OPEN.flatMap(([path, name]) => WAREHOUSE_ROLES.map((role) => [path, name, role])))(
     '%s lo ve %s',
-    (path, name, role) => {
+    async (path, name, role) => {
       visit(path, [role]);
-      expect(screen.getByText(`PANTALLA ${name}`)).toBeInTheDocument();
+      expect(await screen.findByText(`PANTALLA ${name}`)).toBeInTheDocument();
     },
   );
 });

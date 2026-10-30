@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import RouteOutlet from './RouteOutlet';
 
 export default function AppShell() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -28,7 +29,7 @@ export default function AppShell() {
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6 md:px-8 md:py-7">
           <div className="page-fade-in">
-            <Outlet />
+            <RouteOutlet />
           </div>
         </main>
       </div>

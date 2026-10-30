@@ -5,10 +5,10 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import { analysisDetail, authAs, cvConfig, itemRow, progressResponse } from '../../test/cvFixtures';
 import HRCVAnalysisPage from './HRCVAnalysisPage';
 import * as hrApi from '../../api/hr';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
 vi.mock('../../api/hr');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const flush = async (ms = 0) => {
   await act(async () => {

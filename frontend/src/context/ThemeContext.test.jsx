@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
-import { ThemeProvider, useTheme } from './ThemeContext';
+import { ThemeProvider } from './ThemeContext';
+import { useTheme } from './useTheme';
 import { THEME_STORAGE_KEY, DEFAULT_AUTO_RANGE } from '../utils/theme';
 
 function wrapper({ children }) {

@@ -1,0 +1,129 @@
+# SYSPCC-037: integración continua. Los jobs `backend-tests` y `frontend` son los
+# status checks obligatorios para mergear a develop y main (GitFlow).
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main, 'release/**']
+  push:
+    branches: [develop, main]
+
+# Un push nuevo a un PR cancela la corrida anterior de ese mismo PR. En push a
+# develop/main la clave es la rama y NO se cancela: cada merge conserva su resultado.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: syspcc_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      # config/settings/ci.py = development + PostgreSQL leído de las DB_* de abajo.
+      DJANGO_SETTINGS_MODULE: config.settings.ci
+      SECRET_KEY: ci-only-not-a-secret
+      DB_NAME: syspcc_ci
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      REDIS_URL: redis://localhost:6379/0
+      # NO definir CELERY_BROKER_URL / CELERY_RESULT_BACKEND: Celery lee la variable
+      # CELERY_BROKER_URL del entorno por encima de cualquier broker pasado por
+      # código y rompe TestRealBrokerOutage. Los defaults de base.py
+      # (redis://localhost:6379/1 y /2) ya apuntan al service de Redis.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # Mismo paquete que backend/Dockerfile: libmagic para python-magic.
+      # Sin LibreOffice: los tests de conversión a PDF parchean el binario.
+      - name: Dependencias del sistema
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1
+
+      - name: Instalar dependencias de Python
+        run: pip install -r requirements.txt
+
+      - name: Migraciones pendientes
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Pytest (PostgreSQL 16)
+        run: pytest -q -p no:cacheprovider --junitxml=pytest-report.xml
+
+      - name: Subir reporte de pytest
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report
+          path: backend/pytest-report.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests (Vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build

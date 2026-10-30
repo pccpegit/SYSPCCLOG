@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter, FileText, Plus, X, Pencil, Send, Trash2, AlertCircle } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROLES, STATUS_CONFIG, PRIORITY_CONFIG } from '../../data/constants';
 import { getRequests, submitDraft, deleteRequest } from '../../api/requests';
 import { getProjects } from '../../api/core';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { extractErrorMessage } from '../../utils/apiErrors';
 import { extractSubmitErrorMessages } from '../../utils/requestCapture';
 import ConfirmModal from '../../components/ui/ConfirmModal';
@@ -76,7 +76,7 @@ export default function RequestListPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     const fetchProjects = async () => {

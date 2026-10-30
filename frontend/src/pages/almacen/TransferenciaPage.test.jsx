@@ -5,11 +5,11 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import { makeItem } from '../../test/almacenFixtures';
 import { localISODate } from '../../utils/almacen';
 import TransferenciaPage from './TransferenciaPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const ITEMS = [makeItem({ id: 1, product_code: 'EPP000001', description: 'Casco blanco', unit: 'EA', total_stock: 4 })];
 

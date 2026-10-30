@@ -4,13 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { apiError, pendingRow } from '../../test/pickingFixtures';
 import PendientesPage from './PendientesPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as almacen from '../../api/almacen';
 import * as requests from '../../api/requests';
 
 vi.mock('../../api/almacen');
 vi.mock('../../api/requests');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const COUNT = {
   total: 2,

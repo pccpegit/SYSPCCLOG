@@ -16,7 +16,7 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import { createTicket } from '../../api/support';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 const CATEGORIES = [
   { key: 'HARDWARE', label: 'Hardware',            sub: 'PC, monitor, teclado, mouse', icon: Monitor,    color: 'blue' },

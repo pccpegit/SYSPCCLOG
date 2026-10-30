@@ -5,13 +5,13 @@ import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import RequestListPage from './RequestListPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as coreApi from '../../api/core';
 
 // SYSPCC-031: the drafts of "Mis requerimientos" show up with the state Borrador and the actions
 // Continuar / Enviar / Eliminar. The API layer is mocked.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/core');
 

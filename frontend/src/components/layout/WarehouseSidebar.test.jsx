@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import WarehouseSidebar from './WarehouseSidebar';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const link = (name) => screen.queryByRole('link', { name });
 

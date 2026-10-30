@@ -10,7 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { getDocuments } from '../../api/hr';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { hrErrorMessage } from '../../utils/hrErrors';
 import HRStatusBadge from '../../components/rrhh/HRStatusBadge';
 

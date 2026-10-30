@@ -23,7 +23,23 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // El patrón ^[A-Z_] también cubre los componentes que se reciben por props
+      // (`icon: Icon`) y se usan solo en JSX, que la regla base no detecta como uso.
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+  {
+    // Archivos de configuración que corren en Node (no en el navegador).
+    files: ['vite.config.js', 'vitest.config.js', 'eslint.config.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    // Vitest corre con `globals: true` (vitest.config.js): describe/it/expect/afterEach, etc.
+    files: ['src/**/*.test.{js,jsx}', 'src/test/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.vitest },
     },
   },
 ])

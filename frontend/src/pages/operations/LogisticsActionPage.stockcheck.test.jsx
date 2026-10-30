@@ -5,7 +5,7 @@ import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import LogisticsActionPage from './LogisticsActionPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as suppliersApi from '../../api/suppliers';
 
@@ -13,7 +13,7 @@ import * as suppliersApi from '../../api/suppliers';
 // stock check that it leaves out: the mixed warning, availability down, a failing STOCK_CHECKED
 // after the lines were saved, the in-flight lock, the acting role of each flow, and the edge
 // cases of saving a catalog link. Nothing here may ever block the transition.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/suppliers');
 

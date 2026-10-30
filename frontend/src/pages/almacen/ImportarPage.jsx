@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Check, FileUp, Loader2 } from 'lucide-react';
 import { cancelImport, confirmImport } from '../../api/almacenImport';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import HRDialog from '../../components/rrhh/HRDialog';
 import ConfirmStep from '../../components/almacen/importer/ConfirmStep';
 import ImportResult from '../../components/almacen/importer/ImportResult';

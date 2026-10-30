@@ -3,12 +3,12 @@ import { screen, within } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestDetailPage from './RequestDetailPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 
 // SYSPCC-026 (QA ronda 1) — complements RequestDetailPage.test.jsx: area and source labels when the
 // API only sends the code, historical RQs (no area, nothing linked) and inconsistent lines.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 // SYSPCC-030: el detalle incluye el seguimiento por ítem; aquí no es el objeto de la prueba.
 vi.mock('../../api/requestMaster', () => ({

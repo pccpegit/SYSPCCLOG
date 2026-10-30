@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RoleRoute from './RoleRoute';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
 // SYSPCC-018 (rediseño) — la prop `allowSuperuser` se eliminó por completo:
 // era el mecanismo ad-hoc para que un superadmin sin rol de negocio entrara
@@ -12,7 +12,7 @@ import { useAuth } from '../../context/AuthContext';
 // RoleRoute vuelve a evaluar únicamente `requiredRoles` — el backend tampoco
 // trata `is_superuser` como bypass de rol de negocio (HasRole,
 // IsGeneralManager, etc. no lo consideran).
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 

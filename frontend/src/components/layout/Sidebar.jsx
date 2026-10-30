@@ -12,7 +12,7 @@ import {
   ClipboardList,
   Table2,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROLES } from '../../data/constants';
 
 const ALL_ROLES = Object.values(ROLES);

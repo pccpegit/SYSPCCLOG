@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LogisticsActionPage from './LogisticsActionPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as suppliersApi from '../../api/suppliers';
 
@@ -20,7 +20,7 @@ import * as suppliersApi from '../../api/suppliers';
 // jsdom has no "focus fixup" (a control that becomes disabled loses the focus in a browser) and
 // computes no CSS, so the first is emulated below and the second is checked on the classes.
 configure({ asyncUtilTimeout: 4000 });
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/suppliers');
 

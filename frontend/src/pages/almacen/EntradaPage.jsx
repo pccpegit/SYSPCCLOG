@@ -4,8 +4,8 @@ import {
   ArrowDownToLine, CheckCircle, Download, Loader2, MapPinOff, Plus, RotateCcw, Trash2,
 } from 'lucide-react';
 import { downloadGroupPdf, getInventory, registerEntryBatch } from '../../api/almacen';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/useAuth';
+import { useToast } from '../../context/useToast';
 import useFileDownload from '../../hooks/useFileDownload';
 import useFocusFirstInvalid from '../../hooks/useFocusFirstInvalid';
 import NumberInput from '../../components/ui/NumberInput';

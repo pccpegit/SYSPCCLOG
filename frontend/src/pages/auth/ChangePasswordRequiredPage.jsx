@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ShieldAlert, AlertCircle, KeyRound, LogOut } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/useAuth';
+import { useToast } from '../../context/useToast';
 import * as authApi from '../../api/auth';
 import { extractFieldErrors, extractErrorMessage } from '../../utils/apiErrors';
 

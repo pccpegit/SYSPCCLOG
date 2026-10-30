@@ -50,7 +50,6 @@ export default function NumberInput({ value, onChange, className, placeholder = 
   const handleChange = useCallback((e) => {
     const input = e.target;
     const cursorInNew = input.selectionStart;
-    const oldDisplay = display;
 
     const raw = stripToRaw(e.target.value);
     if (raw && !/^\d*\.?\d*$/.test(raw)) return;
@@ -78,7 +77,7 @@ export default function NumberInput({ value, onChange, className, placeholder = 
         inputRef.current.setSelectionRange(target, target);
       }
     });
-  }, [display, onChange]);
+  }, [onChange]);
 
   const handleKeyDown = useCallback((e) => {
     const allowed = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter',

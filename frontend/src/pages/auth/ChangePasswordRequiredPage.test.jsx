@@ -4,10 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import ChangePasswordRequiredPage from './ChangePasswordRequiredPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as authApi from '../../api/auth';
 
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 vi.mock('../../api/auth');

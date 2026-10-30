@@ -4,7 +4,7 @@ import {
   ArrowLeft, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Pencil, Printer, Warehouse,
 } from 'lucide-react';
 import { getKardex, getCategories } from '../../api/almacen';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { MOVEMENT_CONFIG, WAREHOUSE_LABELS_FULL, ITEM_TYPE_LABELS } from '../../data/almacenConstants';
 import { ASSIGN_LOCATION_ROLES } from '../../data/almacenRoles';
 import { formatISODate, formatQty, hasAnyRole } from '../../utils/almacen';

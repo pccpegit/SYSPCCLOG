@@ -3,13 +3,13 @@ import { screen, within } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestDetailPage from './RequestDetailPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as requestsApi from '../../api/requests';
 import * as masterApi from '../../api/requestMaster';
 import { buildMasterRow, page } from '../../test/requestMasterFixtures';
 
 // SYSPCC-030 — el detalle del RQ incluye «Seguimiento por ítem» con request-master/?request=<id>.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/requests');
 vi.mock('../../api/requestMaster');
 

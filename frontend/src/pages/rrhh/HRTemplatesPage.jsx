@@ -17,7 +17,7 @@ import {
   saveBlob,
   uploadTemplate,
 } from '../../api/hr';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { hrErrorMessage } from '../../utils/hrErrors';
 
 const DOCUMENT_TYPE = 'CONTRACT';

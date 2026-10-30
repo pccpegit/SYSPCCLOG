@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { getPendingRequests, getPendingCount } from '../../api/almacen';
 import { getRequest, getAvailableActions, performAction } from '../../api/requests';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/useAuth';
+import { useToast } from '../../context/useToast';
 import HRDialog from '../../components/rrhh/HRDialog';
 import { Banner, ErrorBlock, LoadingBlock } from '../../components/almacen/ui';
 import { extractErrorMessage } from '../../utils/apiErrors';

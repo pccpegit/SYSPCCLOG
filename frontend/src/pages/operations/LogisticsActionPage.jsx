@@ -19,7 +19,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { ROLES, STATUS } from '../../data/constants';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import {
   getRequest,
   getRequests,
@@ -34,7 +34,7 @@ import CoverageBadge from '../../components/requests/CoverageBadge';
 import StockCheckPanel from '../../components/requests/StockCheckPanel';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import NotesField from '../../components/ui/NotesField';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { formatQty } from '../../utils/quantity';
 import {
   describeUpdateItemsError,

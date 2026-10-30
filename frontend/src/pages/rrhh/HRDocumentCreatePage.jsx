@@ -9,7 +9,7 @@ import {
   getTemplates,
   updateDocument,
 } from '../../api/hr';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { extractFieldErrors } from '../../utils/apiErrors';
 import { hrErrorMessage } from '../../utils/hrErrors';
 import ContractForm from '../../components/rrhh/ContractForm';

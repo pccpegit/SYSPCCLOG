@@ -6,7 +6,7 @@ import {
 import {
   getInventory, getCategories, getSummary, getMovementSummary, exportInventory,
 } from '../../api/almacen';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import useFileDownload from '../../hooks/useFileDownload';
 import useFilterAnnouncer from '../../hooks/useFilterAnnouncer';
 import { ASSIGN_LOCATION_ROLES, IMPORT_ROLES } from '../../data/almacenRoles';

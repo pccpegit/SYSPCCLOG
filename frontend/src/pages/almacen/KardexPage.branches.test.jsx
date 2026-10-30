@@ -5,11 +5,11 @@ import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { LAYOUT, makeItem } from '../../test/almacenFixtures';
 import KardexPage from './KardexPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 // SYSPCC-025 · QA ronda 2 — kardex: saldo negativo sin fecha, «Limpiar fechas» y cierre del editor sin guardar.
 

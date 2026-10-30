@@ -6,7 +6,7 @@ import { loc, setup } from '../../test/cvPageHarness';
 import * as hrApi from '../../api/hr';
 
 vi.mock('../../api/hr');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const makeDetails = () => ({
   1: () => itemDetail(1, { candidate_name: 'Ana Paz', score: 92, rank: 1 }),

@@ -5,14 +5,14 @@ import { Routes, Route } from 'react-router-dom';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import LocationProbe from '../../test/LocationProbe';
 import RequestCreatePage from './RequestCreatePage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as coreApi from '../../api/core';
 import * as requestsApi from '../../api/requests';
 import * as exportRQ from '../../utils/exportRQ';
 
 // SYSPCC-031: "Guardar borrador" really saves a draft (DRAFT) and the draft can be reopened
 // ("Continuar") and sent from the same form. The API layer is mocked.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/core');
 vi.mock('../../api/requests');
 vi.mock('../../utils/exportRQ');

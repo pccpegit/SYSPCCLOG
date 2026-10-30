@@ -1,7 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as authApi from '../api/auth';
-
-const AuthContext = createContext(null);
+import { AuthContext } from './contexts';
 
 // ─── CSRF bootstrap ─────────────────────────────────────────────────────────
 // Module-level singleton (not component state) so it survives StrictMode's
@@ -146,10 +145,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be inside AuthProvider');
-  return ctx;
 }

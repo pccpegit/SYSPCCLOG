@@ -3,7 +3,7 @@ import { screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestCreatePage from './RequestCreatePage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as coreApi from '../../api/core';
 import * as requestsApi from '../../api/requests';
 import * as exportRQ from '../../utils/exportRQ';
@@ -12,7 +12,7 @@ import * as exportRQ from '../../utils/exportRQ';
 // campos con etiqueta real, errores enlazados al campo, resumen de errores que lleva el foco al
 // control, anuncios cuando el control que tenía el foco se desmonta, ayuda de "Fuera de catálogo"
 // y los dos "Área" que ya no se confunden.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/core');
 vi.mock('../../api/requests');
 vi.mock('../../utils/exportRQ');

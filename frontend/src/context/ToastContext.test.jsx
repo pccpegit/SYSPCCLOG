@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ToastProvider, useToast } from './ToastContext';
+import { ToastProvider } from './ToastContext';
+import { useToast } from './useToast';
 
 // SYSPCC-025 · react-frontend ronda 3 — textos de usuario del aviso emergente.
 

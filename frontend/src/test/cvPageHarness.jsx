@@ -5,10 +5,10 @@ import { renderWithProviders } from './renderWithProviders';
 import { FINISHED_COUNTS, analysisDetail, authAs, cvConfig, finishedRows, progressResponse } from './cvFixtures';
 import HRCVAnalysisPage from '../pages/rrhh/HRCVAnalysisPage';
 import * as hrApi from '../api/hr';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 // Shared harness for the results-page tests (the test file must vi.mock
-// '../../api/hr' and '../../context/AuthContext').
+// '../../api/hr' and '../../context/useAuth').
 export function setup({ role = 'HR_MANAGER', detail, counts = FINISHED_COUNTS, rows = finishedRows(), progress, config = cvConfig(), entry = '/rrhh/cvs/5', analysisError = null, itemsError = null } = {}) {
   useAuth.mockReturnValue(authAs([role]));
   hrApi.getCVConfig.mockResolvedValue({ data: config });

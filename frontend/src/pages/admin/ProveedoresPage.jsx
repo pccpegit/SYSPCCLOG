@@ -12,7 +12,7 @@ import {
   createProveedor,
   buscarRuc,
 } from '../../api/administracion';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -4,14 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { exactItem } from '../../test/almacenFixtures';
 import EntradaPage from './EntradaPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
 
 // SYSPCC-026 — las compras de un RQ ingresan solas al almacén cuando se reciben en el sistema, así
 // que cargarlas a mano duplicaría el material. El formulario lo avisa cuando el origen es «Compra»,
 // pero NUNCA lo bloquea (también sirve para stock que no pasa por un RQ).
 vi.mock('../../api/almacen');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const NOTICE = 'Las compras de un RQ ingresan solas al recibirlas en el sistema; use este formulario solo para stock sin RQ.';
 const ITEMS = [exactItem({ id: 1, product_code: 'EPP000001', description: 'Casco blanco', unit: 'EA', total_stock: 4 })];

@@ -5,7 +5,7 @@ import {
   MapPinOff, Package, PackageX, Receipt, Scale, Boxes,
 } from 'lucide-react';
 import { getAlerts, getMovementSummary, getMovements, getSummary } from '../../api/almacen';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ASSIGN_LOCATION_ROLES, COUNTER_ROLES, IMPORT_ROLES } from '../../data/almacenRoles';
 import { addDaysISO, formatQty, hasAnyRole, localISODate } from '../../utils/almacen';
 import { Banner, Card, EmptyBlock, ErrorBlock, PageHeader } from '../../components/almacen/ui';

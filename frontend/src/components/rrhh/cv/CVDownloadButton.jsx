@@ -10,7 +10,7 @@ import {
 } from '../../../api/hr';
 import { COPY } from '../../../utils/cvCopy';
 import { hrErrorMessage } from '../../../utils/hrErrors';
-import { useToast } from '../../../context/ToastContext';
+import { useToast } from '../../../context/useToast';
 import { btnPrimary, btnSecondary } from './cvStyles';
 
 const NOUNS = COPY.results.nouns;

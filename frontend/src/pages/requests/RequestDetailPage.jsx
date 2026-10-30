@@ -16,8 +16,8 @@ import {
   Printer,
 } from 'lucide-react';
 import { STATUS_CONFIG, ROLES, STATUS } from '../../data/constants';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/useAuth';
+import { useToast } from '../../context/useToast';
 import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import StatusBadge from '../../components/ui/StatusBadge';

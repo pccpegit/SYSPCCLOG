@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import SettingsPage from './SettingsPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ThemeProvider } from '../../context/ThemeContext';
 import { ToastProvider } from '../../context/ToastContext';
 import { THEME_STORAGE_KEY } from '../../utils/theme';
@@ -14,7 +14,7 @@ import { THEME_STORAGE_KEY } from '../../utils/theme';
 // ToastContext are the REAL providers — no network calls, and it's the
 // real localStorage read/write path (via ThemeContext -> utils/theme.js)
 // that these tests actually want to exercise end to end.
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 

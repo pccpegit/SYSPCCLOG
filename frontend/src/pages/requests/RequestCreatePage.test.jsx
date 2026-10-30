@@ -3,7 +3,7 @@ import { screen, within, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import RequestCreatePage from './RequestCreatePage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import * as coreApi from '../../api/core';
 import * as requestsApi from '../../api/requests';
 import * as exportRQ from '../../utils/exportRQ';
@@ -13,7 +13,7 @@ import * as exportRQ from '../../utils/exportRQ';
 // test controls currentUser.roles directly. exportRQ (ExcelJS + file-saver)
 // is mocked because it isn't relevant to routing/flow behaviour and would
 // otherwise try to fetch a real .xlsx template under jsdom.
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/core');
 vi.mock('../../api/requests');
 vi.mock('../../utils/exportRQ');

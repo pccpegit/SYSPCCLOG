@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -12,7 +12,7 @@ import {
   Info,
 } from 'lucide-react';
 import { getTicket, addComment } from '../../api/support';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import {
   TICKET_STATUS_CONFIG,
   TICKET_PRIORITY_CONFIG,
@@ -169,7 +169,7 @@ export default function TicketDetailPage() {
 
   const canAddComment = ticket && (ticket.status === 'OPEN' || ticket.status === 'IN_PROGRESS');
 
-  async function fetchTicket() {
+  const fetchTicket = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -181,11 +181,11 @@ export default function TicketDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
 
   useEffect(() => {
     fetchTicket();
-  }, [id]);
+  }, [fetchTicket]);
 
   async function handleAddComment(e) {
     e.preventDefault();

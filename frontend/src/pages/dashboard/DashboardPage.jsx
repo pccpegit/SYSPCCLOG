@@ -13,7 +13,7 @@ import {
   ClipboardList,
   Layers,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROLES, STATUS } from '../../data/constants';
 import { getRequests } from '../../api/requests';
 import { getProjects } from '../../api/core';
@@ -24,12 +24,6 @@ import PriorityBadge from '../../components/ui/PriorityBadge';
 function formatCurrency(val) {
   if (!val && val !== 0) return 'S/ 0';
   return `S/ ${Number(val).toLocaleString('es-PE')}`;
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function LoadingSpinner() {

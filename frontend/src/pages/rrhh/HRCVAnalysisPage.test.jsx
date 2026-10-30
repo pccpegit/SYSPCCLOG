@@ -8,7 +8,7 @@ import HRCVAnalysisPage from './HRCVAnalysisPage';
 import * as hrApi from '../../api/hr';
 
 vi.mock('../../api/hr');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 beforeEach(() => {
   vi.clearAllMocks();

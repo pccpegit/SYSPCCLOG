@@ -21,7 +21,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ApprovalChain from '../../components/requests/ApprovalChain';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 function formatCurrency(val) {
   if (!val && val !== 0) return 'S/ 0';
@@ -125,7 +125,7 @@ export default function ManagerApprovalPage() {
       }
     };
     fetchData();
-  }, [id]);
+  }, [id, navigate]);
 
   async function handleDecision(approved) {
     setSubmitting(true);
@@ -182,7 +182,6 @@ export default function ManagerApprovalPage() {
   // Budget impact
   const totalBudget  = project?.total_budget  ?? project?.totalBudget  ?? 0;
   const spentBudget  = project?.spent_budget  ?? project?.spentBudget  ?? 0;
-  const available    = totalBudget - spentBudget;
   const newSpent     = spentBudget + reqCost;
   const usedPct      = totalBudget > 0 ? Math.min(Math.round((spentBudget / totalBudget) * 100), 100) : 0;
   const projectedPct = totalBudget > 0 ? Math.min(Math.round((newSpent / totalBudget) * 100), 100) : 0;

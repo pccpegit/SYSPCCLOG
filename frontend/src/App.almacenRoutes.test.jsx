@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import App from './App';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from './context/useAuth';
 
 // SYSPCC-025 · QA ronda 1 — protección de rutas de /almacen a nivel de App.
 // El servidor valida cada permiso igual; aquí se prueba que la UI no deje entrar ni muestre la
 // pantalla equivocada. Las pantallas se sustituyen por marcadores: solo importa la redirección.
 
+vi.mock('./context/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('./context/AuthContext', () => ({
-  useAuth: vi.fn(),
   AuthProvider: ({ children }) => children,
 }));
 

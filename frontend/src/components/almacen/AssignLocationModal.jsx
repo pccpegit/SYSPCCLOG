@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Loader2, MapPin } from 'lucide-react';
 import HRDialog from '../rrhh/HRDialog';
 import { assignLocations, getLocationLayout } from '../../api/almacen';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { extractErrorMessage } from '../../utils/apiErrors';
 import { checkLocationCode, isLocationPrefix } from '../../utils/almacen';
 import LocationPicker from './LocationPicker';

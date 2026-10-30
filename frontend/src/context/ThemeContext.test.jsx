@@ -72,7 +72,7 @@ describe('ThemeProvider / useTheme — persistencia en localStorage', () => {
   });
 
   it('si localStorage.setItem falla, setMode igual actualiza el estado en memoria pero retorna false', () => {
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(localStorage), 'setItem').mockImplementation(() => {
       throw new DOMException('QuotaExceededError');
     });
     const { result } = renderTheme();
@@ -164,7 +164,7 @@ describe('ThemeProvider — fallback ante localStorage corrupto o no disponible'
   });
 
   it('con localStorage.getItem lanzando, arranca en los defaults sin romper el render', () => {
-    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+    vi.spyOn(Object.getPrototypeOf(localStorage), 'getItem').mockImplementation(() => {
       throw new DOMException('no disponible');
     });
 
@@ -196,13 +196,15 @@ describe('ThemeProvider — cleanup de timers, incluida supervivencia a StrictMo
   });
 
   it('en mode="light"/"dark" (sin schedule de borde) no deja timers colgando al desmontar', () => {
-    vi.useFakeTimers();
     // Explicit manual mode, not the default 'auto' — no boundary setTimeout
     // should be scheduled at all in this case (Decisión 4 only applies to
-    // 'auto').
+    // 'auto'). Seeded BEFORE faking timers: jsdom's localStorage.setItem
+    // queues a timer of its own (the cross-window `storage` event), which
+    // would otherwise be counted below.
     localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({
       version: 1, mode: 'dark', autoRange: DEFAULT_AUTO_RANGE,
     }));
+    vi.useFakeTimers();
     const { unmount } = renderHook(() => useTheme(), { wrapper });
     // TRANSITION_MS cleanup timer only fires on an actual theme change, and
     // the initial mount doesn't count as a change (see applyThemeClass) —

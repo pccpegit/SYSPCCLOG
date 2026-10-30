@@ -161,6 +161,12 @@ envs:
   - key: HR_CV_MAX_IMAGE_PIXELS
     value: "16000000"
     scope: RUN_TIME
+  # Un lote de 100 CVs tarda ~27 min en el worker unico (prueba de carga): con el
+  # default de 600 s el beat re-encolaria items que solo esperan su turno. 3600 s
+  # deja margen al lote y aun recupera items perdidos (worker caido) en una hora.
+  - key: HR_CV_STALE_SECONDS
+    value: "3600"
+    scope: RUN_TIME
 
   # --- Correo (DO bloquea el puerto 25; 587 funciona) ---
   # EMAIL_HOST_PASSWORD va en backend y worker. Sin el, production.py envia los correos a la consola

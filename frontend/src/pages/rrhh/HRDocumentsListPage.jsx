@@ -46,14 +46,19 @@ export default function HRDocumentsListPage() {
   const [typeFilter, setTypeFilter] = useState('');
   const [page, setPage] = useState(1);
 
-  // Debounce the name/reference search.
+  // Debounce the name/reference search. Back to page 1 only when the term
+  // actually changed: on mount (and after typing only spaces) the timer must
+  // not undo a page change the user already made.
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearch(searchInput.trim());
-      setPage(1);
+      const next = searchInput.trim();
+      if (next !== search) {
+        setSearch(next);
+        setPage(1);
+      }
     }, 300);
     return () => clearTimeout(t);
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   // `result.key` identifies the query a result belongs to; if it does not
   // match the current query the screen shows "loading".

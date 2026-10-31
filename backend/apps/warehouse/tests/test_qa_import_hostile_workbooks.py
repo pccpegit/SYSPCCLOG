@@ -202,9 +202,13 @@ class TestEmptyAndDegenerateBooks:
         assert (Inventory.objects.count(), InventoryMovement.objects.count(), InventoryStock.objects.count()) == (0, 0, 0)
 
     def test_that_empty_book_cannot_be_uploaded_again_after_confirming(self, client):
-        preview = upload(client, self.empty_book()).json()
+        # Same bytes twice: duplicates are detected by the file's sha256, and every
+        # build_workbook() call stamps the xlsx with the current time, so two builds a
+        # second apart are different files (flaky on a slow CI runner).
+        data = self.empty_book()
+        preview = upload(client, data).json()
         confirm(client, preview)
-        again = upload(client, self.empty_book())
+        again = upload(client, data)
         assert again.status_code == 409
         assert again.json()['code'] == 'file_already_imported'
 

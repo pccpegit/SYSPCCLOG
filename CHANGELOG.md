@@ -4,9 +4,9 @@ Todos los cambios relevantes de SYSPCC se registran aquí. Formato [Keep a Chang
 
 ## [Sin publicar]
 
-## [1.0.0] - 2026-10-31
+## [1.0.0] - 2026-10-30
 
-Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a SYSPCC-039. Desde esta versión producción se despliega solo desde `main`.
+Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a SYSPCC-040. Desde esta versión producción se despliega solo desde `main`.
 
 ### Agregado
 - Requerimientos (RQ) con los flujos de gerencia Operaciones y Administración (WorkflowEngine, 5 fases), aprobaciones por rol, cotizaciones, órdenes de compra, recepción con control de calidad y ciclo de reclamo a proveedor.

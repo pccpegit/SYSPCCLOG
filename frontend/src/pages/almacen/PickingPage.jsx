@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Ban, CheckCircle, ClipboardList, Hourglass, Loader2, MapPin, MapPinOff, PackageCheck,
+  ArrowLeft, Ban, CheckCircle, ClipboardList, Download, Hourglass, Loader2, MapPin, MapPinOff, PackageCheck,
   RefreshCw, Truck, Undo2,
 } from 'lucide-react';
-import { deliverRqItems, getRqPicking, reverseRqDelivery } from '../../api/almacen';
+import { deliverRqItems, downloadGroupPdf, getRqPicking, reverseRqDelivery } from '../../api/almacen';
 import { useToast } from '../../context/useToast';
+import useFileDownload from '../../hooks/useFileDownload';
 import useFocusFirstInvalid from '../../hooks/useFocusFirstInvalid';
 import HRDialog from '../../components/rrhh/HRDialog';
 import {
@@ -14,7 +15,7 @@ import {
 import { btnDanger, btnPrimary, btnSecondary, inputCls, thCls } from '../../components/almacen/uiStyles';
 import { formatISODate, localISODate } from '../../utils/almacen';
 import {
-  BLOCK_REASON_LABELS, GUIDE_MAX_LENGTH, ITEM_STATUS_LABELS, NOTES_MAX_LENGTH, REASON_MAX_LENGTH,
+  BLOCK_REASON_LABELS, ITEM_STATUS_LABELS, NOTES_MAX_LENGTH, REASON_MAX_LENGTH,
   RQ_STAGE_LABELS, buildDeliveryLines, describeDeliveryError, describePickingLoadError, maxQtyText,
   pickingLocation, qtyWithUnit, roleList, validateDeliveryForm, validateReason,
 } from '../../utils/rqPicking';
@@ -286,6 +287,7 @@ function ReverseDialog({ rqId, delivery, onClose, onDone }) {
 }
 
 function DeliveryHistory({ deliveries, items, headingRef, onReverse }) {
+  const download = useFileDownload();
   const numberById = new Map(deliveries.map((d) => [d.id, d.dispatch_number]));
   const unitById = new Map(items.map((i) => [i.id, i.unit]));
   const newestFirst = [...deliveries].reverse();
@@ -322,7 +324,7 @@ function DeliveryHistory({ deliveries, items, headingRef, onReverse }) {
                 )}
               </div>
               <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1 text-xs">
-                <div><dt className="text-gray-500">Guía de remisión</dt><dd className="font-medium text-gray-800">{d.dispatch_guide_number || '—'}</dd></div>
+                <div><dt className="text-gray-500">N° de guía</dt><dd className="font-medium text-gray-800 font-mono">{d.dispatch_guide_number || '—'}</dd></div>
                 <div><dt className="text-gray-500">Fecha</dt><dd className="font-medium text-gray-800">{formatISODate(d.movement_date) || '—'}</dd></div>
                 <div><dt className="text-gray-500">Registrada</dt><dd className="font-medium text-gray-800">{formatStamp(d.dispatched_at) || '—'}</dd></div>
                 <div><dt className="text-gray-500">Responsable</dt><dd className="font-medium text-gray-800">{d.dispatched_by || '—'}</dd></div>
@@ -341,15 +343,34 @@ function DeliveryHistory({ deliveries, items, headingRef, onReverse }) {
                   </li>
                 ))}
               </ul>
-              {d.can_reverse && (
-                <button
-                  type="button"
-                  onClick={(e) => onReverse(d, e.currentTarget)}
-                  aria-label={`Anular entrega ${d.dispatch_number}`}
-                  className={btnSecondary}
-                >
-                  <Undo2 size={16} aria-hidden="true" /> Anular entrega
-                </button>
+              {(d.movement_group_id || d.can_reverse) && (
+                <div className="flex flex-wrap gap-2">
+                  {d.movement_group_id && (
+                    <button
+                      type="button"
+                      onClick={() => download.run(
+                        () => downloadGroupPdf(d.movement_group_id),
+                        `${d.dispatch_guide_number || d.dispatch_number}.pdf`,
+                        'No se pudo descargar el PDF de la entrega. Intente nuevamente.',
+                      )}
+                      aria-disabled={download.busy || undefined}
+                      aria-label={`Descargar PDF de la entrega ${d.dispatch_number}`}
+                      className={btnSecondary}
+                    >
+                      <Download size={16} aria-hidden="true" /> Descargar PDF
+                    </button>
+                  )}
+                  {d.can_reverse && (
+                    <button
+                      type="button"
+                      onClick={(e) => onReverse(d, e.currentTarget)}
+                      aria-label={`Anular entrega ${d.dispatch_number}`}
+                      className={btnSecondary}
+                    >
+                      <Undo2 size={16} aria-hidden="true" /> Anular entrega
+                    </button>
+                  )}
+                </div>
               )}
             </li>
           ))}
@@ -367,7 +388,6 @@ function PickingScreen({ rqId }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [quantities, setQuantities] = useState({});
-  const [guide, setGuide] = useState('');
   const [date, setDate] = useState(() => localISODate());
   const [minDate, setMinDate] = useState('');
   const [notes, setNotes] = useState('');
@@ -462,7 +482,6 @@ function PickingScreen({ rqId }) {
 
   function resetForm() {
     setQuantities({});
-    setGuide('');
     setDate(localISODate());
     setNotes('');
     setErrors(NO_ERRORS);
@@ -472,7 +491,7 @@ function PickingScreen({ rqId }) {
     e.preventDefault();
     if (submittingRef.current) return;
     setSuccess('');
-    const check = validateDeliveryForm({ items, quantities, guide, date, notes, minDate });
+    const check = validateDeliveryForm({ items, quantities, date, notes, minDate });
     if (!check.hasLines && Object.keys(check.fieldErrors).length === 0) {
       const message = 'Indique la cantidad a entregar en al menos una línea.';
       setErrors({ lines: {}, fields: {}, message });
@@ -495,7 +514,6 @@ function PickingScreen({ rqId }) {
     try {
       const payload = {
         lines: buildDeliveryLines(items, quantities),
-        dispatch_guide_number: guide.trim(),
         ...(date ? { movement_date: date } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       };
@@ -504,7 +522,8 @@ function PickingScreen({ rqId }) {
       setLoad({ status: 'ready', picking: data.picking, error: null });
       resetForm();
       const number = data.delivery?.dispatch_number;
-      const message = `Entrega${number ? ` ${number}` : ''} registrada con la guía ${payload.dispatch_guide_number}.`;
+      const guideNumber = data.delivery?.dispatch_guide_number;
+      const message = `Entrega${number ? ` ${number}` : ''} registrada${guideNumber ? ` con la guía ${guideNumber}` : ''}.`;
       setSuccess(message);
       setAnnounce(message);
     } catch (err) {
@@ -619,17 +638,8 @@ function PickingScreen({ rqId }) {
         {canForm && (
           <Card className="p-4 sm:p-6 space-y-4">
             <h2 className="text-base font-bold text-gray-900 font-display">Registrar entrega parcial</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Field label="Guía de remisión" required error={errors.fields.dispatch_guide_number} hint="N° de la guía que acompaña esta tanda.">
-                <input
-                  type="text"
-                  autoComplete="off"
-                  maxLength={GUIDE_MAX_LENGTH}
-                  value={guide}
-                  onChange={(e) => setGuide(e.target.value)}
-                  className={inputCls(!!errors.fields.dispatch_guide_number)}
-                />
-              </Field>
+            <p className="text-xs text-gray-600">El N° de guía se genera automáticamente al registrar la entrega.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Fecha de la entrega" error={errors.fields.movement_date}>
                 <input
                   type="date"

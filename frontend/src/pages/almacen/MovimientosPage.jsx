@@ -6,6 +6,7 @@ import useFileDownload from '../../hooks/useFileDownload';
 import useFilterAnnouncer from '../../hooks/useFilterAnnouncer';
 import { MOVEMENT_CONFIG, WAREHOUSE_LABELS } from '../../data/almacenConstants';
 import { formatISODate, formatQty } from '../../utils/almacen';
+import { VoucherCell } from '../../components/almacen/chips';
 import { Card, Chip, EmptyBlock, ErrorBlock, LoadingBlock, PageHeader, Pagination } from '../../components/almacen/ui';
 import { btnSecondary, inputCls, thCls } from '../../components/almacen/uiStyles';
 
@@ -278,7 +279,7 @@ export default function MovimientosPage() {
                   <th scope="col" className={thCls}>Ítem</th>
                   <th scope="col" className={`${thCls} text-right`}>Cant.</th>
                   <th scope="col" className={`${thCls} hidden sm:table-cell`}>Und.</th>
-                  <th scope="col" className={thCls}>N° de vale</th>
+                  <th scope="col" className={thCls}>N° de vale / guía</th>
                   <th scope="col" className={`${thCls} hidden lg:table-cell`}>Origen / Destino</th>
                   <th scope="col" className={`${thCls} hidden xl:table-cell`}>Almacén</th>
                   <th scope="col" className="px-3 py-3"><span className="sr-only">Vale</span></th>
@@ -315,9 +316,7 @@ export default function MovimientosPage() {
                       <td className="px-4 py-3 text-right font-bold text-gray-900 whitespace-nowrap tabular-nums">{formatQty(mov.quantity)}</td>
                       <td className="px-4 py-3 text-gray-500 hidden sm:table-cell whitespace-nowrap">{mov.inventory_unit ?? '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {mov.voucher_number
-                          ? <span className="font-mono text-xs text-gray-700">{mov.voucher_number}</span>
-                          : mov.movement_type === 'EXIT' ? <Chip tone="amber">Sin vale</Chip> : <span className="text-gray-400">—</span>}
+                        <VoucherCell movement={mov} />
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-600 min-w-[10rem]">{counterparty || '—'}</td>
                       <td className="px-4 py-3 text-gray-500 hidden xl:table-cell whitespace-nowrap">{WAREHOUSE_LABELS[mov.warehouse] ?? mov.warehouse ?? '—'}</td>

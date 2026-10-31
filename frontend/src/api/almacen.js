@@ -83,6 +83,15 @@ export const getRecentMovements = (id) =>
 export const getPendingRequests = (params) =>
   client.get('/warehouse/pending-requests/list/', { params });
 
+/**
+ * GET /warehouse/pending-requests/deliverable/ — RQ pendientes por entregar (SYSPCC-041), para el
+ * selector de la pantalla de Salida. Params: `search` (RQ, proyecto, solicitante), `page`, `page_size`.
+ * Paginado `{ count, next, previous, results }`; cada fila trae `id`, `rq_number`, `project`,
+ * `department`, `requested_by`, `items_pending`, `items_partial`, `items_deliverable`, `percent`.
+ */
+export const getDeliverableRequests = (params) =>
+  client.get('/warehouse/pending-requests/deliverable/', { params });
+
 /** GET /warehouse/pending-requests/count/ — badge count by status */
 export const getPendingCount = (params) =>
   client.get('/warehouse/pending-requests/count/', { params });
@@ -98,8 +107,9 @@ export const getRqPicking = (rqId) =>
 
 /**
  * POST /warehouse/pending-requests/{rqId}/deliver/ — registra una entrega parcial.
- * `{ lines: [{ request_item_id, quantity }], dispatch_guide_number, movement_date?, notes? }`.
- * 201 `{ delivery, picking }`. No cambia el estado del RQ.
+ * `{ lines: [{ request_item_id, quantity }], movement_date?, notes? }` (la guía GR-AAAA-NNNNNN la
+ * genera el servidor, SYSPCC-041). 201 `{ delivery, picking }`; `delivery` trae `dispatch_guide_number`,
+ * `dispatch_number`, `movement_group_id` y `first_movement_id`. No cambia el estado del RQ.
  */
 export const deliverRqItems = (rqId, data) =>
   client.post(`/warehouse/pending-requests/${rqId}/deliver/`, data);
@@ -147,8 +157,8 @@ export const getMovementSummary = (params) =>
   client.get('/warehouse/inventory/movement-summary/', { params });
 
 /**
- * POST /warehouse/movements/epp-delivery/ — entrega de EPP con vale (exige N° de vale y fecha).
- * 409 `voucher_number_exists` se reenvía con `allow_duplicate_voucher: true`.
+ * POST /warehouse/movements/epp-delivery/ — entrega de EPP a un trabajador (exige fecha). Desde
+ * SYSPCC-041 el N° de vale ya no se escribe: el servidor genera la guía `internal_guide_number`.
  */
 export const registerEppDelivery = (data) =>
   client.post('/warehouse/movements/epp-delivery/', data);

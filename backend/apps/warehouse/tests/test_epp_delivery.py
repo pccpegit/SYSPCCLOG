@@ -70,7 +70,7 @@ class TestEppDelivery:
         group = MovementGroup.objects.get()
         assert (group.destination_type, group.destination_detail) == ('TRANSFER_OUT', 'ALM - PRIMER PISO')
 
-    @pytest.mark.parametrize('missing', ['voucher_number', 'movement_date', 'recipient', 'items'])
+    @pytest.mark.parametrize('missing', ['movement_date', 'recipient', 'items'])
     def test_required_fields(self, epp_item, central_warehouse, missing):
         body = _body(epp_item)
         del body[missing]
@@ -78,9 +78,21 @@ class TestEppDelivery:
         assert resp.status_code == 400
         assert MovementGroup.objects.count() == 0
 
-    def test_blank_voucher_is_rejected(self, epp_item, central_warehouse):
-        resp = client_for(central_warehouse).post(URL, _body(epp_item, voucher_number='  '), format='json')
-        assert resp.status_code == 400
+    @pytest.mark.parametrize('voucher', ['', '  ', None, 'OMIT'])
+    def test_the_physical_vale_is_optional_and_the_guide_is_automatic(self, epp_item, central_warehouse, voucher):
+        # SYSPCC-041: nobody types a number; the system assigns GR-AAAA-NNNNNN.
+        body = _body(epp_item)
+        if voucher == 'OMIT':
+            del body['voucher_number']
+        elif voucher is None:
+            body.pop('voucher_number')
+        else:
+            body['voucher_number'] = voucher
+        resp = client_for(central_warehouse).post(URL, body, format='json')
+        assert resp.status_code == 201, resp.data
+        assert resp.data['voucher_number'] == ''
+        assert resp.data['internal_guide_number'].startswith('GR-')
+        assert _stock(epp_item) == Decimal('8')
 
     def test_future_date_is_rejected(self, epp_item, central_warehouse):
         tomorrow = (timezone.localdate() + timedelta(days=1)).isoformat()

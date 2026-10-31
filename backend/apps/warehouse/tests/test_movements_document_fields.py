@@ -242,7 +242,11 @@ class TestMovementFilters:
 
     def test_voucher_and_no_voucher_filters(self):
         assert [r['voucher_number'] for r in self._results(voucher_number='a-1')] == ['A-1']
-        assert len(self._results(no_voucher='true')) == 1   # solo salidas sin vale
+        # SYSPCC-041: both exits above are new, so they carry the automatic guide and are not «sin vale».
+        assert self._results(no_voucher='true') == []
+        # Only a historic exit (no guide, no vale) is listed: take the guide off the unlinked one.
+        MovementGroup.objects.filter(pk=self.unlinked.pk).update(internal_guide_number=None)
+        assert [r['destination_detail'] for r in self._results(no_voucher='true')] == ['Persona Suelta Test']
 
     def test_has_date_filter(self):
         assert len(self._results(has_date='false')) == 1

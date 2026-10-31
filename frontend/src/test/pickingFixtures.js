@@ -37,7 +37,8 @@ export const ITEM_LENTES = {
 };
 
 export const DELIVERY_1 = {
-  id: 1, dispatch_number: 'DSP-0001', dispatch_guide_number: 'GR-100', movement_date: '2026-10-20',
+  id: 1, dispatch_number: 'DSP-0001', dispatch_guide_number: 'GR-2026-000001', movement_group_id: 41, first_movement_id: 410,
+  movement_date: '2026-10-20',
   dispatched_at: '2026-10-20T15:30:00-05:00', dispatched_by: 'Rosa Prueba Uno', is_reversal: false,
   reverses: null, reversed_by: null, notes: 'Primera tanda', can_reverse: true,
   lines: [{ request_item_id: 11, line_number: 1, description: 'Casco de seguridad blanco', quantity: '4.000' }],
@@ -75,4 +76,20 @@ export function pendingRow(overrides = {}) {
     stock_items: 4, purchase_items: 0, acquisition_type: '', created_at: '2026-10-01T10:00:00-05:00',
     ...overrides,
   };
+}
+
+/** Fila de `GET /warehouse/pending-requests/deliverable/` (selector de la pantalla de Salida, SYSPCC-041). */
+export function deliverableRow(overrides = {}) {
+  return {
+    id: 7, rq_number: 'RQ-2026-0007', flow: 'OPERATIONS', status: 'IN_STOCK',
+    status_label: 'Stock disponible — pendiente despacho', project: 'Proyecto Prueba', project_code: 'PRU-01',
+    department: null, requested_by: 'Luis Prueba Dos', fecha_necesidad: '2026-11-05', priority: 'NORMAL',
+    items_total: 8, items_pending: 1, items_partial: 1, items_deliverable: 2, percent: 37.5,
+    ...overrides,
+  };
+}
+
+/** Respuesta paginada estándar del selector. */
+export function deliverablePage(rows, count = rows.length) {
+  return { data: { count, next: null, previous: null, results: rows } };
 }

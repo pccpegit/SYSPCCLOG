@@ -4,7 +4,8 @@ import {
   ArrowUpFromLine, Check, CheckCircle, Download, History, Loader2, Plus, Printer, RotateCcw, Trash2,
 } from 'lucide-react';
 import {
-  downloadGroupPdf, getInventory, getMovements, registerEppDelivery, registerExitBatch,
+  deliverRqItems, downloadGroupPdf, getInventory, getMovements, getRqPicking, registerEppDelivery,
+  registerExitBatch,
 } from '../../api/almacen';
 import { useAuth } from '../../context/useAuth';
 import { useToast } from '../../context/useToast';
@@ -13,17 +14,22 @@ import useFocusFirstInvalid from '../../hooks/useFocusFirstInvalid';
 import NumberInput from '../../components/ui/NumberInput';
 import ClearFormDialog from '../../components/almacen/ClearFormDialog';
 import ItemCombobox from '../../components/almacen/ItemCombobox';
+import RqCombobox from '../../components/almacen/RqCombobox';
+import RqDeliveryLines from '../../components/almacen/RqDeliveryLines';
 import WorkerCombobox from '../../components/almacen/WorkerCombobox';
 import { LocationChip } from '../../components/almacen/chips';
 import { Banner, Card, ErrorBlock, Field, FocusHeading, LoadingBlock, PageHeader } from '../../components/almacen/ui';
 import { btnPrimary, btnSecondary, inputCls } from '../../components/almacen/uiStyles';
 import { COUNTER_ROLES } from '../../data/almacenRoles';
 import { EXIT_MODES, WAREHOUSES } from '../../data/almacenConstants';
-import { extractErrorMessage } from '../../utils/apiErrors';
 import {
-  availableStock, compact, countErrors, formatISODate, formatQty, hasAnyRole, localISODate, nextLineId,
+  availableStock, compact, countErrors, describeExitError, formatISODate, formatQty, hasAnyRole, localISODate, nextLineId,
   stockShortageMessage, validateMovementDate, validateQuantity,
 } from '../../utils/almacen';
+import {
+  NOTES_MAX_LENGTH, RQ_STAGE_LABELS, describeDeliveryError, describePickingLoadError, initRqSelection,
+  mergeRqSelection, roleList, validateRqSelection,
+} from '../../utils/rqPicking';
 
 const newLine = (inventory = '') => ({ id: nextLineId(), inventory, quantity: '' });
 
@@ -82,7 +88,6 @@ export default function SalidaPage() {
     mode: modes[0].value,
     movement_date: localISODate(),
     warehouse: siteOnly ? 'SITE' : 'CENTRAL',
-    voucher_number: '',
     worker: null,
     destination_detail: '',
     requested_by: '',
@@ -94,16 +99,28 @@ export default function SalidaPage() {
   const [catalog, setCatalog] = useState({ status: 'loading', items: [] });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
-  const [duplicate, setDuplicate] = useState(false);
+  const [rq, setRq] = useState(null);
+  const [rqLoad, setRqLoad] = useState({ key: '', status: 'loading', picking: null, error: null });
+  const [rqReload, setRqReload] = useState(0);
+  const [selection, setSelection] = useState({});
+  const [rqLineErrors, setRqLineErrors] = useState({});
+  const [minDate, setMinDate] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [duplicateExit, setDuplicateExit] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [result, setResult] = useState(null);
   const inFlight = useRef(false);
-  const voucherRef = useRef(null);
   const addButtonRef = useRef(null);
   const { formRef, focusFirstInvalid } = useFocusFirstInvalid();
 
-  const employee = header.mode === 'EMPLOYEE';
+  const rqId = rq?.id ?? null;
+  // Con un RQ elegido la salida es una entrega de ese requerimiento: modo, destino y trabajador no aplican.
+  const employee = !rq && header.mode === 'EMPLOYEE';
+  const rqKey = `${rqId}:${rqReload}`;
+  const rqReady = Boolean(rq) && rqLoad.key === rqKey && rqLoad.status === 'ready';
+  const rqStatus = !rq ? 'idle' : (rqLoad.key === rqKey ? rqLoad.status : 'loading');
+  const rqPicking = rqReady ? rqLoad.picking : null;
+  const rqCanDeliver = Boolean(rqPicking?.request?.deliverable_state && rqPicking?.request?.can_deliver);
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -120,9 +137,52 @@ export default function SalidaPage() {
     return () => clearTimeout(timer);
   }, [loadCatalog]);
 
+  useEffect(() => {
+    if (rqId == null) return undefined;
+    let alive = true;
+    const key = `${rqId}:${rqReload}`;
+    getRqPicking(rqId)
+      .then((res) => {
+        if (!alive) return;
+        setRqLoad({ key, status: 'ready', picking: res.data, error: null });
+        setSelection(initRqSelection(res.data?.items));
+        setRqLineErrors({});
+      })
+      .catch((err) => {
+        if (alive) setRqLoad({ key, status: 'error', picking: null, error: describePickingLoadError(err) });
+      });
+    return () => { alive = false; };
+  }, [rqId, rqReload]);
+
+  // RQ elegido "ahora": una recarga tardía de otro RQ (ya quitado) no debe escribir en el actual.
+  const rqIdRef = useRef(rqId);
+  useEffect(() => { rqIdRef.current = rqId; }, [rqId]);
+
+  /** Recarga el picking sin perder lo que el usuario ya tecleó (el stock o lo pendiente cambió). */
+  const reloadRqPicking = async () => {
+    if (rqId == null) return;
+    try {
+      const res = await getRqPicking(rqId);
+      if (rqIdRef.current !== rqId) return;
+      setRqLoad({ key: `${rqId}:${rqReload}`, status: 'ready', picking: res.data, error: null });
+      setSelection((prev) => mergeRqSelection(res.data?.items, prev));
+    } catch {
+      // El aviso del error original ya está en pantalla; «Actualizar» queda disponible.
+    }
+  };
+
+  const chooseRq = (next) => {
+    setRq(next);
+    setSelection({});
+    setRqLineErrors({});
+    setMinDate('');
+    setErrors({});
+    setSubmitError('');
+    setRqLoad({ key: '', status: 'loading', picking: null, error: null });
+  };
+
   const itemById = (id) => catalog.items.find((i) => String(i.id) === String(id));
   const setH = (field) => (e) => {
-    setDuplicate(false);
     setHeader((prev) => ({ ...prev, [field]: e.target.value }));
   };
   const updateLine = (id, field, value) =>
@@ -169,9 +229,8 @@ export default function SalidaPage() {
   const hasShortage = lines.some((l) => shortage(l));
 
   const dateCheck = validateMovementDate(header.movement_date);
-  const voucher = header.voucher_number.trim();
-  const dirty = lines.some((l) => l.inventory || l.quantity)
-    || Boolean(header.worker || voucher || header.destination_detail.trim() || header.requested_by.trim() || header.notes.trim());
+  const dirty = Boolean(rq) || lines.some((l) => l.inventory || l.quantity)
+    || Boolean(header.worker || header.destination_detail.trim() || header.requested_by.trim() || header.notes.trim());
 
   const validate = () => {
     const errs = { lines: {} };
@@ -192,30 +251,18 @@ export default function SalidaPage() {
     return errs;
   };
 
-  const errorCount = countErrors(errors);
+  const errorCount = countErrors(errors) + Object.keys(rqLineErrors).length;
 
-  const send = async (allowDuplicate) => {
+  const send = async () => {
     const items = lines.map((l) => ({ inventory: Number(l.inventory), quantity: Number(l.quantity) }));
     const common = { warehouse: header.warehouse, movement_date: header.movement_date, items };
 
-    if (employee && voucher) {
+    if (employee) {
+      // Un trabajador siempre va por la entrega de EPP; el N° de guía lo genera el servidor.
       const { worker } = header;
       return registerEppDelivery({
         ...common,
-        voucher_number: voucher,
         recipient: worker.kind === 'personal' ? { personal: worker.id } : { name: worker.name },
-        ...compact({ notes: header.notes }),
-        ...(allowDuplicate ? { allow_duplicate_voucher: true } : {}),
-      });
-    }
-    if (employee) {
-      // Sin N° de vale: se guarda como «Sin vale» por la salida por lotes (el vale es opcional).
-      const { worker } = header;
-      return registerExitBatch({
-        ...common,
-        destination_type: 'EMPLOYEE',
-        destination_detail: worker.name,
-        ...(worker.kind === 'personal' ? { destination_personal: worker.id } : {}),
         ...compact({ notes: header.notes }),
       });
     }
@@ -225,13 +272,20 @@ export default function SalidaPage() {
       ...common,
       destination_type: header.mode,
       destination_detail: header.destination_detail.trim(),
-      ...compact({ voucher_number: voucher, notes }),
-      ...(allowDuplicate ? { allow_duplicate_voucher: true } : {}),
+      ...compact({ notes }),
     });
   };
 
-  const submit = async ({ another = false, allowDuplicate = false } = {}) => {
-    if (inFlight.current || catalog.status !== 'ready') return;
+  /** Aviso pasajero: «Egreso registrado. Guía GR-…» (o el vale interno si el servidor no mandó guía). */
+  const announce = (registered, guideNumber, groupNumber) => {
+    let tail = '.';
+    if (guideNumber) tail = `. Guía ${guideNumber}`;
+    else if (groupNumber) tail = `. Vale interno ${groupNumber}`;
+    showToast({ type: 'success', message: `${registered}${tail}` });
+  };
+
+  const submitFree = async ({ another = false } = {}) => {
+    if (catalog.status !== 'ready') return;
     if (hasShortage) {
       focusFirstInvalid();
       return;
@@ -245,56 +299,144 @@ export default function SalidaPage() {
 
     inFlight.current = true;
     setSaving(true);
-    setDuplicate(false);
     setSubmitError('');
+    setDuplicateExit(false);
     try {
-      const { data } = await send(allowDuplicate);
+      const { data } = await send();
       const groupNumber = data?.group_number ?? '';
-      // «Entrega registrada» / «Egreso registrado» (gender agrees); the voucher number only when the server sent one.
-      const registered = employee ? 'Entrega registrada' : 'Egreso registrado';
-      showToast({
-        type: 'success',
-        message: groupNumber ? `${registered}. Vale interno ${groupNumber}` : `${registered}.`,
-      });
+      const guideNumber = data?.internal_guide_number ?? data?.guide_number ?? '';
+      // «Entrega registrada» / «Egreso registrado» (gender agrees).
+      announce(employee ? 'Entrega registrada' : 'Egreso registrado', guideNumber, groupNumber);
       loadCatalog();
       if (another) {
         setHeader((prev) => ({ ...makeHeader(), movement_date: prev.movement_date, warehouse: prev.warehouse, mode: prev.mode }));
         setLines([newLine()]);
         setErrors({});
-        setTimeout(() => voucherRef.current?.focus(), 0);
+        setTimeout(() => document.getElementById('exit-worker')?.focus(), 0);
       } else {
         setResult({
           groupId: data?.id,
           groupNumber,
+          guideNumber,
           movementId: data?.movements?.[0]?.id,
           count: lines.length,
-          noVoucher: !voucher,
           employee,
+          rq: null,
         });
       }
     } catch (err) {
-      if (err?.response?.status === 409 && err.response.data?.code === 'voucher_number_exists') {
-        setDuplicate(true);
-      } else {
-        // Además del aviso pasajero, queda un mensaje fijo junto a los botones hasta el próximo intento.
-        const message = extractErrorMessage(err, 'No se pudo registrar el egreso. Intente nuevamente.');
-        setSubmitError(message);
-        showToast({ type: 'error', message, duration: 8000 });
-      }
+      // Además del aviso pasajero, queda un mensaje fijo junto a los botones hasta el próximo intento.
+      const failure = describeExitError(err);
+      const { message } = failure;
+      setSubmitError(message);
+      setDuplicateExit(failure.duplicate);
+      showToast({ type: 'error', message, duration: 8000 });
     } finally {
       inFlight.current = false;
       setSaving(false);
     }
   };
 
+  const submitRq = async () => {
+    if (!rqReady || !rqCanDeliver) return;
+    const errs = {};
+    if (dateCheck.error) errs.movement_date = dateCheck.error;
+    else if (minDate && header.movement_date < minDate) {
+      errs.movement_date = `La fecha no puede ser anterior al ${formatISODate(minDate)}.`;
+    }
+    const notes = header.notes.trim();
+    if (notes.length > NOTES_MAX_LENGTH) errs.notes = `La observación admite hasta ${NOTES_MAX_LENGTH} caracteres.`;
+    const check = validateRqSelection(rqPicking.items, selection);
+    setErrors(errs);
+    setRqLineErrors(check.lineErrors);
+    if (!check.valid || Object.keys(errs).length) {
+      if (!check.valid && Object.keys(check.lineErrors).length === 0) {
+        setSubmitError('Marque al menos una línea con cantidad para entregar.');
+      } else {
+        setSubmitError('');
+      }
+      focusFirstInvalid();
+      return;
+    }
+
+    inFlight.current = true;
+    setSaving(true);
+    setSubmitError('');
+    try {
+      const { data } = await deliverRqItems(rqId, {
+        lines: check.lines,
+        movement_date: header.movement_date,
+        ...(notes ? { notes } : {}),
+      });
+      const delivery = data?.delivery ?? {};
+      const guideNumber = delivery.dispatch_guide_number ?? '';
+      const groupNumber = delivery.dispatch_number ?? '';
+      announce('Entrega registrada', guideNumber, groupNumber);
+      setResult({
+        groupId: delivery.movement_group_id,
+        groupNumber,
+        guideNumber,
+        movementId: delivery.first_movement_id,
+        count: check.lines.length,
+        employee: false,
+        rq: { id: rqId, number: rq.rq_number },
+      });
+    } catch (err) {
+      const d = describeDeliveryError(err);
+      setRqLineErrors(d.lineErrors);
+      if (d.fieldErrors.movement_date) setErrors((prev) => ({ ...prev, movement_date: d.fieldErrors.movement_date }));
+      if (d.minDate) setMinDate(d.minDate);
+      setSubmitError(d.message);
+      showToast({ type: 'error', message: d.message, duration: 8000 });
+      focusFirstInvalid();
+      if (d.refresh) reloadRqPicking();
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  };
+
+  const submit = async (options) => {
+    if (inFlight.current) return;
+    if (rq) await submitRq();
+    else await submitFree(options);
+  };
+
   const reset = () => {
     setHeader(makeHeader());
     setLines([newLine()]);
     setErrors({});
-    setDuplicate(false);
     setSubmitError('');
+    setDuplicateExit(false);
     setResult(null);
+    chooseRq(null);
   };
+
+  const toggleLine = (id, include) => {
+    setSelection((prev) => ({ ...prev, [id]: { ...prev[id], include } }));
+    setRqLineErrors((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+  const setLineQuantity = (id, quantity) => {
+    setSelection((prev) => ({ ...prev, [id]: { ...prev[id], quantity } }));
+    setRqLineErrors((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+  const suggestAll = () => { setSelection(initRqSelection(rqPicking?.items)); setRqLineErrors({}); };
+  const clearAll = () => {
+    setSelection((prev) => Object.fromEntries(Object.entries(prev).map(([id, v]) => [id, { ...v, include: false }])));
+    setRqLineErrors({});
+  };
+  const submitBlocked = saving || (rq ? !rqReady || !rqCanDeliver : hasShortage || catalog.status !== 'ready');
+  const includedCount = Object.values(selection).filter((v) => v.include).length;
 
   // «Limpiar formulario» no es un cancelar: borra lo cargado, así que con datos pide confirmación.
   const requestClear = () => {
@@ -309,13 +451,28 @@ export default function SalidaPage() {
           <div className="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-500/10 flex items-center justify-center mx-auto mb-5">
             <CheckCircle size={32} className="text-rose-500" aria-hidden="true" />
           </div>
-          <FocusHeading>{result.employee ? 'Entrega registrada' : 'Egreso registrado'}</FocusHeading>
+          <FocusHeading>{result.employee || result.rq ? 'Entrega registrada' : 'Egreso registrado'}</FocusHeading>
           <p className="text-sm text-gray-600">
-            {result.count} {result.count === 1 ? 'ítem' : 'ítems'}.
+            {result.count} {result.count === 1 ? 'ítem' : 'ítems'}
+            {result.rq && <> del requerimiento <strong className="font-mono">{result.rq.number}</strong></>}.
             {result.groupNumber && <> Vale interno <strong className="font-mono">{result.groupNumber}</strong>.</>}
           </p>
-          {result.noVoucher && (
-            <Banner tone="amber" className="mt-4 text-left">Se guardó como «Sin vale»: falta el N° de vale físico.</Banner>
+          {result.guideNumber && (
+            <div
+              role="group"
+              aria-label="Guía generada"
+              className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 px-4 py-3"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300 font-display">N° de guía</p>
+              <p className="mt-0.5 text-2xl font-black font-mono tabular-nums text-gray-900">{result.guideNumber}</p>
+              <p className="mt-1 text-xs text-gray-600">Se generó automáticamente. Es un documento interno; no reemplaza la guía de remisión electrónica.</p>
+            </div>
+          )}
+          {result.rq && (
+            <p className="mt-3 text-xs text-gray-600">
+              Lo entregado ya descuenta lo pendiente y actualiza el avance en el Master de RQ.{' '}
+              <Link to={`/almacen/pendientes/${result.rq.id}/picking`} className="font-semibold underline">Ver el picking del requerimiento</Link>.
+            </p>
           )}
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
             {result.movementId && (
@@ -326,7 +483,7 @@ export default function SalidaPage() {
             {result.groupId && (
               <button
                 type="button"
-                onClick={() => download.run(() => downloadGroupPdf(result.groupId), `${result.groupNumber || 'vale'}.pdf`, 'No se pudo descargar el vale. Intente nuevamente.')}
+                onClick={() => download.run(() => downloadGroupPdf(result.groupId), `${result.guideNumber || result.groupNumber || 'vale'}.pdf`, 'No se pudo descargar el PDF. Intente nuevamente.')}
                 aria-disabled={download.busy}
                 className={`${btnSecondary} flex-1`}
               >
@@ -335,7 +492,7 @@ export default function SalidaPage() {
             )}
           </div>
           <button type="button" onClick={reset} className={`${btnSecondary} w-full mt-3`}>
-            <RotateCcw size={16} aria-hidden="true" /> {result.employee ? 'Registrar otra entrega' : 'Registrar otro egreso'}
+            <RotateCcw size={16} aria-hidden="true" /> {result.employee || result.rq ? 'Registrar otra entrega' : 'Registrar otro egreso'}
           </button>
         </Card>
       </div>
@@ -352,6 +509,13 @@ export default function SalidaPage() {
 
       <form ref={formRef} onSubmit={(e) => { e.preventDefault(); submit(); }} noValidate className="space-y-5">
         <Card className="p-5 sm:p-7 space-y-5">
+          {!siteOnly && (
+            <Field label="RQ pendiente por entregar (opcional)" id="exit-rq">
+              <RqCombobox value={rq} onChange={chooseRq} disabled={saving} />
+            </Field>
+          )}
+
+          {!rq && (
           <fieldset>
             <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide font-display mb-2">Tipo de egreso</legend>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -363,7 +527,6 @@ export default function SalidaPage() {
                     value={m.value}
                     checked={header.mode === m.value}
                     onChange={() => {
-                      setDuplicate(false);
                       setErrors({});
                       setHeader((prev) => ({ ...prev, mode: m.value }));
                     }}
@@ -377,41 +540,29 @@ export default function SalidaPage() {
               ))}
             </div>
           </fieldset>
+          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Field label="Fecha" required error={errors.movement_date}>
-              <input type="date" value={header.movement_date} max={localISODate()} onChange={setH('movement_date')} className={inputCls(!!errors.movement_date)} />
+              <input type="date" value={header.movement_date} min={rq ? minDate || undefined : undefined} max={localISODate()} onChange={setH('movement_date')} className={inputCls(!!errors.movement_date)} />
             </Field>
-            <Field label="Almacén" required>
-              <select value={header.warehouse} onChange={setH('warehouse')} disabled={siteOnly} className={inputCls()}>
+            <Field
+              label="Almacén"
+              required
+              hint={rq ? 'La entrega de un requerimiento sale siempre del Almacén Central.' : undefined}
+            >
+              <select value={rq ? 'CENTRAL' : header.warehouse} onChange={setH('warehouse')} disabled={siteOnly || Boolean(rq)} className={inputCls()}>
                 {WAREHOUSES.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
               </select>
             </Field>
-            <Field label="N° de vale (físico)" hint="El número impreso en el vale firmado.">
-              <input ref={voucherRef} value={header.voucher_number} onChange={setH('voucher_number')} className={inputCls()} placeholder="Ej.: 0123" />
-            </Field>
           </div>
           {dateCheck.warning && <Banner tone="amber" live>{dateCheck.warning}</Banner>}
-          {!voucher && (
-            <Banner tone="amber">No indicó N° de vale. {employee ? 'La entrega' : 'El egreso'} se guardará como «Sin vale».</Banner>
-          )}
-          {duplicate && (
-            <Banner tone="red" live="assertive">
-              <p className="font-medium">Ya existe un egreso con ese N° de vale en este almacén.</p>
-              <div className="flex flex-wrap gap-2 mt-2">
-                <button type="button" onClick={() => voucherRef.current?.focus()} className={btnSecondary}>Corregir el N° de vale</button>
-                <button type="button" onClick={() => submit({ allowDuplicate: true })} aria-disabled={saving} className={btnSecondary}>
-                  Registrar de todos modos
-                </button>
-              </div>
-            </Banner>
-          )}
 
-          {employee ? (
-            <Field label="Trabajador" required error={errors.worker}>
+          {rq ? null : employee ? (
+            <Field label="Trabajador" required error={errors.worker} id="exit-worker">
               <WorkerCombobox
                 value={header.worker}
-                onChange={(worker) => { setDuplicate(false); setHeader((prev) => ({ ...prev, worker })); }}
+                onChange={(worker) => setHeader((prev) => ({ ...prev, worker }))}
               />
             </Field>
           ) : (
@@ -425,11 +576,60 @@ export default function SalidaPage() {
             </div>
           )}
 
-          <Field label="Observación">
+          <Field label="Observación" error={errors.notes}>
             <textarea rows={2} value={header.notes} onChange={setH('notes')} className={`${inputCls()} resize-none`} placeholder="Opcional" />
           </Field>
         </Card>
 
+        {rq ? (
+          <Card className="p-5 sm:p-7 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide font-display">
+                Líneas del requerimiento {rq.rq_number}
+                {rqReady && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 font-bold">{includedCount} de {rqPicking.items.filter((i) => i.can_deliver).length}</span>}
+              </h2>
+              {rqReady && rqCanDeliver && (
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={suggestAll} className={btnSecondary}>Completar con lo sugerido</button>
+                  <button type="button" onClick={clearAll} className={btnSecondary}>Quitar todas</button>
+                </div>
+              )}
+            </div>
+
+            {rqStatus === 'loading' && <LoadingBlock label="Cargando los ítems pendientes…" className="h-24" />}
+            {rqStatus === 'error' && (
+              <ErrorBlock
+                message={rqLoad.error?.message}
+                onRetry={['INVALID_STATE', 'NOT_FOUND', 'FORBIDDEN'].includes(rqLoad.error?.code) ? undefined : () => setRqReload((k) => k + 1)}
+              />
+            )}
+            {rqReady && !rqCanDeliver && (
+              <Banner tone="amber">
+                {rqPicking.request.deliverable_state
+                  ? `Solo lectura: registrar entregas en este estado corresponde a ${roleList(rqPicking.request.deliver_roles) || 'otro rol'}.`
+                  : `El requerimiento está en «${RQ_STAGE_LABELS[rqPicking.request.status] ?? rqPicking.request.status}» y ya no admite nuevas entregas.`}
+              </Banner>
+            )}
+            {rqReady && rqPicking.items.length === 0 && (
+              <p className="text-sm text-gray-600">El requerimiento no tiene líneas por entregar.</p>
+            )}
+            {rqReady && rqPicking.items.length > 0 && (
+              <RqDeliveryLines
+                items={rqPicking.items}
+                selection={selection}
+                errors={rqLineErrors}
+                disabled={saving || !rqCanDeliver}
+                onToggle={toggleLine}
+                onQuantity={setLineQuantity}
+              />
+            )}
+            {rqReady && (
+              <p className="text-xs text-gray-500">
+                Cantidad sugerida = lo menor entre lo pendiente y el stock del Almacén Central. No puede entregar más que eso.
+              </p>
+            )}
+          </Card>
+        ) : (
         <Card className="p-5 sm:p-7 space-y-4">
           <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide font-display">
             Ítems a entregar <span className="ml-1.5 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300 font-bold">{lines.length}</span>
@@ -504,6 +704,7 @@ export default function SalidaPage() {
             </>
           )}
         </Card>
+        )}
 
         {errorCount > 0 && (
           <Banner tone="red" live="assertive">
@@ -512,8 +713,13 @@ export default function SalidaPage() {
         )}
         {submitError && (
           <Banner tone="red" live>
-            <p className="font-medium">No se registró {employee ? 'la entrega' : 'el egreso'}.</p>
+            <p className="font-medium">No se registró {employee || rq ? 'la entrega' : 'el egreso'}.</p>
             <p>{submitError}</p>
+            {duplicateExit && (
+              <p className="mt-2">
+                <Link to="/almacen/movimientos" className="font-semibold underline">Ver movimientos recientes</Link>
+              </p>
+            )}
           </Banner>
         )}
 
@@ -523,7 +729,7 @@ export default function SalidaPage() {
             <button
               type="button"
               onClick={() => submit({ another: true })}
-              aria-disabled={saving || hasShortage || catalog.status !== 'ready'}
+              aria-disabled={submitBlocked}
               className={btnSecondary}
             >
               Registrar y agregar otra entrega
@@ -531,23 +737,30 @@ export default function SalidaPage() {
           )}
           <button
             type="submit"
-            aria-disabled={saving || hasShortage || catalog.status !== 'ready'}
+            aria-disabled={submitBlocked}
             className={`${btnPrimary} sm:ml-auto`}
           >
             {saving
               ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Registrando…</>
-              : <><ArrowUpFromLine size={16} aria-hidden="true" /> {employee ? 'Registrar entrega' : 'Registrar egreso'}</>}
+              : <><ArrowUpFromLine size={16} aria-hidden="true" /> {rq ? 'Registrar entrega del requerimiento' : employee ? 'Registrar entrega' : 'Registrar egreso'}</>}
           </button>
         </div>
-        {hasShortage && (
+        {!rq && hasShortage && (
           <p role="status" className="text-xs text-red-600 dark:text-red-400 font-medium">
             Hay ítems con stock insuficiente. Corrija las cantidades para continuar.
           </p>
         )}
-        <p className="text-xs text-gray-500">
-          Las entregas de EPP no cambian el estado de ningún RQ. Para despachar un RQ, use{' '}
-          <Link to="/almacen/pendientes" className="font-semibold underline">RQ Pendientes</Link>.
-        </p>
+        {rq ? (
+          <p className="text-xs text-gray-500">
+            Esta entrega se registra contra el requerimiento: descuenta lo pendiente y actualiza su avance en el Master de RQ.
+            No cambia el estado del flujo.
+          </p>
+        ) : (
+          <p className="text-xs text-gray-500">
+            Las entregas de EPP no cambian el estado de ningún RQ. Para despachar un RQ, elíjalo arriba o use{' '}
+            <Link to="/almacen/pendientes" className="font-semibold underline">RQ Pendientes</Link>.
+          </p>
+        )}
       </form>
 
       <ClearFormDialog

@@ -329,7 +329,7 @@ class TestEppDeliveryEdges:
         return tolerant_client(central_warehouse)
 
     @pytest.mark.parametrize('over', [
-        {'voucher_number': 'V' * 31}, {'voucher_number': ''}, {'voucher_number': '   '},
+        {'voucher_number': 'V' * 31},
         {'movement_date': '2026-13-45'}, {'movement_date': 'hoy'}, {'movement_date': ''},
         {'recipient': {}}, {'recipient': {'name': '   '}}, {'recipient': {'name': 'N' * 201}},
         {'recipient': {'name': 'A', 'internal': 'B'}}, {'recipient': 'Juan'}, {'items': []},

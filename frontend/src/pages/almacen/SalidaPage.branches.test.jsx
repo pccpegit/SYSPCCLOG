@@ -56,7 +56,7 @@ describe('SalidaPage — aviso de «última entrega»', () => {
   it('si la consulta falla no aparece el aviso y la entrega se puede registrar igual', async () => {
     const user = userEvent.setup();
     api.getMovements.mockRejectedValue(new Error('boom'));
-    api.registerExitBatch.mockResolvedValue({ data: { id: 9, group_number: 'SAL-2026-G0001', movements: [{ id: 90 }] } });
+    api.registerEppDelivery.mockResolvedValue({ data: { id: 9, group_number: 'SAL-2026-G0001', internal_guide_number: 'GR-2026-000001', movements: [{ id: 90 }] } });
     renderWithProviders(<SalidaPage />);
     await screen.findByRole('combobox', { name: /ítem 1/i });
 
@@ -70,7 +70,7 @@ describe('SalidaPage — aviso de «última entrega»', () => {
     expect(screen.queryByText(/última entrega/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^registrar entrega$/i }));
-    await waitFor(() => expect(api.registerExitBatch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.registerEppDelivery).toHaveBeenCalledTimes(1));
   });
 
   it('una entrega anterior sin fecha se anuncia como «sin fecha», no como una fecha inválida', async () => {
@@ -94,26 +94,26 @@ describe('SalidaPage — «Limpiar formulario»', () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await screen.findByRole('combobox', { name: /ítem 1/i });
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
+    await user.type(screen.getByLabelText(/^observación/i), 'Entrega urgente');
 
     await user.click(screen.getByRole('button', { name: /limpiar formulario/i }));
     const dialog = await screen.findByRole('dialog', { name: '¿Limpiar el formulario?' });
     await user.click(within(dialog).getByRole('button', { name: 'Seguir editando' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByLabelText(/n° de vale \(físico\)/i)).toHaveValue('0123');
+    expect(screen.getByLabelText(/^observación/i)).toHaveValue('Entrega urgente');
   });
 
   it('Escape también conserva lo cargado', async () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await screen.findByRole('combobox', { name: /ítem 1/i });
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
+    await user.type(screen.getByLabelText(/^observación/i), 'Entrega urgente');
     await user.click(screen.getByRole('button', { name: /limpiar formulario/i }));
     await screen.findByRole('dialog', { name: '¿Limpiar el formulario?' });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByLabelText(/n° de vale \(físico\)/i)).toHaveValue('0123');
+    expect(screen.getByLabelText(/^observación/i)).toHaveValue('Entrega urgente');
   });
 
   it('sin datos cargados no hay nada que confirmar', async () => {

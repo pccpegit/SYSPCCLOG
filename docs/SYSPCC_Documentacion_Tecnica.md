@@ -2,7 +2,7 @@
 
 **Sistema de Gestión de Requerimientos de Abastecimiento**
 **Versión:** 1.0
-**Fecha:** Abril 2026
+**Fecha:** Octubre 2026 (actualizada al código de `develop`, tickets SYSPCC-001 a SYSPCC-026)
 **Empresa:** PCC Ingeniería y Construcción
 
 ---
@@ -20,21 +20,28 @@
 
 # 1. Casos de Uso
 
+Esta sección resume los casos de uso principales. Los identificadores `CU-nn` son los mismos de `docs/01_Casos_de_Uso.md` (CU-01 a CU-52), donde está el detalle completo; por eso la numeración aquí no es correlativa.
+
 ## 1.1 Actores del Sistema
 
 | Actor | Código | Descripción |
 |-------|--------|-------------|
-| Solicitante | REQUESTER | Crea y envía requerimientos de abastecimiento |
-| Residente de Proyecto | PROJECT_RESIDENT | Valida técnicamente los RQ de operaciones |
-| Control de Proyecto | PROJECT_CONTROL | Clasifica presupuesto y aprueba costos (operaciones) |
-| Gerente General | GENERAL_MANAGER | Aprobación final para adicionales y sobrecostos |
-| Coordinador Logístico | LOGISTICS_COORDINATOR | Gestiona cotizaciones, compras y recepción (operaciones) |
-| Almacén Central | CENTRAL_WAREHOUSE | Despacha materiales desde almacén central |
-| Almacén de Obra | SITE_WAREHOUSE | Recibe materiales en obra y confirma entrega |
-| Jefe Directo | DIRECT_SUPERVISOR | Valida RQ administrativos |
-| Gerente Administrativo | ADMIN_MANAGER | Revisa presupuesto del plan anual (administrativo) |
-| Supervisor Logístico | LOGISTICS_SUPERVISOR | Gestiona compras del flujo administrativo |
-| Jefe Logístico | LOGISTICS_CHIEF | Compara cotizaciones del flujo administrativo |
+| Solicitante | REQUESTER | Crea requerimientos, da conformidad o reclama |
+| Residente de Proyecto | PROJECT_RESIDENT | Valida técnicamente los RQ de operaciones y decide sobre los adicionales |
+| Control de Proyecto | PROJECT_CONTROL | Clasifica presupuesto y aprueba el costo de la cotización (operaciones) |
+| Gerente General | GENERAL_MANAGER | Aprueba adicionales, RQ fuera de plan y sobrecostos; lectura en RR. HH. |
+| Coordinador Logístico | LOGISTICS_COORDINATOR | Stock, cotizaciones, OC, recepción, control de calidad, despacho, reclamos y cierre (operaciones) |
+| Almacén Central | CENTRAL_WAREHOUSE | Despacha desde stock; en administración confirma la entrega y actualiza registros; importa inventario |
+| Almacén de Obra | SITE_WAREHOUSE | Confirma la entrega en obra (operaciones); opera el almacén de obra |
+| Jefe Directo | DIRECT_SUPERVISOR | Valida los RQ administrativos y decide sobre los RQ fuera de plan |
+| Gerente Administrativo | ADMIN_MANAGER | Revisa contra el plan anual y aprueba el costo de la cotización (administrativo); pasajes |
+| Supervisor Logístico | LOGISTICS_SUPERVISOR | Stock, compras, recepción, control de calidad, despacho, reclamos y cierre (administrativo) |
+| Jefe Logístico | LOGISTICS_CHIEF | Compara y selecciona cotizaciones (administrativo); importa inventario |
+| Gestor de Pasajes | PASAJES_MANAGER | Gestiona pasajes, pagos, políticas y proveedores de pasajes |
+| Gestor de RR. HH. | HR_MANAGER | Genera contratos y analiza CVs |
+| Superadministrador | `is_superuser` (no es un rol) | Gestiona usuarios, roles y proyectos (`/sistema`) |
+
+Fuente: `backend/apps/core/enums.py` (`RoleChoices`, 13 roles) y `backend/apps/core/permissions.py` (`IsSuperUser`).
 
 ## 1.2 Casos de Uso — Módulo de Requerimientos (RQ)
 
@@ -43,21 +50,21 @@
 | Campo | Detalle |
 |-------|---------|
 | **Actor principal** | Solicitante (REQUESTER) |
-| **Precondición** | Usuario autenticado con rol REQUESTER asignado a un proyecto u oficina |
-| **Descripción** | El solicitante crea un nuevo requerimiento de abastecimiento indicando los ítems necesarios, cantidades, especificaciones, prioridad y fecha de necesidad |
-| **Flujo principal** | 1. Selecciona proyecto/departamento<br>2. Indica flujo (Operaciones/Administrativo)<br>3. Completa campos: descripción, justificación, prioridad, fecha de necesidad<br>4. Agrega ítems con descripción, cantidad, unidad, precio unitario<br>5. Opcionalmente carga archivo Excel con ítems<br>6. Guarda como borrador (DRAFT) |
-| **Postcondición** | RQ creado con número auto-generado (RQ-YYYY-NNNN), estado DRAFT |
-| **Extensiones** | E1: Carga masiva de ítems vía Excel (.xlsx) |
+| **Precondición** | Usuario autenticado |
+| **Descripción** | El solicitante registra un requerimiento con sus ítems, eligiendo cada ítem del catálogo del almacén o marcándolo fuera de catálogo |
+| **Flujo principal** | 1. Elige el destino: un proyecto (flujo OPERATIONS) o un departamento (flujo ADMINISTRATIVE); el frente "Oficina Central" va siempre por el flujo administrativo<br>2. Completa área solicitante (OP/QC/HSE/ADM), frente, servicio, uso específico, tipo de adquisición y fecha de necesidad<br>3. Agrega ítems: busca el producto en el catálogo del almacén o marca la línea fuera de catálogo; indica cantidad y fuente (EPP, herramientas, materiales, etc.)<br>4. Envía el formulario (`POST /api/v1/requests/`) |
+| **Postcondición** | RQ creado directamente en estado SUBMITTED con número `RQ-YYYY-NNNN` generado por el servidor y un registro de aprobación DRAFT → SUBMITTED |
+| **Extensiones** | E1: Al enviar, el frontend descarga el RQ en Excel (ExcelJS)<br>E2: Máximo 200 ítems por RQ |
 
 ### CU-02: Enviar Requerimiento
 
 | Campo | Detalle |
 |-------|---------|
 | **Actor principal** | Solicitante (REQUESTER) |
-| **Precondición** | RQ en estado DRAFT con al menos 1 ítem |
-| **Descripción** | El solicitante envía el RQ para iniciar el proceso de aprobación |
-| **Flujo principal** | 1. Abre RQ en estado DRAFT<br>2. Revisa ítems y datos<br>3. Ejecuta acción "Enviar"<br>4. Sistema valida datos mínimos<br>5. Estado cambia a SUBMITTED |
-| **Postcondición** | RQ en estado SUBMITTED, notificación enviada al aprobador correspondiente |
+| **Precondición** | Ninguna adicional: el envío ocurre al crear el RQ (CU-01) |
+| **Descripción** | El RQ entra al proceso de aprobación |
+| **Flujo principal** | 1. La API crea el RQ en SUBMITTED y registra el `Approval` DRAFT → SUBMITTED<br>2. Si existiera un RQ en DRAFT, la acción `SUBMITTED` (rol REQUESTER) del motor de workflow lo pasa a SUBMITTED |
+| **Postcondición** | RQ en estado SUBMITTED. La creación no pasa por `WorkflowEngine`, por lo que no genera notificaciones in-app |
 
 ### CU-03: Validación Técnica (Flujo Operaciones)
 
@@ -66,8 +73,8 @@
 | **Actor principal** | Residente de Proyecto (PROJECT_RESIDENT) |
 | **Precondición** | RQ en estado SUBMITTED, flujo OPERATIONS |
 | **Descripción** | El residente revisa técnicamente el requerimiento y aprueba o rechaza |
-| **Flujo principal** | 1. Ve lista de RQ pendientes de revisión técnica<br>2. Abre el RQ y revisa ítems, especificaciones y justificación<br>3. Aprueba → estado cambia a TECHNICAL_APPROVED<br>4. O rechaza con comentarios → estado cambia a TECHNICAL_REJECTED |
-| **Postcondición** | RQ aprobado técnicamente o devuelto al solicitante |
+| **Flujo principal** | 1. Ve lista de RQ pendientes de revisión técnica<br>2. Abre el RQ y revisa ítems, especificaciones y justificación<br>3. Aprueba → estado cambia a TECHNICAL_APPROVED<br>4. O rechaza con comentarios → estado cambia a TECHNICAL_REJECTED (terminal) |
+| **Postcondición** | RQ aprobado técnicamente o rechazado |
 
 ### CU-04: Clasificación Presupuestal (Flujo Operaciones)
 
@@ -76,9 +83,9 @@
 | **Actor principal** | Control de Proyecto (PROJECT_CONTROL) |
 | **Precondición** | RQ en estado TECHNICAL_APPROVED |
 | **Descripción** | Control de proyecto clasifica el gasto como dentro de propuesta o adicional |
-| **Flujo principal** | 1. Revisa el RQ aprobado técnicamente<br>2. Consulta partida presupuestal del proyecto<br>3. Clasifica: WITHIN_PROPOSAL → pasa a VALIDATED automáticamente<br>4. O clasifica: ADDITIONAL_REQ → requiere aprobación adicional del residente y GG |
-| **Flujo alternativo** | Si es ADDITIONAL_REQ: Residente aprueba → GG revisa → GM_APPROVED → VALIDATED |
-| **Postcondición** | RQ validado presupuestalmente o en revisión de gerencia |
+| **Flujo principal** | 1. Revisa el RQ aprobado técnicamente<br>2. Consulta partida presupuestal del proyecto<br>3. Clasifica (`BUDGET_CLASSIFIED` con `classification=BC_WITHIN_PROPOSAL`) → WITHIN_PROPOSAL → VALIDATED automáticamente<br>4. O clasifica como adicional (`BC_ADDITIONAL`) → ADDITIONAL_REQ<br>5. O rechaza (`BUDGET_REJECTED`) → TECHNICAL_REJECTED |
+| **Flujo alternativo** | Si es ADDITIONAL_REQ: el Residente aprueba → GM_REVIEW → GG aprueba → GM_APPROVED → VALIDATED (o el Residente rechaza → TECHNICAL_REJECTED) |
+| **Postcondición** | RQ validado, en revisión de gerencia o rechazado |
 
 ### CU-05: Validación Administrativa (Flujo Administrativo)
 
@@ -87,8 +94,8 @@
 | **Actor principal** | Jefe Directo (DIRECT_SUPERVISOR), Gerente Administrativo (ADMIN_MANAGER) |
 | **Precondición** | RQ en estado SUBMITTED, flujo ADMINISTRATIVE |
 | **Descripción** | El jefe directo aprueba y luego el gerente administrativo clasifica contra el plan anual |
-| **Flujo principal** | 1. Jefe directo aprueba → SUPERVISOR_APPROVED<br>2. Gerente administrativo revisa contra plan anual<br>3. WITHIN_ANNUAL_PLAN → VALIDATED automáticamente<br>4. OUT_OF_ANNUAL_PLAN → requiere aprobación del jefe directo y GG |
-| **Postcondición** | RQ validado administrativamente |
+| **Flujo principal** | 1. Jefe directo aprueba → SUPERVISOR_APPROVED (o rechaza → SUPERVISOR_REJECTED)<br>2. Gerente administrativo revisa contra plan anual (`ADMIN_BUDGET_REVIEWED` con `within_plan`)<br>3. WITHIN_ANNUAL_PLAN → VALIDATED automáticamente<br>4. OUT_OF_ANNUAL_PLAN → el jefe directo aprueba (→ GM_REVIEW) o rechaza (→ SUPERVISOR_REJECTED)<br>5. El gerente administrativo también puede rechazar (`ADMIN_BUDGET_REJECTED`) → SUPERVISOR_REJECTED |
+| **Postcondición** | RQ validado, en revisión de gerencia o rechazado |
 
 ### CU-06: Aprobación de Gerencia General
 
@@ -104,61 +111,61 @@
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Coordinador Logístico / Supervisor Logístico |
+| **Actor principal** | Coordinador Logístico (OPS) / Supervisor Logístico (ADM) |
 | **Precondición** | RQ en estado VALIDATED |
 | **Descripción** | Logística verifica si los ítems solicitados están disponibles en almacén |
-| **Flujo principal** | 1. Recibe RQ validado<br>2. Consulta inventario de almacén<br>3. Si hay stock → IN_STOCK (despacho directo)<br>4. Si no hay stock → REQUIRES_PURCHASE (proceso de compra) |
+| **Flujo principal** | 1. Recibe RQ validado<br>2. Consulta la disponibilidad por línea contra el pool del almacén central (`GET /requests/{id}/stock-availability/`)<br>3. Confirma por línea el producto del catálogo o la marca fuera de catálogo, la fuente y el origen de atención (`PATCH /requests/{id}/update-items/`)<br>4. Ejecuta `STOCK_CHECKED` con `has_stock=true` → IN_STOCK, o `has_stock=false` → REQUIRES_PURCHASE |
 | **Postcondición** | RQ derivado a despacho o a proceso de cotización |
 
 ### CU-08: Gestión de Cotizaciones
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Coordinador Logístico / Jefe Logístico |
+| **Actor principal** | OPS: Coordinador Logístico. ADM: Supervisor Logístico (solicita) y Jefe Logístico (compara y selecciona) |
 | **Precondición** | RQ en estado REQUIRES_PURCHASE |
 | **Descripción** | Logística solicita cotizaciones a proveedores, compara y selecciona la mejor opción |
-| **Flujo principal** | 1. Cambia estado a QUOTING<br>2. Registra cotizaciones de proveedores (mínimo 1)<br>3. Compara precios, plazos y condiciones → QUOTE_COMPARISON<br>4. Selecciona cotización ganadora → QUOTE_SELECTED<br>5. Control de proyecto/Gerente administrativo aprueba costo → QUOTE_COST_APPROVED |
-| **Flujo alternativo** | Si costo excede presupuesto → COST_OVERRUN_REVIEW → GG aprueba o rechaza |
+| **Flujo principal** | 1. Solicita cotizaciones → QUOTING<br>2. Registra cotizaciones de proveedores (`/quotations/`)<br>3. Compara precios, plazos y condiciones → QUOTE_COMPARISON<br>4. Selecciona cotización ganadora → QUOTE_SELECTED<br>5. Control de Proyecto (OPS) o Gerente Administrativo (ADM) aprueba el costo → QUOTE_COST_APPROVED |
+| **Flujo alternativo** | Si rechaza el costo → COST_OVERRUN_REVIEW → GG aprueba (COST_OVERRUN_APPROVED) o rechaza (COST_OVERRUN_REJECTED, terminal) |
 | **Postcondición** | Cotización seleccionada y aprobada, lista para generar orden de compra |
 
 ### CU-09: Generar Orden de Compra
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Coordinador Logístico / Supervisor Logístico |
+| **Actor principal** | Coordinador Logístico (OPS) / Supervisor Logístico (ADM) |
 | **Precondición** | RQ en estado QUOTE_COST_APPROVED o COST_OVERRUN_APPROVED |
-| **Descripción** | Genera orden de compra formal al proveedor seleccionado |
-| **Flujo principal** | 1. Sistema genera número de OC (OC-YYYY-NNNN)<br>2. Registra datos del proveedor, ítems, montos y condiciones<br>3. Estado cambia a PO_GENERATED |
-| **Postcondición** | Orden de compra generada, proveedor notificado |
+| **Descripción** | Genera la orden de compra formal al proveedor seleccionado |
+| **Flujo principal** | 1. Registra la OC (`POST /purchase-orders/`); el servidor asigna el número `OC-YYYY-NNNN`<br>2. Registra proveedor, ítems, montos y condiciones<br>3. Ejecuta la acción `PO_GENERATED` → PO_GENERATED |
+| **Postcondición** | Orden de compra registrada. El sistema no notifica al proveedor |
 
 ### CU-10: Recepción y Control de Calidad
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Coordinador Logístico / Supervisor Logístico |
+| **Actor principal** | Coordinador Logístico (OPS) / Supervisor Logístico (ADM) |
 | **Precondición** | RQ en estado PO_GENERATED |
 | **Descripción** | Recibe mercadería del proveedor y realiza control de calidad |
-| **Flujo principal** | 1. Recibe mercadería → RECEIVING<br>2. Inspecciona calidad, cantidades y especificaciones<br>3. QC aprobado → QUALITY_APPROVED<br>4. QC rechazado → QUALITY_REJECTED → ciclo de reclamo |
+| **Flujo principal** | 1. Recibe mercadería (`RECEIVED`) → RECEIVING; el sistema registra un vale de ingreso al almacén central y un `WarehouseReceipt` con los ítems de compra vinculados al catálogo<br>2. Inspecciona calidad, cantidades y especificaciones<br>3. QC aprobado → QUALITY_APPROVED<br>4. QC rechazado → QUALITY_REJECTED → ciclo de reclamo al proveedor (SUPPLIER_CLAIM_SENT → [SUPPLIER_CLAIM_PENDING, solo OPS] → SUPPLIER_REPLACEMENT_RECEIVED → nuevo QC) |
 | **Postcondición** | Mercadería aprobada lista para despacho, o reclamo iniciado al proveedor |
 
 ### CU-11: Despacho y Entrega
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Almacén Central, Almacén de Obra |
-| **Precondición** | RQ en estado QUALITY_APPROVED o IN_STOCK |
-| **Descripción** | Almacén despacha materiales al punto de entrega y registra la recepción |
-| **Flujo principal** | 1. Almacén central despacha → DISPATCHED_TO_SITE<br>2. Almacén de obra recibe y confirma → DELIVERED |
-| **Postcondición** | Materiales entregados en destino |
+| **Actor principal** | Almacén Central, Almacén de Obra, Coordinador / Supervisor Logístico |
+| **Precondición** | RQ en estado IN_STOCK o QUALITY_APPROVED |
+| **Descripción** | Se despachan los materiales y se registra la entrega |
+| **Flujo principal** | OPS: desde IN_STOCK el Almacén Central despacha → DISPATCHED_TO_SITE; desde QUALITY_APPROVED el Coordinador Logístico despacha → DISPATCHED_TO_SITE; el Almacén de Obra confirma → DELIVERED<br>ADM: desde IN_STOCK el Almacén Central despacha → DELIVERED (directo); desde QUALITY_APPROVED el Supervisor Logístico despacha → DISPATCHED_TO_SITE; el Almacén Central confirma → DELIVERED y luego actualiza registros → WAREHOUSE_UPDATED |
+| **Postcondición** | Materiales entregados. Cada despacho (`DISPATCHED`) registra un vale de egreso y un `WarehouseDispatch` para los ítems vinculados al catálogo |
 
 ### CU-12: Conformidad del Usuario
 
 | Campo | Detalle |
 |-------|---------|
 | **Actor principal** | Solicitante (REQUESTER) |
-| **Precondición** | RQ en estado DELIVERED |
+| **Precondición** | OPS: RQ en DELIVERED. ADM: RQ en WAREHOUSE_UPDATED |
 | **Descripción** | El solicitante verifica que los materiales recibidos son correctos |
-| **Flujo principal** | 1. Revisa materiales entregados<br>2. Confirma conformidad → USER_CONFORMITY<br>3. O presenta reclamo → CLAIM_IN_REVIEW |
+| **Flujo principal** | 1. Revisa materiales entregados<br>2. Confirma conformidad → USER_CONFORMITY<br>3. O presenta reclamo → CLAIM_IN_REVIEW; logística envía el reclamo al proveedor → SUPPLIER_CLAIM_SENT |
 | **Postcondición** | RQ con conformidad o en proceso de reclamo |
 
 ### CU-13: Cierre de Requerimiento
@@ -175,71 +182,105 @@
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Roles autorizados |
+| **Actor principal** | Usuario que puede ver el RQ y declara un rol que tiene asignado (la transición no exige un rol específico) |
 | **Precondición** | RQ en cualquier estado no terminal |
 | **Descripción** | Cancela un requerimiento en curso |
-| **Flujo principal** | 1. Selecciona RQ activo<br>2. Indica motivo de cancelación<br>3. Estado cambia a CANCELLED<br>4. Presupuesto comprometido se libera |
+| **Flujo principal** | 1. Selecciona RQ activo<br>2. Ejecuta la acción `CANCELLED` con comentario opcional<br>3. Estado cambia a CANCELLED<br>4. Presupuesto comprometido se libera |
 | **Postcondición** | RQ cancelado, presupuesto liberado |
 
 ## 1.3 Casos de Uso — Módulo de Almacén
+
+Acceso al módulo: CENTRAL_WAREHOUSE, SITE_WAREHOUSE, LOGISTICS_COORDINATOR, LOGISTICS_SUPERVISOR y LOGISTICS_CHIEF (`IsWarehouseRole`). El Almacén de Obra solo opera el almacén `SITE`.
 
 ### CU-15: Registrar Entrada de Mercadería
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Almacén Central (CENTRAL_WAREHOUSE) |
-| **Precondición** | Orden de compra generada o transferencia autorizada |
-| **Descripción** | Registra el ingreso de productos al almacén con validación documental y física |
-| **Flujo principal** | 1. Recibe mercadería del proveedor<br>2. Valida documentos (guía de remisión, factura)<br>3. Cuenta bultos y verifica cantidades<br>4. Inspecciona calidad visual<br>5. Registra entrada en sistema (tipo ENTRY)<br>6. Actualiza stock automáticamente |
+| **Actor principal** | Personal de almacén y logística |
+| **Precondición** | Producto registrado en el catálogo |
+| **Descripción** | Registra el ingreso de productos al almacén con su documentación |
+| **Flujo principal** | 1. Recibe mercadería del proveedor<br>2. Valida documentos (guía de remisión, factura)<br>3. Cuenta bultos y verifica cantidades<br>4. Registra el ingreso, individual o por lote, con PO, guía de remisión y TAG (tipo ENTRY)<br>5. El sistema actualiza el stock y genera un vale (`MovementGroup`) |
 | **Postcondición** | Stock actualizado, movimiento de entrada registrado |
 
-### CU-16: Registrar Salida de Mercadería
+### CU-17: Asignar Ubicaciones
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Almacén Central (CENTRAL_WAREHOUSE) |
-| **Precondición** | RQ validado con stock disponible o materiales aprobados por QC |
-| **Descripción** | Prepara y despacha materiales según requerimiento |
-| **Flujo principal** | 1. Recibe lista de picking del RQ<br>2. Localiza productos por ubicación (pabellón-sección-nivel)<br>3. Extrae y verifica cantidades<br>4. Empaca según tipo de producto<br>5. Genera vale de salida (voucher)<br>6. Registra salida en sistema (tipo EXIT)<br>7. Descuenta stock automáticamente |
+| **Actor principal** | Almacén Central / Jefe Logístico |
+| **Precondición** | Productos sin ubicación exacta (solo piso o sin dato) |
+| **Descripción** | Asigna la ubicación física con el formato `{Pabellón}{Sección}-{Nivel}` (por ejemplo B3-2) |
+| **Flujo principal** | 1. Identifica productos sin ubicación exacta<br>2. Elige pabellón, sección y nivel según el layout del almacén (`GET /warehouse/inventory/location-layout/`)<br>3. Guarda (`POST /warehouse/inventory/assign-locations/`) |
+| **Postcondición** | Producto con ubicación exacta registrada |
+
+### CU-19: Registrar Salida de Mercadería
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Personal de almacén y logística |
+| **Precondición** | Stock disponible |
+| **Descripción** | Prepara y despacha materiales |
+| **Flujo principal** | 1. Recibe el requerimiento o pedido<br>2. Localiza productos por ubicación (pabellón-sección-nivel)<br>3. Extrae y verifica cantidades<br>4. Registra el egreso, individual o por lote (tipo EXIT), con destino (proyecto, departamento, trabajador, transferencia) y N° de vale<br>5. El sistema descuenta stock con bloqueo de fila y genera el vale imprimible (PDF) |
 | **Postcondición** | Stock descontado, vale de salida generado |
 
-### CU-17: Consultar Kardex de Producto
+### CU-21: Consultar Kardex de Producto
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Personal de almacén |
+| **Actor principal** | Personal de almacén y logística |
 | **Precondición** | Producto registrado en inventario |
 | **Descripción** | Consulta historial completo de movimientos de un producto |
-| **Flujo principal** | 1. Busca producto por código o descripción<br>2. Visualiza kardex con entradas, salidas, transferencias y ajustes<br>3. Filtra por rango de fechas, tipo de movimiento o almacén |
+| **Flujo principal** | 1. Busca producto por código o descripción<br>2. Visualiza el kardex con ingresos, egresos y ajustes<br>3. Filtra por rango de fechas (`date_from`, `date_to`), tipo de movimiento o almacén<br>4. Consulta el resumen de movimiento de todo el inventario (inventario inicial, ingresos, egresos y stock actual) y lo exporta a Excel (CU-45) |
 | **Postcondición** | Información de trazabilidad visualizada |
 
-### CU-18: Transferencia entre Almacenes
+### CU-22: Transferencia Interna entre Pisos
 
 | Campo | Detalle |
 |-------|---------|
 | **Actor principal** | Almacén Central / Almacén de Obra |
-| **Precondición** | Producto con stock disponible en almacén origen |
-| **Descripción** | Transfiere materiales de un almacén a otro |
-| **Flujo principal** | 1. Selecciona producto y cantidad<br>2. Indica almacén origen y destino<br>3. Registra movimiento tipo TRANSFER<br>4. Sistema descuenta del origen y suma al destino |
-| **Postcondición** | Stock actualizado en ambos almacenes |
+| **Precondición** | Producto con stock disponible |
+| **Descripción** | Registra el traslado de materiales a otro piso del almacén |
+| **Flujo principal** | 1. Selecciona productos y cantidades<br>2. Indica piso de origen y de destino<br>3. El sistema registra un egreso por lote con destino `TRANSFER_OUT` («ALM - PRIMER PISO» / «ALM - SEGUNDO PISO») |
+| **Postcondición** | Stock descontado del almacén operado y salida registrada como transferencia; el sistema no crea un ingreso en el destino |
+
+### CU-43: Entregar EPP con Vale
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Almacén Central / Almacén de Obra |
+| **Precondición** | Trabajador registrado en `Personal`; stock disponible |
+| **Descripción** | Entrega en mostrador de EPP a un trabajador contra un vale firmado (SYSPCC-025) |
+| **Flujo principal** | 1. Busca al trabajador<br>2. Agrega los ítems y cantidades<br>3. Registra la entrega (`POST /warehouse/movements/epp-delivery/`) |
+| **Postcondición** | Egreso registrado con vale; no cambia el estado de ningún RQ |
+
+### CU-44: Importar el Excel de Inventario
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Almacén Central / Jefe Logístico |
+| **Precondición** | Libro "INVENTARIO PCC - ALM" en formato `.xlsx` |
+| **Descripción** | Carga el catálogo, el inventario inicial, los ingresos y los egresos desde el Excel real del almacén (SYSPCC-025) |
+| **Flujo principal** | 1. Sube el libro (paso 1): el sistema lo valida y muestra una previsualización con resumen y problemas<br>2. Revisa los problemas (exportables a Excel)<br>3. Confirma (paso 2): la importación se aplica en una sola transacción, de forma idempotente<br>4. Opcionalmente vincula destinos de texto con trabajadores (CU-46) |
+| **Postcondición** | Catálogo, movimientos y stock cargados; las previsualizaciones vencidas y los libros guardados se purgan cada día |
 
 ## 1.4 Casos de Uso — Módulo de Administración
 
-### CU-19: Gestionar Pasajes
+Acceso: ADMIN_MANAGER, GENERAL_MANAGER, PASAJES_MANAGER o usuarios `is_staff` (`IsAdminOrAdminManager`).
+
+### CU-24 a CU-26: Gestionar Pasajes
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Personal administrativo |
+| **Actor principal** | Gestor de Pasajes, Gerente Administrativo, Gerente General |
 | **Precondición** | Usuario autenticado con acceso al módulo administrativo |
 | **Descripción** | Registra y gestiona boletos de viaje del personal |
-| **Flujo principal** | 1. Registra datos del viaje (embarque, destino, fechas)<br>2. Asocia al personal por DNI<br>3. Registra proveedor y factura<br>4. Calcula montos con IGV y tipo de cambio<br>5. Aplica devoluciones según política vigente<br>6. Marca estado de pago |
-| **Postcondición** | Pasaje registrado con cálculos automáticos |
+| **Flujo principal** | 1. Registra datos del viaje (embarque, destino, fechas)<br>2. Asocia al personal por DNI<br>3. Registra proveedor y factura<br>4. Registra montos con IGV en soles o dólares y el tipo de cambio (consulta del tipo de cambio SUNAT disponible)<br>5. Calcula la devolución según la política vigente<br>6. Marca el pasaje como pagado |
+| **Postcondición** | Pasaje registrado con total calculado en soles |
 
-### CU-20: Configurar Políticas de Devolución
+### CU-28: Configurar Políticas de Devolución
 
 | Campo | Detalle |
 |-------|---------|
-| **Actor principal** | Administrador |
+| **Actor principal** | Gestor de Pasajes, Gerente Administrativo, Gerente General |
 | **Precondición** | Acceso al módulo de administración |
 | **Descripción** | Define montos de devolución por tipo de trabajador y tramo |
 | **Flujo principal** | 1. Crea/edita política indicando tipo trabajador (STAFF/WORKER)<br>2. Indica tramo de viaje<br>3. Define montos en soles y dólares<br>4. Indica si aplica devolución<br>5. Activa o desactiva política |
@@ -247,7 +288,7 @@
 
 ## 1.5 Casos de Uso — Módulo de Soporte TI
 
-### CU-21: Crear Ticket de Soporte
+### CU-30: Crear Ticket de Soporte
 
 | Campo | Detalle |
 |-------|---------|
@@ -255,30 +296,76 @@
 | **Precondición** | Usuario autenticado |
 | **Descripción** | Reporta un problema o solicitud de soporte técnico |
 | **Flujo principal** | 1. Selecciona categoría (HARDWARE/SOFTWARE/NETWORK/ACCESS/EMAIL/PRINTER/OTHER)<br>2. Indica prioridad (LOW/MEDIUM/HIGH/CRITICAL)<br>3. Describe el problema<br>4. Sistema genera número de ticket (TK-YYYYMMDD-XXXX) |
-| **Postcondición** | Ticket creado en estado OPEN |
+| **Postcondición** | Ticket creado en estado OPEN. Cada usuario ve sus tickets y los usuarios `is_staff` ven todos; cada cambio de estado queda registrado como comentario |
 
 ## 1.6 Casos de Uso — Autenticación
 
-### CU-22: Iniciar Sesión
+### CU-35: Iniciar Sesión
 
 | Campo | Detalle |
 |-------|---------|
 | **Actor principal** | Cualquier usuario |
-| **Precondición** | Usuario registrado en el sistema |
+| **Precondición** | Usuario registrado y activo |
 | **Descripción** | Autenticación mediante credenciales con JWT en cookies |
-| **Flujo principal** | 1. Ingresa usuario y contraseña<br>2. Sistema valida credenciales<br>3. Genera tokens JWT (access 15min + refresh 1 día)<br>4. Almacena tokens en cookies HttpOnly<br>5. Redirige a selector de módulos |
-| **Restricción** | Máximo 5 intentos/minuto (rate limiting) |
+| **Flujo principal** | 1. La aplicación obtiene la cookie CSRF (`GET /auth/csrf/`)<br>2. Ingresa usuario y contraseña<br>3. Sistema valida credenciales<br>4. Genera tokens JWT (access 15 min + refresh 1 día) y los guarda en cookies HttpOnly<br>5. Redirige al selector de módulos (o a `/cambiar-password` si la cuenta debe cambiar su contraseña) |
+| **Restricción** | Máximo 5 intentos/minuto por IP y 10/minuto por nombre de usuario (rate limiting) |
 | **Postcondición** | Sesión activa con tokens JWT en cookies seguras |
 
-### CU-23: Seleccionar Módulo del Sistema
+### CU-37: Seleccionar Módulo del Sistema
 
 | Campo | Detalle |
 |-------|---------|
 | **Actor principal** | Usuario autenticado |
 | **Precondición** | Sesión activa |
 | **Descripción** | Selecciona a qué módulo acceder según sus roles |
-| **Flujo principal** | 1. Sistema muestra módulos disponibles filtrados por roles del usuario<br>2. Módulos: RQ (Requerimientos), Almacén, Administración, Soporte TI<br>3. Usuario selecciona módulo<br>4. Sistema carga el shell y sidebar correspondiente |
+| **Flujo principal** | 1. Sistema muestra módulos disponibles filtrados por roles del usuario<br>2. Módulos: Requerimientos, Almacén, Soporte TI, Recursos Humanos, Administración y Administración del Sistema (solo superusuario); Business Intelligence figura como no disponible<br>3. Usuario selecciona módulo<br>4. Sistema carga el shell y sidebar correspondiente |
 | **Postcondición** | Usuario en el dashboard del módulo seleccionado |
+
+### CU-38: Cambiar Contraseña Forzado
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Usuario con `must_change_password` activo |
+| **Precondición** | Cuenta recién creada o contraseña reseteada por el superadministrador |
+| **Descripción** | El usuario debe definir una contraseña nueva antes de usar el sistema (SYSPCC-018) |
+| **Flujo principal** | 1. Tras el login se le redirige a `/cambiar-password`<br>2. Ingresa la contraseña actual y la nueva (mínimo 12 caracteres)<br>3. Hasta completarlo, el backend responde 403 a cualquier otra petición |
+| **Postcondición** | Contraseña actualizada y acceso normal |
+
+## 1.7 Casos de Uso — Recursos Humanos
+
+Acceso: HR_MANAGER (escritura y lectura) y GENERAL_MANAGER (solo lectura).
+
+### CU-48: Generar Contrato de Trabajo
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Gestor de RR. HH. (HR_MANAGER) |
+| **Precondición** | Plantilla Word de contrato activa; trabajador registrado en `Personal` |
+| **Descripción** | Genera un contrato a partir de una plantilla aprobada y los datos del trabajador (SYSPCC-022) |
+| **Flujo principal** | 1. Elige al trabajador; el sistema precarga sus datos<br>2. Completa el formulario o usa el asistente, que extrae datos de un pedido en texto libre y pregunta lo faltante<br>3. Guarda el borrador (DRAFT) y revisa el Word generado<br>4. Emite (ISSUED) o anula (VOIDED) el documento; el PDF se genera si LibreOffice está disponible |
+| **Postcondición** | Documento con historial de eventos (`DocumentEvent`) |
+
+### CU-49: Analizar CVs en Lote
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Gestor de RR. HH. (HR_MANAGER) |
+| **Precondición** | Proceso de selección creado |
+| **Descripción** | Lee muchos CV (PDF, Word o imagen) en segundo plano y genera un reporte por candidato (SYSPCC-023) |
+| **Flujo principal** | 1. Define el puesto: requisitos escritos o extraídos de la convocatoria<br>2. Sube los CV; cada uno se valida y entra a la cola `hr_cv`<br>3. El sistema analiza cada CV y asigna puntaje y recomendación (avanzar / revisar / no avanzar)<br>4. Revisa el ranking y descarga PDF por candidato, ZIP o Excel |
+| **Postcondición** | Reporte por candidato; la recomendación es una sugerencia y la decisión la toma una persona |
+
+## 1.8 Casos de Uso — Administración del Sistema
+
+### CU-50 y CU-51: Gestionar Usuarios, Roles y Proyectos
+
+| Campo | Detalle |
+|-------|---------|
+| **Actor principal** | Superadministrador (`is_superuser`) |
+| **Precondición** | Sesión de superusuario |
+| **Descripción** | Administra cuentas, asignación de roles y proyectos (SYSPCC-018) |
+| **Flujo principal** | 1. Crea o edita usuarios y les asigna roles (opcionalmente por proyecto o departamento)<br>2. Activa o desactiva usuarios (no se eliminan)<br>3. Resetea contraseñas: el sistema muestra una contraseña temporal y obliga a cambiarla<br>4. Crea, edita, activa o desactiva proyectos (no se eliminan) |
+| **Postcondición** | Usuarios y proyectos actualizados |
 
 ---
 
@@ -290,8 +377,9 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        USUARIOS FINALES                            │
 │  Solicitantes · Residentes · Control · GG · Logística · Almacén    │
+│  Administración · RR. HH. · Soporte · Superadministrador           │
 └──────────────────────────────┬──────────────────────────────────────┘
-                               │ HTTPS (puerto 443)
+                               │ HTTPS
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    CAPA DE PRESENTACIÓN                             │
@@ -299,12 +387,16 @@
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │              React 19 SPA + Tailwind CSS 4                    │  │
 │  │                                                               │  │
+│  │  Selector de módulos (/)                                      │  │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐ │  │
-│  │  │ Módulo   │ │ Módulo   │ │ Módulo   │ │ Módulo           │ │  │
 │  │  │ RQ       │ │ Almacén  │ │ Admin    │ │ Soporte TI       │ │  │
-│  │  │ (AppShell│ │(Warehouse│ │(AdminShel│ │ (SupportShell)   │ │  │
-│  │  │  )       │ │ Shell)   │ │ l)       │ │                  │ │  │
+│  │  │ AppShell │ │Warehouse │ │AdminShell│ │ SupportShell     │ │  │
+│  │  │          │ │ Shell    │ │          │ │                  │ │  │
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────────────┘ │  │
+│  │  ┌──────────────────┐ ┌─────────────────────────┐            │  │
+│  │  │ RR. HH.          │ │ Administración Sistema  │            │  │
+│  │  │ HRShell          │ │ SystemAdminShell        │            │  │
+│  │  └──────────────────┘ └─────────────────────────┘            │  │
 │  │                                                               │  │
 │  │  Routing: React Router v7 · Auth: Cookie JWT · State: Context │  │
 │  └───────────────────────────────────────────────────────────────┘  │
@@ -320,26 +412,26 @@
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │              Django 5.1 + Django REST Framework               │  │
 │  │                                                               │  │
-│  │  ┌─────────┐ ┌─────────┐ ┌───────────┐ ┌────────────┐       │  │
-│  │  │  core   │ │   rq    │ │ warehouse │ │   admin    │       │  │
-│  │  │         │ │         │ │           │ │            │       │  │
-│  │  │ Auth    │ │Requests │ │ Inventario│ │ Pasajes    │       │  │
-│  │  │ Users   │ │Approvals│ │ Movim.    │ │ Políticas  │       │  │
-│  │  │ Projects│ │Suppliers│ │ Entradas  │ │ Proveedores│       │  │
-│  │  │ Depts   │ │Quotation│ │ Salidas   │ │            │       │  │
-│  │  │ Personal│ │PO's     │ │ OneDrive  │ │            │       │  │
-│  │  │         │ │Claims   │ │           │ │            │       │  │
-│  │  └─────────┘ └─────────┘ └───────────┘ └────────────┘       │  │
+│  │  ┌─────────┐ ┌─────────┐ ┌───────────┐ ┌──────────────┐     │  │
+│  │  │  core   │ │   rq    │ │ warehouse │ │administracion│     │  │
+│  │  │         │ │         │ │           │ │              │     │  │
+│  │  │ Auth    │ │Requests │ │ Catálogo  │ │ Pasajes      │     │  │
+│  │  │ Users   │ │Approvals│ │ Movim.    │ │ Políticas    │     │  │
+│  │  │ Projects│ │Suppliers│ │ Vales/EPP │ │ Proveedores  │     │  │
+│  │  │ Depts   │ │Quotation│ │ Kardex    │ │ Puestos      │     │  │
+│  │  │ Personal│ │PO's     │ │ Import.   │ │              │     │  │
+│  │  │         │ │Claims   │ │ OneDrive  │ │              │     │  │
+│  │  └─────────┘ └─────────┘ └───────────┘ └──────────────┘     │  │
 │  │                                                               │  │
-│  │  ┌──────────────────────────────────┐ ┌───────────────────┐  │  │
-│  │  │         support                  │ │   Servicios       │  │  │
-│  │  │  Tickets · Comentarios           │ │                   │  │  │
-│  │  └──────────────────────────────────┘ │ WorkflowEngine    │  │  │
-│  │                                       │ BudgetValidator   │  │  │
-│  │  Auth: Cookie JWT (SimpleJWT)         │ SLACalculator     │  │  │
-│  │  Permisos: RBAC por ViewSet           │ NumberGenerator   │  │  │
-│  │  Docs: OpenAPI 3.0 (drf-spectacular)  │ NotificationSvc   │  │  │
-│  │                                       └───────────────────┘  │  │
+│  │  ┌───────────────────────┐ ┌───────────────┐ ┌─────────────┐ │  │
+│  │  │ hr                    │ │ support       │ │ Servicios   │ │  │
+│  │  │ Contratos · CVs       │ │ Tickets       │ │             │ │  │
+│  │  └───────────────────────┘ └───────────────┘ │WorkflowEng. │ │  │
+│  │                                              │BudgetValid. │ │  │
+│  │  Auth: Cookie JWT (SimpleJWT) + CSRF         │SLACalculator│ │  │
+│  │  Permisos: RBAC por ViewSet                  │NumberGen.   │ │  │
+│  │  Docs: OpenAPI 3.0 (drf-spectacular)         │Notification │ │  │
+│  │                                              └─────────────┘ │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └──────────────┬──────────────────────────┬───────────────────────────┘
                │                          │
@@ -348,60 +440,66 @@
 │   CAPA DE DATOS          │  │   CAPA DE INFRAESTRUCTURA             │
 │                          │  │                                       │
 │  ┌────────────────────┐  │  │  ┌─────────────────────────────────┐  │
-│  │ PostgreSQL         │  │  │  │ Redis 7                         │  │
-│  │ (DigitalOcean)     │  │  │  │                                 │  │
+│  │ PostgreSQL (prod.) │  │  │  │ Redis 7                         │  │
+│  │ SQLite (desarrollo)│  │  │  │                                 │  │
 │  │                    │  │  │  │  DB 0: Cache (django-redis)     │  │
-│  │ - Usuarios/Roles   │  │  │  │  DB 1: Celery Broker           │  │
-│  │ - Proyectos        │  │  │  │  DB 2: Celery Results          │  │
-│  │ - Requerimientos   │  │  │  │  Sessions: Redis-backed        │  │
+│  │ - Usuarios/Roles   │  │  │  │  DB 1: Celery Broker            │  │
+│  │ - Proyectos        │  │  │  │  DB 2: Celery Results           │  │
+│  │ - Requerimientos   │  │  │  │  Sessions: Redis-backed         │  │
 │  │ - Aprobaciones     │  │  │  └─────────────────────────────────┘  │
 │  │ - Inventario       │  │  │                                       │
 │  │ - Movimientos      │  │  │  ┌─────────────────────────────────┐  │
 │  │ - Pasajes          │  │  │  │ Celery 5.4                      │  │
-│  │ - Tickets          │  │  │  │                                 │  │
-│  └────────────────────┘  │  │  │  Worker: Tareas asíncronas      │  │
-│                          │  │  │  Beat: Tareas programadas       │  │
-│  SSL: sslmode=require    │  │  │                                 │  │
-│  Puerto: 25060           │  │  │  • SLA check (8:00 AM)          │  │
-└──────────────────────────┘  │  │  • Recordatorios (9AM/2PM)      │  │
-                              │  │  • Cache invalidation (c/15min) │  │
-                              │  │  • Low-stock alerts (7:30 AM)   │  │
-                              │  └─────────────────────────────────┘  │
-                              │                                       │
-                              │  ┌─────────────────────────────────┐  │
-                              │  │ OneDrive (Graph API)            │  │
-                              │  │ Almacenamiento de PDFs          │  │
-                              │  │ Cuenta: sistemas@pcc.com.pe     │  │
+│  │ - RR. HH.          │  │  │  │                                 │  │
+│  │ - Tickets          │  │  │  │  Worker: cola por defecto       │  │
+│  └────────────────────┘  │  │  │  Worker hr_cv: análisis de CVs  │  │
+│                          │  │  │  Beat: tareas programadas (3.7) │  │
+│  Producción (defaults):  │  │  └─────────────────────────────────┘  │
+│  sslmode=require         │  │                                       │
+│  Puerto: 25060           │  │  ┌─────────────────────────────────┐  │
+└──────────────────────────┘  │  │ Servicios externos              │  │
+                              │  │ OneDrive (Graph API): PDF de    │  │
+                              │  │   vales, opcional               │  │
+                              │  │ Anthropic API: asistente de     │  │
+                              │  │   contratos y análisis de CVs   │  │
+                              │  │ apis.net.pe: tipo de cambio     │  │
+                              │  │ apisperu.com: consulta de RUC   │  │
                               │  └─────────────────────────────────┘  │
                               └───────────────────────────────────────┘
 ```
 
+Fuentes: `backend/config/settings/base.py` (`LOCAL_APPS`, `CACHES`, `CELERY_*`, `RUC_API_URL`, `ANTHROPIC_API_KEY`), `backend/config/settings/production.py`, `backend/apps/administracion/views.py` (tipo de cambio), `frontend/src/App.jsx`.
+
 ## 2.2 Flujo de Comunicación
 
 ```
-Browser ──HTTPS──▶ Nginx (reverse proxy)
-                      │
-                      ├── /api/*  ──▶ Gunicorn (Django)  ──▶ PostgreSQL
-                      │                    │                      ▲
-                      ├── /static/* ──▶ Archivos estáticos        │
-                      │                                           │
-                      ├── /media/*  ──▶ Archivos de usuario       │
-                      │                                           │
-                      └── /*        ──▶ React SPA (index.html)    │
-                                                                  │
-Celery Worker ◀── Redis (Broker) ◀── Django (encola tareas) ──────┘
-Celery Beat   ──▶ Redis (Broker) ──▶ Celery Worker ──▶ Django ORM
+Desarrollo (docker-compose.yml):
+Browser ──▶ Vite dev server :5173 (SPA)
+   │            └── proxy /api y /media ──▶ Django runserver :8000
+   └── /api/v1/* (VITE_API_URL) ─────────▶ Django runserver :8000 ──▶ SQLite / PostgreSQL
+
+Producción (scripts/do-start.sh):
+Browser ──▶ SPA compilada (npm run build)
+   └── /api/v1/* ──▶ Gunicorn (config.wsgi) ──▶ PostgreSQL
+                     WhiteNoise sirve /static/ desde el contenedor
+
+Tareas en segundo plano:
+Django ──(encola)──▶ Redis (broker) ──▶ Celery worker (cola por defecto)
+                                   └──▶ Celery worker hr_cv (análisis de CVs)
+Celery Beat ──(programa)──▶ Redis (broker) ──▶ Celery worker ──▶ Django ORM
 ```
 
 ## 2.3 Módulos del Sistema
 
 | Módulo | Ruta Frontend | App Backend | Descripción |
 |--------|--------------|-------------|-------------|
-| Requerimientos (RQ) | `/rq/*` | `apps.rq` | Gestión completa del ciclo de vida de requerimientos de abastecimiento |
-| Almacén | `/almacen/*` | `apps.warehouse` | Inventario, entradas, salidas, transferencias, kardex |
-| Administración | `/admin/*` | `apps.administracion` | Pasajes, pagos, políticas de devolución |
+| Requerimientos (RQ) | `/rq/*` | `apps.rq` | Ciclo de vida de requerimientos, aprobaciones, cotizaciones, OC y reclamos; ítems vinculados al catálogo del almacén |
+| Almacén | `/almacen/*` | `apps.warehouse` | Catálogo e inventario de EPP, ingresos, egresos y entregas de EPP con vale, transferencias entre pisos, kardex y resumen de movimiento, importación del Excel, RQ pendientes |
+| Administración | `/admin/*` | `apps.administracion` | Pasajes, pagos, políticas de devolución y proveedores de pasajes |
+| Recursos Humanos | `/rrhh/*` | `apps.hr` | Contratos desde plantillas Word y análisis masivo de CVs |
+| Administración del Sistema | `/sistema/*` | `apps.core` | Usuarios, roles y proyectos (solo superusuario) |
 | Soporte TI | `/soporte/*` | `apps.support` | Tickets de soporte técnico interno |
-| Core | — | `apps.core` | Autenticación, usuarios, roles, proyectos, departamentos |
+| Core | — | `apps.core` | Autenticación, usuarios, roles, proyectos, departamentos, plan anual, personal |
 
 ---
 
@@ -412,18 +510,19 @@ Celery Beat   ──▶ Redis (Broker) ──▶ Celery Worker ──▶ Django 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    URLS (Routing)                    │
-│  config/urls.py → apps/<app>/urls.py                │
-│  Router DRF: ModelViewSet auto-routing              │
+│  config/urls.py → apps/<app>/urls.py (o urls/)      │
+│  Router DRF: DefaultRouter                          │
 └─────────────────────────┬───────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────┐
 │                   VIEWS (ViewSets)                   │
 │                                                     │
-│  apps/<app>/views/<entity>.py                       │
+│  apps/<app>/views/<entity>.py (o views.py)          │
 │                                                     │
-│  • ModelViewSet / GenericViewSet                     │
-│  • Permission classes (HasRole, IsOwnerOrAdmin)     │
+│  • ModelViewSet / GenericViewSet / ViewSet          │
+│  • Permission classes (IsLogisticsStaff,            │
+│    IsWarehouseRole, IsSuperUser, CanPerform...)     │
 │  • Filtros (django-filter, SearchFilter)            │
 │  • Acciones custom (@action decorator)              │
 │  • Throttling por endpoint                          │
@@ -434,6 +533,7 @@ Celery Beat   ──▶ Redis (Broker) ──▶ Celery Worker ──▶ Django 
 │                SERIALIZERS (Validación)              │
 │                                                     │
 │  apps/<app>/serializers/<entity>.py                  │
+│  (o serializers.py)                                 │
 │                                                     │
 │  • ModelSerializer con campos explícitos            │
 │  • Validación de datos de entrada                   │
@@ -458,20 +558,22 @@ Celery Beat   ──▶ Redis (Broker) ──▶ Celery Worker ──▶ Django 
 │  ┌─────────────────┐ ┌─────────────────┐           │
 │  │ SLACalculator   │ │ NumberGenerator │           │
 │  │                 │ │                 │           │
-│  │ • Fechas límite │ │ • RQ-YYYY-NNNN │           │
+│  │ • Fecha estimada│ │ • RQ-YYYY-NNNN │           │
 │  │ • Tipo adquis.  │ │ • OC-YYYY-NNNN │           │
 │  └─────────────────┘ └─────────────────┘           │
+│  Almacén: movements, kardex, epp, imports/, ...     │
+│  RR. HH.: template/document/cv_* services           │
 └─────────────────────────┬───────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────┐
 │                  MODELS (ORM Django)                  │
 │                                                     │
-│  apps/<app>/models/<entity>.py                      │
+│  apps/<app>/models/<entity>.py (o models.py)        │
 │  Re-exports via apps/<app>/models/__init__.py       │
 │                                                     │
 │  • Campos tipados con validaciones                  │
-│  • Relaciones FK/M2M con constraints               │
+│  • Relaciones FK con constraints                    │
 │  • Índices para queries frecuentes                  │
 │  • Propiedades calculadas                           │
 │  • Métodos save() con lógica auto-cálculo           │
@@ -479,7 +581,7 @@ Celery Beat   ──▶ Redis (Broker) ──▶ Celery Worker ──▶ Django 
                           │
                           ▼
 ┌─────────────────────────────────────────────────────┐
-│                  DATABASE (PostgreSQL)               │
+│     DATABASE (SQLite en desarrollo / PostgreSQL)     │
 │                                                     │
 │  Migraciones: apps/<app>/migrations/                │
 │  Índices automáticos + índices manuales (Meta)      │
@@ -489,33 +591,37 @@ Celery Beat   ──▶ Redis (Broker) ──▶ Celery Worker ──▶ Django 
 ## 3.2 Frontend — Estructura de Componentes
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   App.jsx (Raíz)                     │
-│                                                     │
-│  ┌─────────────────────────────────────────────┐    │
-│  │ AuthProvider (AuthContext)                   │    │
-│  │  ┌─────────────────────────────────────┐    │    │
-│  │  │ ToastProvider (ToastContext)         │    │    │
-│  │  │  ┌─────────────────────────────┐    │    │    │
-│  │  │  │ BrowserRouter               │    │    │    │
-│  │  │  │   └── Routes                │    │    │    │
-│  │  │  └─────────────────────────────┘    │    │    │
-│  │  └─────────────────────────────────────┘    │    │
-│  └─────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                   App.jsx (Raíz)                         │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ ThemeProvider (ThemeContext)                     │    │
+│  │  ┌─────────────────────────────────────────┐    │    │
+│  │  │ ToastProvider (ToastContext)             │    │    │
+│  │  │  ┌─────────────────────────────────┐    │    │    │
+│  │  │  │ AuthProvider (AuthContext)       │    │    │    │
+│  │  │  │  ┌─────────────────────────┐    │    │    │    │
+│  │  │  │  │ BrowserRouter → Routes  │    │    │    │    │
+│  │  │  │  └─────────────────────────┘    │    │    │    │
+│  │  │  └─────────────────────────────────┘    │    │    │
+│  │  └─────────────────────────────────────────┘    │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
 
-Shells (Layout por módulo):
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌──────────────┐
-│  AppShell   │ │ Warehouse   │ │ AdminShell  │ │ SupportShell │
-│  (azul)     │ │ Shell       │ │ (índigo)    │ │ (teal)       │
-│             │ │ (esmeralda) │ │             │ │              │
-│ ┌─────────┐ │ │ ┌─────────┐ │ │ ┌─────────┐ │ │ ┌──────────┐ │
-│ │ Header  │ │ │ │ Header  │ │ │ │ Header  │ │ │ │ Header   │ │
-│ │ Sidebar │ │ │ │WhSidebar│ │ │ │AdmSideb.│ │ │ │SupSideb. │ │
-│ │ Outlet  │ │ │ │ Outlet  │ │ │ │ Outlet  │ │ │ │ Outlet   │ │
-│ └─────────┘ │ │ └─────────┘ │ │ └─────────┘ │ │ └──────────┘ │
-└─────────────┘ └─────────────┘ └─────────────┘ └──────────────┘
+Shells (Layout por módulo, color de acento del sidebar):
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────────┐
+│  AppShell   │ │ Warehouse   │ │ AdminShell  │ │ SupportShell │ │ SystemAdmin  │ │  HRShell    │
+│  (azul)     │ │ Shell       │ │ (índigo)    │ │ (teal)       │ │ Shell (rosa) │ │  (violeta)  │
+│             │ │ (esmeralda) │ │             │ │              │ │              │ │             │
+│ ┌─────────┐ │ │ ┌─────────┐ │ │ ┌─────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌─────────┐ │
+│ │ Header  │ │ │ │ Header  │ │ │ │ Header  │ │ │ │ Header   │ │ │ │ Header   │ │ │ │ Header  │ │
+│ │ Sidebar │ │ │ │WhSidebar│ │ │ │AdmSideb.│ │ │ │SupSideb. │ │ │ │SysSideb. │ │ │ │HRSidebar│ │
+│ │ Outlet  │ │ │ │ Outlet  │ │ │ │ Outlet  │ │ │ │ Outlet   │ │ │ │ Outlet   │ │ │ │ Outlet  │ │
+│ └─────────┘ │ │ └─────────┘ │ │ └─────────┘ │ │ └──────────┘ │ │ └──────────┘ │ │ └─────────┘ │
+└─────────────┘ └─────────────┘ └─────────────┘ └──────────────┘ └──────────────┘ └─────────────┘
 ```
+
+El tema claro/oscuro (SYSPCC-020) se aplica con la clase `.dark` en `<html>`; el `Header` común incluye el botón de tema y `/settings` permite elegir modo claro, oscuro o automático por horario.
 
 ## 3.3 Capa API — Comunicación Frontend ↔ Backend
 
@@ -525,163 +631,113 @@ Frontend (Axios)                    Backend (DRF)
 api/client.js                       config/urls.py
   │                                   │
   │ axios.create({                    │ urlpatterns = [
-  │   baseURL: VITE_API_URL,         │   path('api/v1/', include([
+  │   baseURL: VITE_API_URL,          │   path('api/v1/', include([
   │   withCredentials: true           │     path('auth/', ...),
-  │ })                                │     path('', include(rq_urls)),
+  │ })                                │     path('', include('apps.rq.urls')),
   │                                   │     path('warehouse/', ...),
-  │ Interceptor 401:                  │   ])),
-  │   → refresh token                │ ]
-  │   → retry request                │
-  │   → queue concurrent 401s        │
+  │ Interceptor de request:           │     path('hr/', ...), ...
+  │   → X-CSRFToken en POST/PUT/...   │   ])),
+  │ Interceptor 401:                  │ ]
+  │   → POST auth/token/refresh/      │
+  │   → retry request                 │
+  │   → queue concurrent 401s         │
   │                                   │
   ▼                                   ▼
 api/requests.js                     apps/rq/views/request.py
   │                                   │
-  │ getRequests(params)              │ class RequestViewSet(ModelViewSet):
-  │ createRequest(data)              │   queryset = Request.objects.all()
-  │ performAction(id, action)        │   serializer_class = RequestSerializer
-  │                                   │   permission_classes = [IsAuthenticated]
-  │                                   │   filter_backends = [DjangoFilter...]
-  │                                   │
-  │                                   │   @action(detail=True, methods=['post'])
-  │                                   │   def action(self, request, pk):
-  │                                   │       WorkflowEngine.transition(...)
+  │ getRequests(params)               │ class RequestViewSet(ModelViewSet):
+  │ createRequest(data)               │   get_queryset → get_accessible_requests_queryset(user)
+  │ performAction(id, {action,        │   permission_classes = [IsAuthenticated]
+  │   acting_role, comments,          │   filterset_class = RequestFilter
+  │   extra_data})                    │
+  │                                   │   @action(detail=True, methods=['post'], url_path='action')
+  │                                   │   def execute_action(self, request, pk):
+  │                                   │       WorkflowEngine(rq, user, acting_role).execute(...)
   └───────── POST /requests/{id}/action/ ──────────┘
 ```
 
+Para `execute_action` la vista usa `CanPerformWorkflowAction` (el usuario debe tener el `acting_role` que declara) y el motor vuelve a validar el rol.
+
 ## 3.4 Motor de Workflow — Máquina de Estados
 
+Implementación: `backend/apps/rq/services/workflow_engine.py` (`TRANSITIONS`, 71 entradas). `RQStatusChoices` define 47 estados, de los cuales 10 no tienen transición (`TECHNICAL_REVIEW`, `BUDGET_REVIEW`, `SUPERVISOR_REVIEW`, `ADMIN_BUDGET_REVIEW`, `STOCK_CHECK`, `QUALITY_CHECK`, `RECEPTION_CONFORMITY`, `RECEPTION_CLAIM`, `USER_CLAIM`, `CLAIM_RESOLVED`). La definición de negocio está en `CLAUDE.md` y la tabla completa con roles en `docs/architecture/system-architecture.md` (§3.3).
+
 ```
-                    ┌──────────┐
-                    │  DRAFT   │
-                    └────┬─────┘
-                         │ submit
-                         ▼
-                    ┌──────────┐
-                    │SUBMITTED │
-                    └────┬─────┘
-                         │
-              ┌──────────┴──────────┐
-              │ OPERATIONS          │ ADMINISTRATIVE
-              ▼                     ▼
-     ┌────────────────┐    ┌────────────────────┐
-     │TECHNICAL_APPROVED│    │SUPERVISOR_APPROVED │
-     └───────┬────────┘    └───────┬────────────┘
-             │                     │
-     ┌───────┴───────┐    ┌───────┴────────┐
-     │               │    │                │
-     ▼               ▼    ▼                ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐
-│WITHIN_   │ │ADDITIONAL│ │WITHIN_   │ │OUT_OF_ANNUAL │
-│PROPOSAL  │ │_REQ      │ │ANNUAL_   │ │_PLAN         │
-└────┬─────┘ └────┬─────┘ │PLAN      │ └──────┬───────┘
-     │            │        └────┬─────┘        │
-     │      ┌─────┘             │        ┌─────┘
-     │      ▼                   │        ▼
-     │ ┌──────────┐             │   ┌──────────┐
-     │ │GM_REVIEW │             │   │GM_REVIEW │
-     │ └────┬─────┘             │   └────┬─────┘
-     │      │ approve           │        │
-     │      ▼                   │        ▼
-     │ ┌──────────┐             │   ┌──────────┐
-     │ │GM_APPROVED│             │   │GM_APPROVED│
-     │ └────┬─────┘             │   └────┬─────┘
-     │      │                   │        │
-     └──┬───┘                   └───┬────┘
-        ▼                           ▼
-   ┌──────────┐              ┌──────────┐
-   │VALIDATED │              │VALIDATED │
-   └────┬─────┘              └────┬─────┘
-        │ stock check              │
-   ┌────┴─────┐              ┌────┴─────┐
-   ▼          ▼              ▼          ▼
-┌────────┐ ┌──────────┐  ┌────────┐ ┌──────────┐
-│IN_STOCK│ │REQUIRES_ │  │IN_STOCK│ │REQUIRES_ │
-│        │ │PURCHASE  │  │        │ │PURCHASE  │
-└───┬────┘ └────┬─────┘  └───┬────┘ └────┬─────┘
-    │           │             │           │
-    │           ▼             │           ▼
-    │    ┌──────────┐         │    ┌──────────┐
-    │    │ QUOTING  │         │    │ QUOTING  │
-    │    └────┬─────┘         │    └────┬─────┘
-    │         ▼               │         ▼
-    │    ┌──────────┐         │    ┌──────────┐
-    │    │QUOTE_    │         │    │QUOTE_    │
-    │    │COMPARISON│         │    │COMPARISON│
-    │    └────┬─────┘         │    └────┬─────┘
-    │         ▼               │         ▼
-    │    ┌──────────┐         │    ┌──────────┐
-    │    │QUOTE_    │         │    │QUOTE_    │
-    │    │SELECTED  │         │    │SELECTED  │
-    │    └────┬─────┘         │    └────┬─────┘
-    │         ▼               │         ▼
-    │    ┌──────────────┐     │    ┌──────────────┐
-    │    │QUOTE_COST_   │     │    │QUOTE_COST_   │
-    │    │APPROVED      │     │    │APPROVED      │
-    │    └────┬─────────┘     │    └────┬─────────┘
-    │         ▼               │         ▼
-    │    ┌──────────┐         │    ┌──────────┐
-    │    │PO_       │         │    │PO_       │
-    │    │GENERATED │         │    │GENERATED │
-    │    └────┬─────┘         │    └────┬─────┘
-    │         ▼               │         ▼
-    │    ┌──────────┐         │    ┌──────────┐
-    │    │RECEIVING │         │    │RECEIVING │
-    │    └────┬─────┘         │    └────┬─────┘
-    │         ▼               │         ▼
-    │    ┌──────────────┐     │    ┌──────────────┐
-    │    │QUALITY_      │     │    │QUALITY_      │
-    │    │APPROVED      │     │    │APPROVED      │
-    │    └────┬─────────┘     │    └────┬─────────┘
-    │         │               │         │
-    └────┬────┘               └────┬────┘
-         ▼                         ▼
-    ┌──────────────┐         ┌──────────┐
-    │DISPATCHED_   │         │DELIVERED │
-    │TO_SITE       │         └────┬─────┘
-    └────┬─────────┘              │
-         ▼                        ▼
-    ┌──────────┐         ┌──────────────────┐
-    │DELIVERED │         │WAREHOUSE_UPDATED │
-    └────┬─────┘         └───────┬──────────┘
-         │                       │
-         ▼                       ▼
-    ┌──────────────┐      ┌──────────────┐
-    │USER_         │      │USER_         │
-    │CONFORMITY    │      │CONFORMITY    │
-    └────┬─────────┘      └────┬─────────┘
-         ▼                     ▼
-    ┌──────────┐         ┌──────────┐
-    │ CLOSED   │         │ CLOSED   │
-    └──────────┘         └──────────┘
+FASE 1-2: SOLICITUD Y VALIDACIÓN
+
+  DRAFT ──submit──▶ SUBMITTED        (la API crea el RQ ya en SUBMITTED)
+                        │
+         ┌──────────────┴───────────────────┐
+         │ OPERATIONS                        │ ADMINISTRATIVE
+         ▼                                   ▼
+  TECHNICAL_APPROVED                  SUPERVISOR_APPROVED
+     │           │                       │              │
+     ▼           ▼                       ▼              ▼
+ WITHIN_      ADDITIONAL_REQ         WITHIN_        OUT_OF_ANNUAL_PLAN
+ PROPOSAL        │ (Residente)       ANNUAL_PLAN        │ (Jefe Directo)
+     │           ▼                       │              ▼
+     │       GM_REVIEW ─▶ GM_APPROVED    │          GM_REVIEW ─▶ GM_APPROVED
+     │                       │           │                          │
+     └──────────┬────────────┘           └────────────┬─────────────┘
+                ▼                                     ▼
+            VALIDATED (automático)                VALIDATED (automático)
+
+FASE 3: LOGÍSTICA Y COMPRAS (ambos flujos)
+
+  VALIDATED ─┬─▶ IN_STOCK ─(Almacén Central)─▶ OPS: DISPATCHED_TO_SITE · ADM: DELIVERED
+             └─▶ REQUIRES_PURCHASE ─▶ QUOTING ─▶ QUOTE_COMPARISON ─▶ QUOTE_SELECTED
+                   QUOTE_SELECTED ─┬─▶ QUOTE_COST_APPROVED ─────────────────────┐
+                                   └─▶ COST_OVERRUN_REVIEW ─┬─▶ COST_OVERRUN_APPROVED ─┤
+                                                            └─▶ COST_OVERRUN_REJECTED  │
+                                                                     PO_GENERATED ◀────┘
+
+FASE 4: RECEPCIÓN Y ENTREGA
+
+  PO_GENERATED ─▶ RECEIVING ─┬─▶ QUALITY_APPROVED ─▶ DISPATCHED_TO_SITE ─▶ DELIVERED
+                             └─▶ QUALITY_REJECTED ─▶ SUPPLIER_CLAIM_SENT
+                                   ─▶ [SUPPLIER_CLAIM_PENDING, solo OPS]
+                                   ─▶ SUPPLIER_REPLACEMENT_RECEIVED ─▶ QUALITY_APPROVED | QUALITY_REJECTED
+  ADM: DELIVERED ─(Almacén Central)─▶ WAREHOUSE_UPDATED
+
+FASE 5: CONFORMIDAD Y CIERRE
+
+  OPS: DELIVERED ──────────┬─▶ USER_CONFORMITY ─▶ CLOSED
+  ADM: WAREHOUSE_UPDATED ──┴─▶ CLAIM_IN_REVIEW ─▶ SUPPLIER_CLAIM_SENT (reinicia el ciclo de reclamo)
+
+Rechazos terminales: TECHNICAL_REJECTED, SUPERVISOR_REJECTED, GM_REJECTED, COST_OVERRUN_REJECTED
+Universal: cualquier estado no terminal ─▶ CANCELLED
 ```
 
 ## 3.5 Modelo de Autenticación
 
 ```
-┌──────────┐     POST /auth/login/     ┌──────────────┐
+┌──────────┐   GET /auth/csrf/         ┌──────────────┐
 │  Browser │ ──────────────────────▶   │   Django     │
+│          │  ◀── Set-Cookie: csrftoken│              │
 │          │                           │              │
-│          │  ◀── Set-Cookie:          │  SimpleJWT   │
-│          │      access_token (15m)   │  + Cookie    │
-│          │      refresh_token (1d)   │  Auth Class  │
-│          │      HttpOnly, Secure     │              │
+│          │   POST /auth/login/       │              │
+│          │   (X-CSRFToken)           │  SimpleJWT   │
+│          │ ──────────────────────▶   │  + Cookie    │
+│          │  ◀── Set-Cookie:          │  Auth Class  │
+│          │      access_token (15m)   │              │
+│          │      refresh_token (1d)   │              │
+│          │      HttpOnly, Lax        │              │
+│          │      Secure si DEBUG=False│              │
 └──────────┘                           └──────────────┘
 
-Flujo de refresh:
-┌──────────┐     GET /api/v1/...       ┌──────────────┐
-│  Axios   │ ──────────────────────▶   │   Django     │
-│ Intercep.│  ◀── 401 Unauthorized     │              │
-│          │                           └──────────────┘
-│          │     POST /auth/token/     ┌──────────────┐
-│          │     /refresh/             │   Django     │
-│          │ ──────────────────────▶   │              │
-│          │  ◀── New cookies          │  Rota token  │
-│          │      (access + refresh)   │  Blacklist   │
-│          │                           │  anterior    │
-│          │     Retry original req    └──────────────┘
-│          │ ──────────────────────▶
-└──────────┘
+Peticiones autenticadas (cookies JWT HttpOnly, SameSite=Lax):
+  CookieJWTAuthentication lee access_token de la cookie
+  POST/PUT/PATCH/DELETE exigen X-CSRFToken (SYSPCC-015)
+  must_change_password = true → 403 salvo la lista permitida (SYSPCC-018)
+
+Refresh (interceptor 401 de Axios):
+  POST /auth/token/refresh/ con cuerpo {}
+  → TokenRefreshView estándar de SimpleJWT lee `refresh` del cuerpo, no de la cookie
+  → hoy no renueva la sesión (limitación conocida,
+    ver apps/core/tests/test_must_change_password_gate.py)
+
+Logout:
+  POST /auth/logout/ → blacklist del refresh token + borrado de cookies
 ```
 
 ## 3.6 Estructura de la Base de Datos — Relaciones
@@ -692,14 +748,14 @@ Flujo de refresh:
                     └─────┬────┘
                           │ 1:N
                     ┌─────┴────┐
-                    │ UserRole │──── role (enum)
+                    │ UserRole │──── role (enum, 13 roles)
                     └─────┬────┘     project (FK, nullable)
-                          │          department (FK, nullable)
+                          │          department_obj (FK, nullable)
         ┌─────────────────┼─────────────────┐
         │                 │                 │
         ▼                 ▼                 ▼
    ┌─────────┐     ┌──────────┐      ┌────────────┐
-   │ Project │     │Department│      │  Personal  │
+   │ Project │     │Department│      │  Personal  │── user (1:1, nullable)
    └────┬────┘     └────┬─────┘      └────────────┘
         │               │
    ┌────┴────┐    ┌─────┴──────┐
@@ -717,10 +773,8 @@ Flujo de refresh:
 │  ┌──────────┐  1:N  ┌─────────────┐                               │
 │  │ Request  │───────│ RequestItem │──── inventory_item (FK)        │
 │  │          │       └─────────────┘                                │
-│  │          │                                                      │
-│  │          │  1:N  ┌──────────┐                                   │
-│  │          │───────│ Approval │ (audit trail inmutable)           │
-│  │          │       └──────────┘                                   │
+│  │          │  1:N  Approval (audit trail) · ActivityLog           │
+│  │          │  1:N  Attachment · Notification · Claim              │
 │  │          │                                                      │
 │  │          │  1:N  ┌──────────────┐  1:N  ┌───────────────┐      │
 │  │          │───────│  Quotation   │───────│ QuotationItem │      │
@@ -728,45 +782,60 @@ Flujo de refresh:
 │  │          │              │ FK                                    │
 │  │          │  1:N  ┌──────┴───────┐  1:N  ┌─────────────────┐   │
 │  │          │───────│PurchaseOrder │───────│PurchaseOrderItem│   │
-│  │          │       └──────────────┘       └─────────────────┘   │
+│  │          │       └──────┬───────┘       └─────────────────┘   │
+│  │          │              │ FK                                    │
+│  │          │       ┌──────┴───┐                                   │
+│  │          │       │ Supplier │ (FK desde Quotation y            │
+│  │          │       └──────────┘  PurchaseOrder)                   │
 │  │          │                                                      │
-│  │          │  1:N  ┌──────────┐                                   │
-│  │          │───────│  Claim   │                                   │
-│  └──────────┘       └──────────┘                                   │
-│       │                                                            │
-│       │ FK  ┌──────────┐                                           │
-│       └─────│ Supplier │                                           │
-│             └──────────┘                                           │
+│  │          │  1:N  WarehouseReceipt · WarehouseDispatch (almacén) │
+│  └──────────┘                                                      │
 └────────────────────────────────────────────────────────────────────┘
 
-┌─────────── WAREHOUSE ─────────────┐    ┌──────── ADMINISTRACIÓN ────────┐
-│                                   │    │                                │
-│  ┌───────────┐  1:N ┌──────────┐ │    │  ┌──────────┐                  │
-│  │ Inventory │──────│Inventory │ │    │  │  Pasaje  │── personal (FK)  │
-│  │           │      │Stock     │ │    │  │          │── proveedor (FK) │
-│  │           │      └──────────┘ │    │  │          │── centro_costo   │
-│  │           │                   │    │  └──────────┘                  │
-│  │           │  1:N ┌──────────┐ │    │                                │
-│  │           │──────│Inventory │ │    │  ┌──────────────────────────┐  │
-│  │           │      │Movement  │ │    │  │PoliticaPasajeDevoluciones│  │
-│  └───────────┘      └─────┬────┘ │    │  └──────────────────────────┘  │
-│                           │      │    │                                │
-│                     ┌─────┴────┐ │    │  ┌───────────────────┐        │
-│                     │Movement  │ │    │  │ProveedorPasajes   │        │
-│                     │Group     │ │    │  └───────────────────┘        │
-│                     │(Vale)    │ │    └────────────────────────────────┘
-│                     └──────────┘ │
-└───────────────────────────────────┘
+┌──────────────────────────── WAREHOUSE ─────────────────────────────┐
+│                                                                    │
+│  ┌───────────┐  1:N  ┌───────────────┐                             │
+│  │ Inventory │───────│InventoryStock │  (warehouse_type, project,  │
+│  │ (catálogo)│       └───────────────┘   department; quantity ≥ 0) │
+│  │           │                                                     │
+│  │           │  1:N  ┌───────────────────┐  N:1  ┌──────────────┐  │
+│  │           │───────│ InventoryMovement │───────│MovementGroup │  │
+│  └───────────┘       └─────────┬─────────┘       │   (Vale)     │  │
+│                                │ N:1             └──────┬───────┘  │
+│                       ┌────────┴────────┐               │ 1:1      │
+│                       │ InventoryImport │   WarehouseReceipt /      │
+│                       │ (Excel, UUID)   │   WarehouseDispatch       │
+│                       └─────────────────┘   (ligados a Request)     │
+│                                                                    │
+│  OneDriveToken (tokens cifrados en reposo)                         │
+└────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────── ADMINISTRACIÓN ────────────────────────────┐
+│  Pasaje ── personal (FK Personal) · proveedor (FK ProveedorPasajes)│
+│         ── centro_costo (FK Project)                               │
+│  PoliticaPasajeDevoluciones · ProveedorPasajes · Puesto            │
+└────────────────────────────────────────────────────────────────────┘
+
+┌────────────── RR. HH. ──────────────────┐    ┌──────── SOPORTE ───────┐
+│  DocumentTemplate 1:N GeneratedDocument │    │  Ticket 1:N            │
+│  GeneratedDocument 1:N DocumentEvent    │    │  TicketComment         │
+│  GeneratedDocument N:1 Personal         │    └────────────────────────┘
+│  CVAnalysis 1:N CVAnalysisItem          │
+└─────────────────────────────────────────┘
 ```
 
 ## 3.7 Tareas Programadas (Celery Beat)
 
-| Tarea | Horario | Descripción |
-|-------|---------|-------------|
-| `check-sla-deadlines` | 8:00 AM (Lima) | Verifica RQ que exceden su fecha límite SLA y envía alertas |
-| `send-pending-approval-reminders` | 9:00 AM y 2:00 PM | Recuerda aprobaciones pendientes >24 horas |
+| Tarea | Horario (Lima) | Descripción |
+|-------|----------------|-------------|
+| `check-sla-deadlines` | 8:00 AM | Notificación in-app al solicitante por RQ vencidos o próximos a su fecha estimada de entrega |
+| `send-pending-approval-reminders` | 9:00 AM y 2:00 PM | Recordatorio in-app de RQ sin cambios por más de 24 horas en estados de revisión |
 | `invalidate-dashboard-caches` | Cada 15 minutos | Limpia caches de dashboards para datos actualizados |
-| `warehouse-low-stock-check` | 7:30 AM | Detecta productos bajo stock mínimo y notifica |
+| `warehouse-low-stock-check` | 7:30 AM | Envía un correo a `WAREHOUSE_ALERT_RECIPIENTS` con los productos bajo stock mínimo |
+| `warehouse-purge-stale-imports` | 3:00 AM | Vence las previsualizaciones de importación y borra los Excel guardados |
+| `hr-cv-requeue-stale` | Cada 5 minutos | Reencola los CVs atascados en análisis |
+
+Las tareas `hr.process_cv_item` y `hr.cv_requeue_stale` se enrutan a la cola `hr_cv` (`CELERY_TASK_ROUTES`), atendida por un worker dedicado (`celery_worker_hr` en `docker-compose.yml`). La subida del PDF de cada vale a OneDrive (`warehouse.upload_group_pdf`) también es una tarea Celery.
 
 ---
 
@@ -779,6 +848,7 @@ Flujo de refresh:
 │                 User                    │
 │ (extends AbstractUser)                  │
 ├────────────────────────────────────────┤
+│ - username (USERNAME_FIELD)            │
 │ - email: EmailField (unique)           │
 │ - first_name: CharField               │
 │ - last_name: CharField                │
@@ -787,8 +857,9 @@ Flujo de refresh:
 │ - phone: CharField                    │
 │ - avatar_url: URLField               │
 │ - signature: ImageField              │
+│ - must_change_password: BooleanField  │
 ├────────────────────────────────────────┤
-│ + get_roles(): List[str]              │
+│ + get_roles(): QuerySet[UserRole]     │
 │ + has_role(role: str): bool           │
 └────────┬───────────────────────────────┘
          │ 1
@@ -886,11 +957,13 @@ Flujo de refresh:
 │ - estado_civil: CharField              │
 │ - celular: CharField                   │
 │ - email_personal: EmailField           │
-│ - estado: CharField (ACTIVO/CESADO/...)│
+│ - estado: CharField (ACTIVO/CESADO)    │
 │ - fecha_ingreso: DateField             │
 │ - proyecto: FK → Project               │
 │ - puesto: CharField                    │
 │ - salario: DecimalField                │
+│ - datos bancarios, contacto de         │
+│   emergencia, residencia, hijos, tallas│
 │ - user: OneToOne → User (nullable)     │
 ├────────────────────────────────────────┤
 │ + edad: int (property)                 │
@@ -908,14 +981,15 @@ Flujo de refresh:
 │ - project: FK → Project (null)                  │
 │ - department: FK → Department (null)            │
 │ - requested_by: FK → User                       │
+│ - requesting_area: CharField (OP/QC/HSE/ADM)   │
 │ - front_area: CharField                        │
 │ - service: CharField                           │
 │ - specific_use: CharField                      │
 │ - description: TextField                       │
 │ - justification: TextField                     │
 │ - acquisition_type: CharField                  │
-│ - priority: CharField (LOW/MEDIUM/HIGH/URGENT) │
-│ - status: CharField (43 estados posibles)      │
+│ - priority: CharField (URGENT/HIGH/NORMAL/LOW) │
+│ - status: CharField (47 estados posibles)      │
 │ - current_step: FK → WorkflowStep              │
 │ - budget_classification: CharField             │
 │ - budget_line: FK → ProjectBudgetLine (null)   │
@@ -928,15 +1002,18 @@ Flujo de refresh:
 ├────────────────────────────────────────────────┤
 │ + is_terminal: bool (property)                 │
 │ + total_items_cost: Decimal (property)         │
-│ «index» flow, project, department, status,     │
-│         acquisition_type, priority, created_at │
+│ «index» flow, project, department,             │
+│         requested_by, status, acquisition_type,│
+│         priority, created_at                   │
 └──┬──────────┬──────────┬──────────┬────────────┘
    │1:N       │1:N       │1:N       │1:N
    │          │          │          │
    ▼          ▼          ▼          ▼
-┌──────────┐ ┌────────┐ ┌────────┐ ┌──────┐
+┌──────────┐ ┌────────┐ ┌─────────┐ ┌──────┐
 │RequestItem│ │Approval│ │Quotation│ │Claim │
-└──────────┘ └────────┘ └────────┘ └──────┘
+└──────────┘ └────────┘ └─────────┘ └──────┘
+   (también 1:N: PurchaseOrder, Attachment, Notification, ActivityLog,
+    WarehouseReceipt, WarehouseDispatch)
 
 ┌────────────────────────────────────────┐
 │            RequestItem                  │
@@ -945,27 +1022,41 @@ Flujo de refresh:
 │ - line_number: IntegerField            │
 │ - description: CharField               │
 │ - specifications: TextField            │
-│ - quantity: DecimalField               │
+│ - quantity: DecimalField (≥ 0.001)     │
 │ - unit: CharField                      │
 │ - unit_price: DecimalField             │
 │ - total_price: DecimalField (auto)     │
 │ - stock_almacen_obra: DecimalField     │
 │ - stock_almacen_central: DecimalField  │
 │ - x_atender: DecimalField             │
+│ - presupuestado_adicional: CharField   │
+│ - rfi_fwo: CharField                   │
+│ - estatus_guia: CharField              │
 │ - supply_source: CharField             │
+│   (STOCK / PURCHASE)                   │
 │ - inventory_item: FK → Inventory(null) │
+│ - is_off_catalog: BooleanField         │
+│ - inventory_item_confirmed_at          │
+│ - inventory_item_confirmed_by: FK User │
+│ - item_source: CharField (EPP, ...)    │
+│ - comentarios: TextField               │
 ├────────────────────────────────────────┤
 │ + save(): auto-calcula total_price     │
+│ + link_confirmed: bool (property)      │
+│ «unique» (request, line_number)        │
+│ «check» no vinculado y fuera de        │
+│         catálogo a la vez              │
 └────────────────────────────────────────┘
 
 ┌────────────────────────────────────────┐
-│        Approval (inmutable)             │
+│     Approval (solo se crea)             │
 ├────────────────────────────────────────┤
 │ - request: FK → Request                │
 │ - workflow_step: FK → WorkflowStep     │
-│ - action: CharField (ApprovalAction)   │
+│ - action: CharField (ApprovalAction,   │
+│           37 valores)                  │
 │ - performed_by: FK → User              │
-│ - role: CharField                      │
+│ - role: CharField (o SYSTEM)           │
 │ - previous_status: CharField           │
 │ - new_status: CharField                │
 │ - comments: TextField                  │
@@ -996,15 +1087,16 @@ Flujo de refresh:
 │ - supplier: FK → Supplier              │
 │ - quotation_number: CharField          │
 │ - total_amount: DecimalField           │
-│ - currency: CharField (PEN/USD)        │
+│ - currency: CharField (default PEN)    │
 │ - delivery_days: IntegerField          │
 │ - payment_terms: CharField             │
 │ - validity_days: IntegerField          │
 │ - notes: TextField                     │
-│ - document_url: URLField               │
+│ - document_url: CharField              │
 │ - is_selected: BooleanField           │
 │ - selected_by: FK → User (null)        │
 │ - selected_at: DateTimeField (null)    │
+│ - quoted_at: DateTimeField (auto)      │
 ├────────────────────────────────────────┤
 │          QuotationItem                  │
 │ - quotation: FK → Quotation            │
@@ -1014,6 +1106,7 @@ Flujo de refresh:
 │ - total_price: DecimalField (auto)     │
 │ - brand: CharField                     │
 │ - model: CharField                     │
+│ - notes: TextField                     │
 └────────────────────────────────────────┘
 
 ┌────────────────────────────────────────┐
@@ -1024,13 +1117,16 @@ Flujo de refresh:
 │ - quotation: FK → Quotation            │
 │ - supplier: FK → Supplier              │
 │ - generated_by: FK → User              │
-│ - status: CharField (POStatus)         │
+│ - status: CharField (DRAFT/SENT/       │
+│   CONFIRMED/PARTIALLY_RECEIVED/        │
+│   FULLY_RECEIVED/CANCELLED)            │
 │ - total_amount: DecimalField           │
 │ - currency: CharField                  │
 │ - payment_terms: CharField             │
 │ - expected_delivery_date: DateField    │
 │ - actual_delivery_date: DateField      │
-│ - document_url: URLField               │
+│ - document_url: CharField              │
+│ - notes: TextField                     │
 ├────────────────────────────────────────┤
 │        PurchaseOrderItem                │
 │ - purchase_order: FK → PurchaseOrder   │
@@ -1078,6 +1174,25 @@ Flujo de refresh:
 │ «unique» (flow, step_order)            │
 │ «unique» (flow, step_code)             │
 └────────────────────────────────────────┘
+
+┌────────────────────────────────────────┐
+│ AcquisitionTypeConfig                   │
+│ - type, min_days, max_days,            │
+│   max_extended_days, requires_*_approval│
+├────────────────────────────────────────┤
+│ Notification                            │
+│ - user, request, title, message,       │
+│   is_read, dedup_key (único si no nulo)│
+├────────────────────────────────────────┤
+│ ActivityLog                             │
+│ - request, user, action, detail,       │
+│   ip_address                           │
+├────────────────────────────────────────┤
+│ Attachment                              │
+│ - request, uploaded_by, file_name,     │
+│   file_path, file_type, file_size,     │
+│   category, description                │
+└────────────────────────────────────────┘
 ```
 
 ## 4.3 Módulo Almacén
@@ -1091,11 +1206,20 @@ Flujo de refresh:
 │ - unit: CharField                      │
 │ - category: CharField                  │
 │ - item_type: CharField                 │
-│   (EQUIPMENT/CONSUMABLE/TOOL/MATERIAL) │
+│   (EQUIPMENT/CONSUMABLE/TOOL/          │
+│    MATERIAL/EPP)                       │
 │ - brand: CharField                     │
 │ - model_name: CharField                │
-│ - location: CharField                  │
+│ - location: CharField (B3-2)           │
 │ - min_stock: DecimalField              │
+│ - order_number, purchase_order_ref,    │
+│   packing_list, size, observation      │
+│ - floor: SmallInt (1er/2do piso, null) │
+│ - project: FK → Project (null)         │
+├────────────────────────────────────────┤
+│ + location_status: EXACT/FLOOR_ONLY/   │
+│   NONE (property)                      │
+│ + location_display (property)          │
 └──┬─────────────┬──────────────────────┘
    │ 1:N         │ 1:N
    │             │
@@ -1105,26 +1229,38 @@ Flujo de refresh:
 ├──────────────┤ ├──────────────────────┤
 │- inventory:  │ │- movement_number:    │
 │  FK→Inventory│ │  CharField (unique)  │
-│- warehouse:  │ │- movement_type:      │
-│  CharField   │ │  (ENTRY/EXIT/        │
-│  (CENTRAL/   │ │   TRANSFER/ADJUST)   │
-│   SITE/      │ │- inventory:          │
-│   OFFICE)    │ │  FK → Inventory      │
-│- project:    │ │- quantity: Decimal   │
-│  FK→Project  │ │- warehouse: CharField│
-│- department: │ │- project: FK→Project │
-│  FK→Dept     │ │- source_type: Char   │
-│- quantity:   │ │- destination_type:   │
-│  Decimal     │ │  CharField           │
-│- last_updated│ │- group:              │
-│  DateTime    │ │  FK→MovementGroup    │
-│              │ │- registered_by:      │
-│«unique»      │ │  FK → User           │
-│(inventory,   │ │                      │
-│ warehouse,   │ │«index»              │
-│ project,     │ │(inventory,-created)  │
-│ department)  │ │(mov_type,-created)   │
-└──────────────┘ │(warehouse,-created)  │
+│- warehouse_  │ │- movement_type:      │
+│  type: Char  │ │  (ENTRY/EXIT/        │
+│  (CENTRAL/   │ │   TRANSFER/          │
+│   SITE/      │ │   ADJUSTMENT)        │
+│   OFFICE)    │ │- inventory:          │
+│- project:    │ │  FK → Inventory      │
+│  FK→Project  │ │- quantity: Decimal   │
+│- department: │ │- warehouse: CharField│
+│  FK→Dept     │ │- project: FK→Project │
+│- quantity:   │ │- source_type: Char   │
+│  Decimal ≥ 0 │ │- destination_type /  │
+│- last_updated│ │  destination_detail  │
+│  DateTime    │ │- movement_date: Date │
+│              │ │- voucher_number,     │
+│«unique»      │ │  po_number,          │
+│(inventory,   │ │  guide_number, tag,  │
+│ warehouse_   │ │  internal_transfer   │
+│ type,        │ │- destination_personal│
+│ project,     │ │  FK → Personal       │
+│ department)  │ │- group:              │
+│«check»       │ │  FK→MovementGroup    │
+│quantity >= 0 │ │- import_batch:       │
+└──────────────┘ │  FK→InventoryImport  │
+                 │- registered_by:      │
+                 │  FK → User           │
+                 │                      │
+                 │«index»              │
+                 │(inventory,-created)  │
+                 │(mov_type,-created)   │
+                 │(warehouse,-created)  │
+                 │(inventory,mov_date)  │
+                 │(mov_type,mov_date)   │
                  └──────────┬───────────┘
                             │ N:1
                             ▼
@@ -1140,12 +1276,37 @@ Flujo de refresh:
                  │- source_type: Char   │
                  │- supplier_name: Char │
                  │- invoice_number: Char│
-                 │- destination_type:   │
-                 │  CharField           │
+                 │- destination_type /  │
+                 │  destination_detail  │
+                 │- movement_date,      │
+                 │  voucher_number,     │
+                 │  po_number,          │
+                 │  guide_number,       │
+                 │  internal_transfer   │
+                 │- destination_personal│
                  │- document_url: URL   │
                  │- registered_by:      │
                  │  FK → User           │
-                 └──────────────────────┘
+                 └──────────┬───────────┘
+                            │ 1:1
+                            ▼
+                 WarehouseReceipt (+ items) · WarehouseDispatch (+ items)
+                 creados por WorkflowEngine en RECEIVED / DISPATCHED
+
+┌────────────────────────────────────────┐
+│ InventoryImport (UUID)                  │
+│ - uploaded_by, warehouse, file_name,   │
+│   file_sha256, file_bytes, status      │
+│   (PREVIEWED/PROCESSING/CONFIRMED/     │
+│    CANCELLED/EXPIRED/FAILED), options, │
+│   summary, problems, plan_digest,      │
+│   result, confirmed_at, expires_at     │
+├────────────────────────────────────────┤
+│ OneDriveToken                           │
+│ - access_token, refresh_token          │
+│   (EncryptedTextField), expires_at,    │
+│   account_name                         │
+└────────────────────────────────────────┘
 ```
 
 ## 4.4 Módulo Administración
@@ -1154,6 +1315,7 @@ Flujo de refresh:
 ┌────────────────────────────────────────┐
 │               Pasaje                    │
 ├────────────────────────────────────────┤
+│ - codigo_id_legado: CharField (unique) │
 │ - tipo: CharField (B/S/S-B)           │
 │ - fecha_bajada: DateField              │
 │ - embarque_bajada: CharField           │
@@ -1169,15 +1331,18 @@ Flujo de refresh:
 │   (STAFF / WORKER)                     │
 │ - centro_costo: FK → Project           │
 │ - proveedor: FK → ProveedorPasajes     │
-│ - moneda: CharField (PEN/USD)          │
+│ - ruc, razon_social, factura_ticket,   │
+│   detalle, fecha, mes                  │
+│ - moneda: CharField (SOLES/DOLARES)    │
 │ - monto_con_igv_soles: DecimalField    │
 │ - monto_con_igv_dolares: DecimalField  │
 │ - tipo_cambio: DecimalField            │
 │ - devolucion: DecimalField             │
-│ - total: DecimalField (auto)           │
+│ - total: DecimalField (auto, en PEN)   │
 │ - estado: CharField (PENDIENTE/PAGADO) │
 │ - fecha_pago: DateField (null)         │
-│ - creado_por: FK → User                │
+│ - numero_operacion: CharField          │
+│ - creado_por / actualizado_por: FK User│
 ├────────────────────────────────────────┤
 │ + save(): auto-calc total, mes         │
 └────────────────────────────────────────┘
@@ -1199,6 +1364,10 @@ Flujo de refresh:
 ├────────────────────────────────────────┤
 │ - ruc: CharField (unique, 11)          │
 │ - razon_social: CharField              │
+├────────────────────────────────────────┤
+│         Puesto                          │
+│ - cargo: CharField (unique)            │
+│ - habilitado: BooleanField             │
 └────────────────────────────────────────┘
 ```
 
@@ -1237,39 +1406,105 @@ Flujo de refresh:
 └────────────────────────────────────────┘
 ```
 
-## 4.6 Servicios (Clases de Lógica de Negocio)
+## 4.6 Módulo Recursos Humanos
+
+```
+┌────────────────────────────────────────┐
+│          DocumentTemplate               │
+├────────────────────────────────────────┤
+│ - document_type: CharField (CONTRACT)  │
+│ - slug, name, version                  │
+│ - file: FileField (privado)            │
+│ - file_sha256                          │
+│ - detected_variables, unknown_variables│
+│   missing_required_variables (JSON)    │
+│ - is_active, activated_at              │
+│ - uploaded_by: FK → User               │
+└────────┬───────────────────────────────┘
+         │ 1:N
+         ▼
+┌────────────────────────────────────────┐
+│          GeneratedDocument              │
+├────────────────────────────────────────┤
+│ - template: FK → DocumentTemplate      │
+│ - template_version, template_sha256    │
+│ - personal: FK → Personal              │
+│ - subject_name, data (JSON)            │
+│ - status: DRAFT/ISSUED/VOIDED          │
+│ - source: MANUAL/ASSISTANT             │
+│ - docx_file, pdf_file (privados)       │
+│ - reference_number                     │
+│ - created_by, issued_by, voided_by     │
+└────────┬───────────────────────────────┘
+         │ 1:N
+         ▼
+┌────────────────────────────────────────┐
+│ DocumentEvent                           │
+│ - action: CREATED/UPDATED/ISSUED/      │
+│   VOIDED/DOWNLOADED/PDF_RENDERED       │
+│ - actor: FK → User, metadata (JSON)    │
+└────────────────────────────────────────┘
+
+┌────────────────────────────────────────┐
+│ CVAnalysis                              │
+│ - name, requirements_text,             │
+│   requirements (JSON)                  │
+│ - convocatoria opcional (posting_*)    │
+│ - created_by: FK → User                │
+└────────┬───────────────────────────────┘
+         │ 1:N
+         ▼
+┌────────────────────────────────────────┐
+│ CVAnalysisItem                          │
+│ - kind: PDF/DOCX/IMAGE                 │
+│ - status: QUEUED/PROCESSING/DONE/      │
+│   FAILED/CANCELLED                     │
+│ - result (JSON), score, recommendation │
+│   (ADVANCE/REVIEW/NO_ADVANCE)          │
+│ - tokens_in, tokens_out, cost_usd      │
+│ - report_pdf                           │
+└────────────────────────────────────────┘
+```
+
+## 4.7 Servicios (Clases de Lógica de Negocio)
 
 ```
 ┌────────────────────────────────────────┐
 │           WorkflowEngine                │
+│   WorkflowEngine(request, user,        │
+│                  acting_role)          │
 ├────────────────────────────────────────┤
-│ + transition(request, action,          │
-│              user, comments): Request  │
-│ + get_available_actions(request,       │
-│              user): List[Action]       │
-│ + validate_transition(request,         │
-│              action, user): bool       │
+│ + execute(action, comments='',         │
+│           extra_data=None): Approval   │
+│ + get_available_actions(): list[dict]  │
 ├────────────────────────────────────────┤
+│ - _validate_acting_role()              │
+│ - _find_transition()                   │
 │ - _check_role_permission()             │
-│ - _execute_transition()                │
-│ - _create_approval_record()            │
-│ - _handle_conditional_transitions()    │
-│ - _auto_transition()                   │
+│ - _call_handler()                      │
+│ - _apply_side_effects()                │
+│ - _execute_system_chain()              │
+│ - handle_ops_budget_classification()   │
+│ - handle_adm_budget_review()           │
+│ - handle_stock_check()                 │
+│ - handle_cancellation()                │
 └────────────────────────────────────────┘
 
 ┌────────────────────────────────────────┐
 │          BudgetValidator                │
 ├────────────────────────────────────────┤
-│ + validate(request): ValidationResult  │
-│ + commit_budget(request): void         │
-│ + release_budget(request): void        │
+│ + validate(request): dict              │
+│ + commit_budget(request): None         │
+│ + release_budget(request): None        │
 └────────────────────────────────────────┘
 
 ┌────────────────────────────────────────┐
 │           SLACalculator                 │
 ├────────────────────────────────────────┤
-│ + calculate_deadline(request): date    │
-│ + check_overdue(request): bool         │
+│ + calculate_estimated_delivery(        │
+│     acquisition_type, from_date=None,  │
+│     use_max=False): date               │
+│ + get_sla_days(acquisition_type): dict │
 └────────────────────────────────────────┘
 
 ┌────────────────────────────────────────┐
@@ -1287,11 +1522,13 @@ Flujo de refresh:
 ┌────────────────────────────────────────┐
 │       NotificationService               │
 ├────────────────────────────────────────┤
-│ + notify_sla_warning(request): void    │
-│ + notify_approval_pending(request):void│
-│ + notify_status_change(request): void  │
+│ + notify_on_transition(request, action,│
+│     new_status, actor): None           │
+│   (notificación in-app según NOTIFY_MAP)│
 └────────────────────────────────────────┘
 ```
+
+Otros servicios: `update_request_items`, `search_catalog`, `build_stock_availability` (`apps/rq/services/`); `register_entry_batch`, `register_exit_batch`, `register_epp_delivery`, kardex, ubicaciones, importación (`apps/warehouse/services/`); plantillas, documentos y análisis de CVs (`apps/hr/services/`).
 
 ---
 
@@ -1324,8 +1561,8 @@ Flujo de refresh:
 ### Paso 1: Clonar repositorio
 
 ```bash
-git clone https://github.com/pccpegit/syspcc-platform.git
-cd syspcc-platform
+git clone https://github.com/pccpegit/SYSPCCLOG.git
+cd SYSPCCLOG
 ```
 
 ### Paso 2: Configurar variables de entorno
@@ -1341,6 +1578,8 @@ cat .env.docker
 ```bash
 docker compose --env-file .env.docker up --build
 ```
+
+Levanta `redis`, `backend`, `frontend`, `celery_worker`, `celery_worker_hr` (cola `hr_cv`) y `celery_beat` (`docker-compose.yml`).
 
 ### Paso 4: Inicializar base de datos
 
@@ -1413,8 +1652,11 @@ sudo systemctl start redis
 ```bash
 cd backend/
 
-# Worker (procesa tareas asíncronas)
+# Worker (procesa tareas asíncronas de la cola por defecto)
 celery -A config worker -l info
+
+# Worker de RR. HH. (análisis de CVs, cola hr_cv)
+celery -A config worker -Q hr_cv -c 3 -n hr@%h -l info
 
 # Beat (tareas programadas)
 celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
@@ -1423,6 +1665,8 @@ celery -A config beat -l info --scheduler django_celery_beat.schedulers:Database
 ---
 
 # 6. Manual de Producción
+
+> **Alcance de esta sección.** Es una referencia para una instalación manual en un servidor propio (VPS con Nginx, Gunicorn y systemd). El repositorio no incluye configuración de Nginx ni unidades systemd: su archivo de despliegue es `.do/app.yaml` (DigitalOcean App Platform, guía `08_Guia_Despliegue_DigitalOcean.md`). `config/settings/production.py` sirve `/static/` con WhiteNoise y espera que el TLS termine en un proxy (`SECURE_PROXY_SSL_HEADER`).
 
 ## 6.1 Arquitectura de Despliegue en Producción
 
@@ -1535,7 +1779,7 @@ sudo systemctl restart redis-server
 
 ```bash
 # Clonar repositorio
-sudo -u syspcc git clone https://github.com/pccpegit/syspcc-platform.git /opt/syspcc/app
+sudo -u syspcc git clone https://github.com/pccpegit/SYSPCCLOG.git /opt/syspcc/app
 cd /opt/syspcc/app/backend
 
 # Crear entorno virtual
@@ -1672,6 +1916,8 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+El análisis de CVs (`hr.process_cv_item`) se enruta a la cola `hr_cv`. Con `HR_CV_DISPATCH=celery` (valor por defecto) hace falta un worker que la consuma, por ejemplo una segunda unidad con `celery -A config worker -Q hr_cv`; en Docker es el servicio `celery_worker_hr`.
+
 ### 6.3.6 Configurar Celery Beat (systemd)
 
 ```bash
@@ -1717,6 +1963,9 @@ npm ci
 
 # Configurar URL de API para producción
 echo "VITE_API_URL=/api/v1/" > .env.production
+# Origen de los archivos media (firmas). Vacío = mismo origen;
+# si no se define, el frontend usa http://localhost:8000 (src/api/config.js)
+echo "VITE_BACKEND_URL=" >> .env.production
 
 # Build de producción
 npm run build
@@ -1946,7 +2195,8 @@ python manage.py seed_demo
 # Ver migraciones pendientes
 python manage.py showmigrations | grep "\[ \]"
 
-# Limpiar sesiones expiradas
+# Limpiar sesiones expiradas (sin efecto: las sesiones viven en la caché Redis,
+# SESSION_ENGINE = 'django.contrib.sessions.backends.cache')
 python manage.py clearsessions
 
 # Limpiar tokens JWT expirados
@@ -1983,13 +2233,13 @@ sudo nano /etc/logrotate.d/syspcc
 |---------|--------|---------------|
 | HTTPS obligatorio | `SECURE_SSL_REDIRECT=True` | Nginx redirect 80→443 |
 | HSTS | `SECURE_HSTS_SECONDS=31536000` | 1 año, incluye subdominios |
-| Cookies HttpOnly | `SESSION_COOKIE_HTTPONLY=True` | Previene XSS sobre tokens |
-| Cookies Secure | `SESSION_COOKIE_SECURE=True` | Solo envía por HTTPS |
-| CSRF HttpOnly | `CSRF_COOKIE_HTTPONLY=True` | Token CSRF protegido |
+| Cookies HttpOnly | Cookies `access_token` / `refresh_token` con `httponly=True` (`CustomTokenObtainPairView`) y `SESSION_COOKIE_HTTPONLY=True` | JavaScript no puede leer los tokens |
+| Cookies Secure | `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True`; cookies JWT `secure` cuando `DEBUG=False` | Solo envía por HTTPS |
+| CSRF | `CSRF_COOKIE_HTTPONLY=False` a propósito + verificación en `CookieJWTAuthentication.enforce_csrf()` | Double-submit: el SPA lee `csrftoken` y lo reenvía en `X-CSRFToken` |
 | X-Frame-Options | `X_FRAME_OPTIONS='DENY'` | Previene clickjacking |
 | Content-Type sniffing | `SECURE_CONTENT_TYPE_NOSNIFF=True` | Previene MIME sniffing |
 | Rate limiting | 200 req/min auth, 30/min anon | Previene fuerza bruta |
-| Login rate limit | 5 intentos/minuto | Previene fuerza bruta login |
+| Login rate limit | 5 intentos/minuto por IP y 10/minuto por usuario | Previene fuerza bruta login |
 | JWT corto | Access 15 min, Refresh 1 día | Reduce ventana de ataque |
 | Token rotation | `ROTATE_REFRESH_TOKENS=True` | Invalida tokens anteriores |
 | Password mínimo | 12 caracteres | Política de contraseñas |
@@ -2025,7 +2275,9 @@ sudo ufw enable
 - Optimizar queries con `select_related` / `prefetch_related` en Django
 - Usar índices de base de datos (ya configurados en modelos)
 
-## 6.9 Variables de Entorno — Referencia Completa
+## 6.9 Variables de Entorno — Referencia Principal
+
+Lista de las variables más usadas. La referencia completa son `backend/.env.example` y `backend/config/settings/{base,production}.py` (por ejemplo `DB_SSLMODE`, `ONEDRIVE_TOKEN_ENCRYPTION_KEY`, `ANTHROPIC_API_KEY`, `HR_*`, `AWS_*`).
 
 | Variable | Requerida | Ejemplo | Descripción |
 |----------|-----------|---------|-------------|
@@ -2034,7 +2286,7 @@ sudo ufw enable
 | `DJANGO_ENV` | No | `production` | Guarda para settings de desarrollo |
 | `DEBUG` | No | `False` | Modo debug (nunca True en prod) |
 | `ALLOWED_HOSTS` | Sí | `syspcc.pcc.com.pe` | Hosts permitidos |
-| `DB_ENGINE` | Sí | `django.db.backends.postgresql` | Motor de BD |
+| `DB_ENGINE` | No | `django.db.backends.sqlite3` | Motor de BD fuera de producción (`production.py` fija PostgreSQL) |
 | `DB_NAME` | Sí | `syspcclog` | Nombre de la BD |
 | `DB_USER` | Sí | `doadmin` | Usuario de BD |
 | `DB_PASSWORD` | Sí | `***` | Contraseña de BD |
@@ -2053,5 +2305,5 @@ sudo ufw enable
 
 ---
 
-*Documento generado para SYSPCC v1.0 — PCC Ingeniería y Construcción*
-*Última actualización: Abril 2026*
+*SYSPCC v1.0 — PCC Ingeniería y Construcción*
+*Última actualización: Octubre 2026*

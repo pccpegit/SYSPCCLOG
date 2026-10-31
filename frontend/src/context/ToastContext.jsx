@@ -1,11 +1,6 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { CheckCircle, XCircle, Info, X } from 'lucide-react';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Context
-// ─────────────────────────────────────────────────────────────────────────────
-
-const ToastContext = createContext(null);
+import { ToastContext } from './contexts';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Single toast item
@@ -60,7 +55,7 @@ function ToastItem({ toast, onRemove }) {
       `}
       role="alert"
     >
-      <IconComp size={20} className={`shrink-0 mt-0.5 ${colors.icon}`} />
+      <IconComp size={20} className={`shrink-0 mt-0.5 ${colors.icon}`} aria-hidden="true" />
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-semibold leading-snug ${colors.title}`}>
           {toast.message}
@@ -70,9 +65,9 @@ function ToastItem({ toast, onRemove }) {
         type="button"
         onClick={() => onRemove(toast.id)}
         className={`shrink-0 p-1 rounded-lg transition-colors ${colors.close}`}
-        aria-label="Cerrar notificacion"
+        aria-label="Cerrar notificación"
       >
-        <X size={15} />
+        <X size={15} aria-hidden="true" />
       </button>
     </div>
   );
@@ -131,14 +126,4 @@ export function ToastProvider({ children }) {
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </ToastContext.Provider>
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hook
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used inside ToastProvider');
-  return ctx;
 }

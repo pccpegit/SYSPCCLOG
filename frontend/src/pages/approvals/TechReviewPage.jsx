@@ -15,13 +15,12 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { ROLES } from '../../data/constants';
-import { useAuth } from '../../context/AuthContext';
 import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import ApprovalChain from '../../components/requests/ApprovalChain';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -60,7 +59,6 @@ function LoadingSpinner() {
 export default function TechReviewPage() {
   const { id }          = useParams();
   const navigate        = useNavigate();
-  const { primaryRole } = useAuth();
   const { showToast }   = useToast();
 
   const [req,       setReq]       = useState(null);

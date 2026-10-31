@@ -16,8 +16,8 @@ import {
 } from 'lucide-react';
 import { getUsers, getProjects, getDepartments } from '../../api/core';
 import { resetPassword, activateUser, deactivateUser } from '../../api/users';
-import { useToast } from '../../context/ToastContext';
-import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/useToast';
+import { useAuth } from '../../context/useAuth';
 import { ROLES, ROLE_LABELS } from '../../data/constants';
 import { extractErrorMessage } from '../../utils/apiErrors';
 import ConfirmModal from '../../components/ui/ConfirmModal';

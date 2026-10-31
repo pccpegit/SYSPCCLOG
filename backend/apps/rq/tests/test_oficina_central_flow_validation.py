@@ -25,6 +25,9 @@ def _payload(**overrides):
     """Mirrors the payload helper in test_request_creation_atomicity.py."""
     payload = {
         'flow': 'OPERATIONS',
+        # SYSPCC-026: requesting_area became mandatory on creation (item_source did not:
+        # a payload without it is what old clients and integrations still send).
+        'requesting_area': 'OP',
         'acquisition_type': 'COMPRA_LOCAL',
         'fecha_necesidad': '2026-12-31',
         'description': 'Materiales de prueba',

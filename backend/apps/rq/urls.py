@@ -4,6 +4,8 @@ RQ app URL configuration.
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from apps.rq.views.catalog import RequestCatalogViewSet
+from apps.rq.views.master import RequestMasterViewSet
 from apps.rq.views.request import RequestViewSet
 from apps.rq.views.supplier import SupplierViewSet, QuotationViewSet, PurchaseOrderViewSet
 from apps.rq.views.claim import ClaimViewSet, NotificationViewSet, ActivityLogViewSet, AttachmentViewSet
@@ -13,6 +15,8 @@ app_name = 'rq'
 
 router = DefaultRouter()
 router.register(r'requests', RequestViewSet, basename='request')
+router.register(r'request-catalog', RequestCatalogViewSet, basename='request-catalog')
+router.register(r'request-master', RequestMasterViewSet, basename='request-master')
 router.register(r'suppliers', SupplierViewSet, basename='supplier')
 router.register(r'quotations', QuotationViewSet, basename='quotation')
 router.register(r'purchase-orders', PurchaseOrderViewSet, basename='purchase-order')

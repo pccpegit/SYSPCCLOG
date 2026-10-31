@@ -1,7 +1,9 @@
 # SYSPCC — Guía de Despliegue y Manual de Producción
 
 **Sistema de Gestión de Requerimientos de Abastecimiento**
-**Versión:** 1.0 | **Fecha:** Abril 2026 | **Empresa:** PCC Ingeniería y Construcción
+**Versión:** 1.1 | **Fecha:** Octubre 2026 (versión 1.0: abril de 2026) | **Empresa:** PCC Ingeniería y Construcción
+
+> **Alcance de la revisión de octubre de 2026.** Se contrastó con el repositorio lo que vive en él: `docker-compose.yml`, `backend/requirements.txt`, `backend/config/settings/`, los comandos de `manage.py` y los seeds. Las secciones de VPS, Nginx, systemd, backups y monitoreo (4 a 11) describen una instalación de referencia: el repositorio no incluye archivos de Nginx ni unidades de systemd, así que esas partes solo se ajustaron donde contradecían al código (colas de Celery, variables de entorno, comandos).
 
 ---
 
@@ -19,7 +21,7 @@
 10. [Seguridad](#10-seguridad)
 11. [Mantenimiento](#11-mantenimiento)
 12. [Troubleshooting](#12-troubleshooting)
-13. [Variables de Entorno](#13-variables-de-entorno)
+13. [Variables de Entorno](#13-variables-de-entorno--referencia-completa)
 
 ---
 
@@ -53,6 +55,7 @@ graph LR
 | PostgreSQL | 15+ | Base de datos (DigitalOcean Managed) |
 | Redis | 7+ | Cache, broker Celery, sesiones |
 | Nginx | 1.24+ | Reverse proxy, SSL, archivos estáticos |
+| LibreOffice (writer) | Opcional | Conversión .docx → PDF de contratos de RR. HH.; sin él la API responde `pdf_not_available` |
 | Certbot | Latest | Certificados SSL Let's Encrypt |
 | Git | 2.40+ | Control de versiones |
 | Docker | 24+ | Contenedores (solo desarrollo) |
@@ -81,6 +84,17 @@ graph LR
 | reportlab | 4.2.5 | Generación de PDFs |
 | python-decouple | 3.8 | Variables de entorno |
 | requests | 2.32.3 | HTTP client (OneDrive) |
+| cryptography | 43.0.3 | Cifrado en reposo de los tokens de OneDrive |
+| docxtpl | 0.20.2 | Plantillas Word de contratos (RR. HH.) |
+| python-docx | 1.2.0 | Lectura/escritura de .docx (RR. HH.) |
+| lxml | 6.1.3 | XML de plantillas .docx (RR. HH.) |
+| num2words | 0.5.14 | Montos en letras (contratos) |
+| anthropic | 1.11.0 | Asistente de RR. HH. y análisis de CVs |
+| pydantic | 2.13.5 | Salida estructurada del asistente |
+| pypdf | 6.19.0 | Validación de PDFs de CVs |
+| whitenoise | 6.8.2 | Archivos estáticos servidos por Django (App Platform) |
+| django-storages[s3] | 1.14.4 | Media en almacenamiento S3 (opcional) |
+| boto3 | 1.35.99 | Cliente S3 |
 | pytest | 8.3.4 | Testing |
 | pytest-django | 4.9.0 | Testing Django |
 | factory-boy | 3.3.1 | Test factories |
@@ -108,11 +122,12 @@ graph LR
 ```mermaid
 graph TB
     subgraph "Docker Compose"
-        subgraph "Red: docker_default"
+        subgraph "Red: syspcclog_default (nombre del directorio + _default)"
             REDIS["redis<br/>redis:7-alpine<br/>:6379<br/>healthcheck"]
-            BACKEND["backend<br/>python:3.12-slim<br/>:8000<br/>hot-reload"]
+            BACKEND["backend<br/>python:3.12-slim + LibreOffice<br/>:8000<br/>hot-reload"]
             FRONTEND["frontend<br/>node:22-alpine<br/>:5173<br/>HMR"]
-            CELERY_W["celery_worker<br/>python:3.12-slim<br/>Celery Worker"]
+            CELERY_W["celery_worker<br/>python:3.12-slim + LibreOffice<br/>cola por defecto (celery)"]
+            CELERY_HR["celery_worker_hr<br/>python:3.12-slim<br/>cola hr_cv, -c 3<br/>análisis de CVs"]
             CELERY_B["celery_beat<br/>python:3.12-slim<br/>Celery Beat"]
         end
 
@@ -120,13 +135,15 @@ graph TB
             V_SQL["sqlite_data<br/>/app/data/db.sqlite3"]
             V_REDIS["redis_data<br/>Persistencia Redis"]
             V_BE["./backend/<br/>→ /app/ (mount)"]
-            V_FE["./frontend/src/<br/>→ /app/src/ (mount)"]
+            V_FE["./frontend/src/ y ./frontend/public/<br/>→ /app/src/ y /app/public/ (mount)"]
         end
     end
 
     BACKEND --> REDIS
     CELERY_W --> REDIS
     CELERY_W --> BACKEND
+    CELERY_HR --> REDIS
+    CELERY_HR --> BACKEND
     CELERY_B --> REDIS
     CELERY_B --> BACKEND
     FRONTEND -->|proxy /api/| BACKEND
@@ -141,19 +158,21 @@ graph TB
 
 ```bash
 # 1. Clonar repositorio
-git clone https://github.com/pccpegit/syspcc-platform.git
-cd syspcc-platform
+git clone https://github.com/pccpegit/SYSPCCLOG.git
+cd SYSPCCLOG
 
-# 2. Verificar archivo de configuración Docker
-cat .env.docker
-# Contiene: SECRET_KEY, DJANGO_SETTINGS_MODULE, REDIS_URL, etc.
+# 2. Crear el archivo de configuración Docker en la raíz del repo
+#    .env.docker NO está versionado (.gitignore ignora .env.*): hay que crearlo.
+#    Contenido mínimo (ver abajo); el resto de variables está en backend/.env.example
+nano .env.docker
 
 # 3. Levantar todos los servicios
 docker compose --env-file .env.docker up --build
 
 # 4. En otra terminal: inicializar base de datos
 docker compose exec backend python manage.py migrate
-docker compose exec backend python manage.py seed_demo
+docker compose exec backend python manage.py seed_data   # datos de referencia (tipos de adquisición, pasos del workflow)
+docker compose exec backend python manage.py seed_demo   # usuarios y datos demo (ver Anexo C)
 
 # 5. Crear superusuario (opcional)
 docker compose exec backend python manage.py createsuperuser
@@ -165,6 +184,24 @@ docker compose exec backend python manage.py createsuperuser
 # API Docs:    http://localhost:8000/api/docs/
 ```
 
+Contenido mínimo de `.env.docker` (lo leen todos los servicios vía `env_file`):
+
+```ini
+SECRET_KEY=<clave-aleatoria>              # obligatoria: base.py no tiene valor por defecto
+DJANGO_SETTINGS_MODULE=config.settings.development
+DJANGO_ENV=development
+DEBUG=True
+DB_NAME=/app/data/db.sqlite3              # SQLite dentro del volumen sqlite_data
+REDIS_URL=redis://redis:6379/0            # "redis" = nombre del servicio en docker-compose.yml
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/2
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+VITE_API_URL=/api/v1/                     # la SPA llama a /api/v1/ y Vite lo reenvía al backend
+VITE_BACKEND_PROXY_TARGET=http://backend:8000   # destino del proxy de Vite (vite.config.js)
+```
+
+Opcionales (comentados en `backend/.env.example`): `RUC_API_TOKEN`, `ANTHROPIC_API_KEY`, `HR_COMPANY_*`, `SEED_DEMO_PASSWORD` y, para probar el análisis de CVs sin costo, `HR_CV_PROVIDER=fake` (solo funciona con `DEBUG=True`).
+
 ### 2.3 Comandos Docker útiles
 
 ```bash
@@ -174,6 +211,7 @@ docker compose logs -f
 # Ver logs de un servicio específico
 docker compose logs -f backend
 docker compose logs -f celery_worker
+docker compose logs -f celery_worker_hr   # análisis de CVs (cola hr_cv)
 
 # Ejecutar comando en el backend
 docker compose exec backend python manage.py shell
@@ -217,6 +255,10 @@ graph LR
         T4["Celery Beat<br/>celery -A config beat"]
     end
 
+    subgraph "Terminal 5"
+        T5["Celery Worker RR. HH.<br/>celery -A config worker -Q hr_cv"]
+    end
+
     subgraph "Servicio de Fondo"
         REDIS_L["Redis Server<br/>:6379"]
     end
@@ -225,6 +267,7 @@ graph LR
     T1 --> REDIS_L
     T3 --> REDIS_L
     T4 --> REDIS_L
+    T5 --> REDIS_L
 ```
 
 ### 3.2 Pasos de Instalación
@@ -283,16 +326,20 @@ npm run dev
 # → Proxy de /api/ hacia http://localhost:8000
 
 # ============================================
-# CELERY (opcional, en 2 terminales adicionales)
+# CELERY (opcional, en 3 terminales adicionales)
 # ============================================
 cd backend/
 source venv/bin/activate
 
-# Terminal 3: Worker
+# Terminal 3: Worker (cola por defecto)
 celery -A config worker -l info
 
 # Terminal 4: Beat (tareas programadas)
 celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+
+# Terminal 5: Worker RR. HH. (cola hr_cv: análisis de CVs, igual que celery_worker_hr)
+celery -A config worker -Q hr_cv -c 3 -n hr@%h -l info
+# Sin este worker los CVs quedan en cola; alternativa sin worker: HR_CV_DISPATCH=thread en .env
 ```
 
 ---
@@ -329,7 +376,7 @@ graph TB
 
         subgraph "Servicios (systemd)"
             RD2["Redis 7<br/>127.0.0.1:6379<br/>bind local only<br/>requirepass"]
-            CW2["syspcc-celery-worker.service<br/>concurrency=2"]
+            CW2["syspcc-celery-worker.service<br/>concurrency=2<br/>colas celery + hr_cv"]
             CB2["syspcc-celery-beat.service<br/>DatabaseScheduler"]
         end
     end
@@ -390,7 +437,7 @@ sudo chown syspcc:syspcc /opt/syspcc/backups
 # ====================================================
 # PASO 2: Código y entorno virtual
 # ====================================================
-sudo -u syspcc git clone https://github.com/pccpegit/syspcc-platform.git /opt/syspcc/app
+sudo -u syspcc git clone https://github.com/pccpegit/SYSPCCLOG.git /opt/syspcc/app
 cd /opt/syspcc/app/backend
 
 # Crear entorno virtual
@@ -417,7 +464,7 @@ DEBUG=False
 ALLOWED_HOSTS=syspcc.pcc.com.pe,www.syspcc.pcc.com.pe
 
 # === Base de Datos (DigitalOcean Managed PostgreSQL) ===
-DB_ENGINE=django.db.backends.postgresql
+# production.py siempre usa PostgreSQL (ignora DB_ENGINE); TLS sslmode=require por defecto (DB_SSLMODE)
 DB_NAME=syspcclog
 DB_USER=doadmin
 DB_PASSWORD=<contraseña-de-digitalocean>
@@ -442,7 +489,13 @@ DEFAULT_FROM_EMAIL=sistemas@pcc.com.pe
 
 # === Seguridad ===
 SECURE_SSL_REDIRECT=True
+# Clave Fernet que cifra los tokens de OneDrive (obligatoria en producción;
+# sin ella se deriva de SECRET_KEY). Generar con:
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ONEDRIVE_TOKEN_ENCRYPTION_KEY=<clave-fernet>
 ```
+
+Variables opcionales (RUC, OneDrive, RR. HH., análisis de CVs): ver la [sección 13](#13-variables-de-entorno--referencia-completa) y `backend/.env.example`.
 
 ```bash
 # ====================================================
@@ -451,8 +504,16 @@ SECURE_SSL_REDIRECT=True
 cd /opt/syspcc/app/backend
 source /opt/syspcc/venv/bin/activate
 
+# manage.py usa config.settings.development si DJANGO_SETTINGS_MODULE no está
+# en el entorno del shell (python-decouple lee .env para los settings, pero no
+# exporta variables): exportarla SIEMPRE antes de cualquier manage.py.
+export DJANGO_SETTINGS_MODULE=config.settings.production
+
 # Ejecutar migraciones
 python manage.py migrate
+
+# Datos de referencia (tipos de adquisición y pasos del workflow; idempotente, no crea usuarios)
+python manage.py seed_data
 
 # Recolectar archivos estáticos
 python manage.py collectstatic --noinput
@@ -479,8 +540,11 @@ sudo apt install -y nodejs
 # Instalar dependencias
 npm ci
 
-# Configurar URL de API
+# Configurar URL de API (rutas relativas: SPA y API comparten dominio en Nginx).
+# VITE_BACKEND_URL vacía a propósito: si no se define, frontend/src/api/config.js
+# usa http://localhost:8000 para los archivos media (firmas).
 echo "VITE_API_URL=/api/v1/" > .env.production
+echo "VITE_BACKEND_URL=" >> .env.production
 
 # Build de producción
 npm run build
@@ -549,7 +613,9 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     # === Límites ===
-    client_max_body_size 20M;
+    # El análisis de CVs sube lotes de hasta 40 MB por petición
+    # (frontend/src/hooks/useCVUpload.js): con menos, Nginx responde 413.
+    client_max_body_size 50M;
 
     # === Logs ===
     access_log /var/log/nginx/syspcc-access.log;
@@ -638,7 +704,7 @@ graph TB
         NG_SVC["nginx.service<br/>enabled, active"]
         RD_SVC["redis-server.service<br/>enabled, active"]
         GU_SVC["syspcc-gunicorn.service<br/>enabled, active<br/>After: redis"]
-        CW_SVC["syspcc-celery-worker.service<br/>enabled, active<br/>After: redis"]
+        CW_SVC["syspcc-celery-worker.service<br/>enabled, active<br/>After: redis<br/>colas celery + hr_cv"]
         CB_SVC["syspcc-celery-beat.service<br/>enabled, active<br/>After: redis"]
     end
 
@@ -686,7 +752,7 @@ WantedBy=multi-user.target
 
 ### 6.3 Celery Worker Service
 
-Crear `/etc/systemd/system/syspcc-celery-worker.service`:
+Crear `/etc/systemd/system/syspcc-celery-worker.service`. Debe escuchar también la cola `hr_cv`: `CELERY_TASK_ROUTES` (base.py) envía ahí `hr.process_cv_item` y `hr.cv_requeue_stale`, y un worker sin `-Q` solo consume la cola por defecto `celery` (los CVs quedarían en cola). En Docker esa cola la atiende el servicio aparte `celery_worker_hr`.
 
 ```ini
 [Unit]
@@ -700,6 +766,7 @@ Group=syspcc
 WorkingDirectory=/opt/syspcc/app/backend
 EnvironmentFile=/opt/syspcc/app/backend/.env
 ExecStart=/opt/syspcc/venv/bin/celery -A config worker \
+    --queues=celery,hr_cv \
     --loglevel=info \
     --concurrency=2 \
     --logfile=/var/log/syspcc/celery-worker.log \
@@ -979,7 +1046,7 @@ graph TB
         S5["✅ DEBUG=False"]
         S6["✅ SECRET_KEY fuerte<br/>(50+ caracteres aleatorios)"]
         S7["✅ ALLOWED_HOSTS específicos<br/>(no '*')"]
-        S8["✅ Rate limiting activo<br/>30/min anon, 200/min auth<br/>5/min login"]
+        S8["✅ Rate limiting activo<br/>30/min anon, 200/min auth<br/>5/min login por IP<br/>10/min login por usuario"]
         S9["✅ CORS restrictivo<br/>Solo origins permitidos"]
         S10["✅ Admin URL oculta<br/>/mgmt-panel/ (no /admin/)"]
         S11["✅ API docs solo admin<br/>/api/docs/ requiere staff"]
@@ -990,7 +1057,7 @@ graph TB
         S13["✅ Token rotation<br/>+ blacklist"]
         S14["✅ Access token: 15 min<br/>Refresh token: 1 día"]
         S15["✅ Password mínimo 12 chars"]
-        S16["✅ CSRF Cookie HttpOnly"]
+        S16["✅ CSRF double-submit<br/>cookie csrftoken Secure + SameSite=Lax<br/>(HttpOnly=False a propósito: la SPA la lee)"]
     end
 
     subgraph "Datos"
@@ -1080,6 +1147,7 @@ git pull origin main
 # 3. Backend: dependencias
 echo "[3/7] Instalando dependencias Python..."
 source $VENV/bin/activate
+export DJANGO_SETTINGS_MODULE=config.settings.production  # manage.py usa development por defecto
 cd $APP_DIR/backend
 pip install -r requirements.txt
 
@@ -1121,6 +1189,7 @@ chmod +x /opt/syspcc/scripts/deploy.sh
 ```bash
 cd /opt/syspcc/app/backend
 source /opt/syspcc/venv/bin/activate
+export DJANGO_SETTINGS_MODULE=config.settings.production
 
 # Crear superusuario
 python manage.py createsuperuser
@@ -1131,8 +1200,8 @@ python manage.py shell
 # Verificar configuración de producción
 python manage.py check --deploy
 
-# Limpiar sesiones expiradas
-python manage.py clearsessions
+# Sesiones: viven en la caché Redis (SESSION_ENGINE = cache) y expiran solas;
+# `clearsessions` no hace nada con este backend.
 
 # Limpiar tokens JWT expirados (blacklist)
 python manage.py flushexpiredtokens
@@ -1140,9 +1209,28 @@ python manage.py flushexpiredtokens
 # Ver migraciones pendientes
 python manage.py showmigrations | grep "\[ \]"
 
-# Cargar datos de configuración
-python manage.py seed_demo  # SOLO EN STAGING, NUNCA EN PRODUCCIÓN
+# Cargar datos de referencia (tipos de adquisición y pasos del workflow; idempotente)
+python manage.py seed_data
+
+# seed_demo / seed_demo_extra / seed_screenshots abortan en producción:
+# apps/core/management/seed_guard.py exige DEBUG=True y DJANGO_ENV distinto de production
 ```
+
+Comandos propios del proyecto (`python manage.py <comando> --help` muestra todas las opciones):
+
+| Comando | Qué hace |
+|---------|----------|
+| `seed_data [--clear]` | Datos de referencia: `AcquisitionTypeConfig` y `WorkflowStep`. Idempotente; no crea usuarios |
+| `import_warehouse_excel <libro.xlsx> [--dry-run] [--user U] [--project-map ETIQUETA=CODIGO]` | Importa el libro "INVENTARIO PCC - ALM" con el mismo flujo que la API (previsualiza y, sin `--dry-run`, confirma) |
+| `hr_cv_purge_orphans [--dry-run]` | Borra archivos de CVs sin registro y, si `HR_CV_RETENTION_DAYS` > 0, los análisis vencidos |
+| `check_central_project_stock [--json] [--limit N] [--fail-on-findings]` | Solo lectura: filas de stock del almacén CENTRAL atadas a un proyecto o departamento |
+| `report_rq_stock_gaps [--json] [--include-terminal] [--fail-on-findings] [--fail-on-unconfirmed]` | Solo lectura: RQs despachados sin movimiento de almacén e ítems con producto de catálogo sin confirmar |
+| `suggest_inventory_links [--json] [--rq RQ-AAAA-NNNN] [--include-terminal]` | Solo lectura: propone (sin aplicar) el producto de catálogo de los ítems de RQ sin vínculo |
+| `seed_hr_template [--force]` | Genera y activa una plantilla DEMO de contrato (idempotente) |
+| `seed_administracion` | Proveedores de pasajes y políticas de devolución |
+| `import_pasajes_csv <archivo.csv> [--clear]` | Importa pasajes desde un CSV heredado (idempotente por `CodigoId`) |
+| `seed_demo`, `seed_demo_extra`, `seed_screenshots` | Datos demo; bloqueados fuera de desarrollo por `seed_guard` |
+| `seed_pasajes_demo` | Datos demo del módulo de pasajes; **no** usa `seed_guard`: no ejecutarlo en producción |
 
 ### 11.3 Renovación de Certificado SSL
 
@@ -1167,7 +1255,9 @@ sudo systemctl list-timers | grep certbot
 |----------|-------|----------|
 | 502 Bad Gateway | Gunicorn caído | `sudo systemctl restart syspcc-gunicorn` |
 | 504 Gateway Timeout | Request lento (>120s) | Revisar logs, optimizar query |
-| 401 en todas las requests | Token expirado / Redis caído | `sudo systemctl restart redis-server` |
+| 401 en todas las requests | Token de acceso/refresh vencido o en la blacklist | Volver a iniciar sesión |
+| 500 en todas las requests | Redis caído: caché, sesiones y límites de intentos viven en Redis | `sudo systemctl restart redis-server` |
+| Análisis de CVs se queda en cola | El worker no escucha la cola `hr_cv` | Revisar `--queues=celery,hr_cv` en `syspcc-celery-worker.service` |
 | Static files 404 | collectstatic no ejecutado | `python manage.py collectstatic` |
 | CORS error en browser | Origen no permitido | Agregar a CORS_ALLOWED_ORIGINS en .env |
 | Celery no procesa tareas | Worker caído | `sudo systemctl restart syspcc-celery-worker` |
@@ -1187,6 +1277,7 @@ done
 # 2. Verificar conectividad a la base de datos
 cd /opt/syspcc/app/backend
 source /opt/syspcc/venv/bin/activate
+export DJANGO_SETTINGS_MODULE=config.settings.production
 python -c "
 import django; django.setup()
 from django.db import connection
@@ -1199,9 +1290,11 @@ print('DB OK:', cursor.fetchone())
 redis-cli -a <password> ping
 # Debe responder: PONG
 
-# 4. Verificar Gunicorn directamente
-curl -I http://127.0.0.1:8000/api/v1/
-# Debe responder: HTTP/1.1 200 o 401
+# 4. Verificar Gunicorn directamente (healthcheck: SELECT 1 contra la BD)
+curl -i http://127.0.0.1:8000/healthz/
+# Debe responder: 200 {"status": "ok"}  (503 si la BD no contesta)
+# /healthz/ responde antes de ALLOWED_HOSTS y del redirect HTTPS; otras rutas
+# pedidas por 127.0.0.1 y sin X-Forwarded-Proto devuelven 400/301.
 
 # 5. Verificar Nginx
 curl -I https://syspcc.pcc.com.pe/api/v1/
@@ -1216,31 +1309,41 @@ sudo journalctl -u syspcc-celery-worker --since "1 hour ago" --no-pager | tail -
 
 ## 13. Variables de Entorno — Referencia Completa
 
+Defaults tomados de `config/settings/base.py` y, donde se indica, de `production.py`. La lista completa y comentada (incluidas todas las `HR_CV_*`) está en `backend/.env.example`; las variables propias de App Platform están en `docs/08_Guia_Despliegue_DigitalOcean.md`.
+
 | Variable | Requerida | Default | Ejemplo Producción | Descripción |
 |----------|:---------:|---------|-------------------|-------------|
-| `SECRET_KEY` | **Sí** | — | `a3f8k2...` (50+ chars) | Clave criptográfica Django |
-| `DJANGO_SETTINGS_MODULE` | **Sí** | — | `config.settings.production` | Módulo de configuración |
-| `DJANGO_ENV` | No | `None` | `production` | Guarda de settings |
-| `DEBUG` | No | `False` | `False` | Modo debug |
-| `ALLOWED_HOSTS` | **Sí** | — | `syspcc.pcc.com.pe` | Hosts permitidos (CSV) |
-| `DB_ENGINE` | **Sí** | `sqlite3` | `django.db.backends.postgresql` | Motor de BD |
-| `DB_NAME` | **Sí** | `db.sqlite3` | `syspcclog` | Nombre de la BD |
+| `SECRET_KEY` | **Sí** | — | `a3f8k2...` (50+ chars) | Clave criptográfica Django (también firma los JWT) |
+| `DJANGO_SETTINGS_MODULE` | **Sí** | `manage.py` y Celery: `config.settings.development`; `wsgi.py`: `config.settings.production` | `config.settings.production` | Módulo de configuración |
+| `DJANGO_ENV` | No | — | `production` | Con `production`, `seed_guard` bloquea los seeds demo; `development.py` solo carga con `development`, `local` o sin definir |
+| `DEBUG` | No | `False` | `False` | Modo debug (`production.py` lo fija en `False`) |
+| `ALLOWED_HOSTS` | **Sí** | `localhost,127.0.0.1` | `syspcc.pcc.com.pe` | Hosts permitidos (CSV) |
+| `DB_ENGINE` | No | `django.db.backends.sqlite3` | — | Solo base/desarrollo; `production.py` siempre usa PostgreSQL |
+| `DB_NAME` | **Sí** | `<backend>/db.sqlite3` | `syspcclog` | Nombre de la BD |
 | `DB_USER` | Prod | — | `doadmin` | Usuario de BD |
 | `DB_PASSWORD` | Prod | — | `***` | Contraseña de BD |
 | `DB_HOST` | Prod | — | `db-xxx.ondigitalocean.com` | Host de BD |
-| `DB_PORT` | No | `5432` | `25060` | Puerto de BD |
-| `REDIS_URL` | No | `redis://localhost:6379/0` | `redis://:pass@127.0.0.1:6379/0` | Cache Redis |
+| `DB_PORT` | No | `25060` (`production.py`) | `25060` | Puerto de BD |
+| `REDIS_URL` | No | `redis://localhost:6379/0` | `redis://:pass@127.0.0.1:6379/0` | Cache Redis (también sesiones y límites de intentos) |
 | `CELERY_BROKER_URL` | No | `redis://localhost:6379/1` | `redis://:pass@127.0.0.1:6379/1` | Broker Celery |
 | `CELERY_RESULT_BACKEND` | No | `redis://localhost:6379/2` | `redis://:pass@127.0.0.1:6379/2` | Results Celery |
-| `CORS_ALLOWED_ORIGINS` | **Sí** | — | `https://syspcc.pcc.com.pe` | Orígenes CORS (CSV) |
-| `EMAIL_BACKEND` | No | `console` | `django.core.mail.backends.smtp.EmailBackend` | Backend email |
-| `EMAIL_HOST` | No | `smtp.office365.com` | `smtp.office365.com` | Servidor SMTP |
+| `CORS_ALLOWED_ORIGINS` | Prod | `http://localhost:5173,http://localhost:3000` | `https://syspcc.pcc.com.pe` | Orígenes CORS (CSV) |
+| `CSRF_TRUSTED_ORIGINS` | No | vacío | `https://syspcc.pcc.com.pe` | Orígenes de confianza para CSRF (CSV, con esquema); necesario si la SPA se sirve desde otro origen |
+| `EMAIL_BACKEND` | No | base: consola; `production.py`: SMTP si hay `EMAIL_HOST_PASSWORD`, si no consola | `django.core.mail.backends.smtp.EmailBackend` | Backend email |
+| `EMAIL_HOST` | No | base: `smtp.office365.com`; `production.py`: `smtp.gmail.com` | `smtp.office365.com` | Servidor SMTP |
 | `EMAIL_PORT` | No | `587` | `587` | Puerto SMTP |
 | `EMAIL_HOST_USER` | No | — | `sistemas@pcc.com.pe` | Usuario SMTP |
 | `EMAIL_HOST_PASSWORD` | No | — | `***` | Contraseña SMTP |
-| `DEFAULT_FROM_EMAIL` | No | `sistemas@pcc.com.pe` | `sistemas@pcc.com.pe` | Remitente |
-| `SECURE_SSL_REDIRECT` | No | `False` | `True` | Redirigir a HTTPS |
-| `WAREHOUSE_ALERT_RECIPIENTS` | No | — | `sistemas@pcc.com.pe` | Alertas stock bajo |
+| `DEFAULT_FROM_EMAIL` | No | base: `sistemas@pcc.com.pe`; `production.py`: `noreply@pcc.com.pe` | `sistemas@pcc.com.pe` | Remitente |
+| `SECURE_SSL_REDIRECT` | No | `True` (`production.py`) | `True` | Redirigir a HTTPS |
+| `WAREHOUSE_ALERT_RECIPIENTS` | No | `sistemas@pcc.com.pe` | `sistemas@pcc.com.pe` | Alertas stock bajo (CSV) |
+| `ONEDRIVE_TOKEN_ENCRYPTION_KEY` | Prod | — (se deriva de `SECRET_KEY`) | clave Fernet | Cifra los tokens de OneDrive en la BD |
+| `ONEDRIVE_CLIENT_ID` / `ONEDRIVE_TENANT` / `ONEDRIVE_SHARE_SCOPE` | No | vacío / `consumers` / `organization` | — | Integración OneDrive (opcional; sin `CLIENT_ID` queda desconectada) |
+| `RUC_API_TOKEN` | No | vacío | `***` | Consulta de RUC (apisperu.com) |
+| `ANTHROPIC_API_KEY` | No | vacío | `***` | Asistente de RR. HH. y análisis de CVs; sin clave, el asistente pasa a formulario manual y no se pueden iniciar análisis |
+| `HR_COMPANY_*` / `HR_MIN_WAGE` | No | vacío / `1130.00` | datos de la empresa | Datos impresos en los contratos de RR. HH. |
+| `HR_CV_*` | No | ver `backend/.env.example` | — | Modelo, límites, despacho (`celery` / `thread`) y proveedor (`anthropic` / `fake`, este solo con `DEBUG=True`) del análisis de CVs |
+| `SEED_DEMO_PASSWORD` | No | aleatoria por ejecución | — | Contraseña compartida de los usuarios de `seed_demo` (solo desarrollo) |
 
 ---
 
@@ -1263,7 +1366,7 @@ flowchart TB
     C1 --> C2[Backend: venv + pip install + migrate]
     C2 --> C3[Backend: runserver :8000]
     C3 --> C4[Frontend: npm install + dev :5173]
-    C4 --> C5[Opcional: Celery worker + beat]
+    C4 --> C5[Opcional: Celery workers default + hr_cv y beat]
     C5 --> END_LOCAL([✅ Local listo])
 
     A2 -->|Producción| D1[Configurar VPS Ubuntu]
@@ -1271,7 +1374,7 @@ flowchart TB
     D2 --> D3[Crear usuario syspcc]
     D3 --> D4[Clonar repo en /opt/syspcc/app]
     D4 --> D5[Backend: venv + pip + .env producción]
-    D5 --> D6[Backend: migrate + collectstatic]
+    D5 --> D6[Backend: migrate + seed_data + collectstatic]
     D6 --> D7[Frontend: npm ci + build]
     D7 --> D8[Configurar Nginx + SSL]
     D8 --> D9[Crear servicios systemd]
@@ -1304,24 +1407,30 @@ graph LR
 
 ## Anexo C: Usuarios Demo (seed_demo)
 
-| Usuario | Contraseña | Roles |
-|---------|-----------|-------|
-| admin | admin123456! | Superuser (todos los accesos) |
-| solicitante | demo12345! | REQUESTER |
-| residente | demo12345! | PROJECT_RESIDENT |
-| control | demo12345! | PROJECT_CONTROL |
-| gerente | demo12345! | GENERAL_MANAGER |
-| logistica | demo12345! | LOGISTICS_COORDINATOR |
-| almacen | demo12345! | CENTRAL_WAREHOUSE |
-| almacen_obra | demo12345! | SITE_WAREHOUSE |
-| jefe_directo | demo12345! | DIRECT_SUPERVISOR |
-| gerente_admin | demo12345! | ADMIN_MANAGER |
-| supervisor_log | demo12345! | LOGISTICS_SUPERVISOR |
-| jefe_log | demo12345! | LOGISTICS_CHIEF |
+Fuente: `DEMO_USERS` en `apps/core/management/commands/seed_demo.py`. Los 14 usuarios cubren los 13 roles.
 
-> **IMPORTANTE:** Estos usuarios son solo para desarrollo. Nunca ejecutar `seed_demo` en producción.
+| Usuario | Departamento | Rol |
+|---------|--------------|-----|
+| jrodriguez | Proyectos | REQUESTER |
+| mcastillo | Proyectos | PROJECT_RESIDENT |
+| clopez | Control de Proyecto | PROJECT_CONTROL |
+| aperez | Gerencia | GENERAL_MANAGER |
+| rgarcia | Logística | LOGISTICS_COORDINATOR |
+| lmendoza | Almacén | CENTRAL_WAREHOUSE |
+| psalas | Almacén | SITE_WAREHOUSE |
+| dmorales | Administración | REQUESTER |
+| svargas | Recursos Humanos | DIRECT_SUPERVISOR |
+| fchavez | Administración | ADMIN_MANAGER |
+| vponce | Administración | PASAJES_MANAGER |
+| atorres | Logística | LOGISTICS_SUPERVISOR |
+| jhernandez | Logística | LOGISTICS_CHIEF |
+| demo_hr_manager | Recursos Humanos | HR_MANAGER |
+
+**Contraseña:** todos comparten la de `SEED_DEMO_PASSWORD`; si no está definida, `seed_demo` genera una aleatoria en cada ejecución y la imprime una sola vez en consola. `seed_demo` no crea superusuario: si ya existe un superusuario `admin`, le asigna el rol GENERAL_MANAGER. Con `--clear` borra y vuelve a crear los datos demo.
+
+> **IMPORTANTE:** Estos usuarios son solo para desarrollo. `seed_demo` aborta si `DEBUG=False` o `DJANGO_ENV=production` (`apps/core/management/seed_guard.py`).
 
 ---
 
 *Documento generado para SYSPCC v1.0 — PCC Ingeniería y Construcción*
-*Última actualización: Abril 2026*
+*Última actualización: Octubre 2026 (revisión parcial; ver la nota de alcance al inicio)*

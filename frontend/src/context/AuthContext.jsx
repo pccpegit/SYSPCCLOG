@@ -1,7 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as authApi from '../api/auth';
-
-const AuthContext = createContext(null);
+import { AuthContext } from './contexts';
 
 // ─── CSRF bootstrap ─────────────────────────────────────────────────────────
 // Module-level singleton (not component state) so it survives StrictMode's
@@ -21,6 +20,24 @@ function ensureCsrfReady() {
     });
   }
   return csrfReadyPromise;
+}
+
+// ─── Restauración de sesión con refresh (SYSPCC-034) ────────────────────────
+// /users/me/ está excluido del refresh automático del interceptor 401 (para no
+// entrar en bucle). Tras >15 min la cookie de acceso ya expiró aunque el
+// refresh_token (1 día) siga vigente: ante un 401 se intenta UNA sola vez
+// renovar la sesión y reintentar getMe(). Si el refresh o el reintento
+// fallan, se propaga el error (sin sesión) y no se vuelve a intentar.
+async function fetchMeRenewingSession() {
+  try {
+    return await authApi.getMe();
+  } catch (err) {
+    if (err?.response?.status !== 401) throw err;
+    // El refresh es un POST: necesita la cookie csrftoken ya emitida.
+    await ensureCsrfReady();
+    await authApi.refreshSession();
+    return authApi.getMe();
+  }
 }
 
 export function AuthProvider({ children }) {
@@ -46,7 +63,7 @@ export function AuthProvider({ children }) {
 
     const restoreSession = async () => {
       try {
-        const { data: user } = await authApi.getMe();
+        const { data: user } = await fetchMeRenewingSession();
         setCurrentUser(normalizeUser(user));
       } catch {
         setCurrentUser(null);
@@ -128,10 +145,4 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be inside AuthProvider');
-  return ctx;
 }

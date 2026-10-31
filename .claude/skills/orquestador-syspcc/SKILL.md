@@ -1,6 +1,6 @@
 ---
 name: orquestador-syspcc
-description: Playbook del Tech Lead / orquestador del equipo multiagente de SYSPCC. Úsalo SIEMPRE al inicio de toda tarea sustantiva (funcionalidad, cambio de comportamiento, bugfix no trivial, refactor, esquema, seguridad). Coordina los 13 agentes de .claude/agents/ a través de un pipeline de 6 fases con quality gates y protocolo de handoff. Este proyecto se opera por defecto como equipo (ver CLAUDE.md). Dispara ante "construye", "implementa", "nueva funcionalidad", "usa el equipo", "feature", "arregla", "refactoriza".
+description: Playbook del Tech Lead / orquestador del equipo multiagente de SYSPCC. Úsalo SIEMPRE al inicio de toda tarea sustantiva (funcionalidad, cambio de comportamiento, bugfix no trivial, refactor, esquema, seguridad). Coordina los 13 agentes de .claude/agents/ a través de un pipeline de 7 fases (0–6) con quality gates y protocolo de handoff. Este proyecto se opera por defecto como equipo (ver CLAUDE.md). Dispara ante "construye", "implementa", "nueva funcionalidad", "usa el equipo", "feature", "arregla", "refactoriza".
 ---
 
 # Orquestador SYSPCC — operar el equipo
@@ -31,7 +31,7 @@ Fuente de verdad del proyecto: `CLAUDE.md`. No leas `rle/` ni `cv_pcc.md`.
 | `localization-reviewer` | idioma es-PE / EN | espanol-consistente |
 | `devops-release` | Docker, deploy, commits | docker-deploy, commits-y-prs |
 
-## Pipeline de 6 fases
+## Pipeline de 7 fases (0–6)
 
 | Fase | Agente(s) líder | Gate para avanzar |
 |---|---|---|
@@ -41,7 +41,7 @@ Fuente de verdad del proyecto: `CLAUDE.md`. No leas `rle/` ni `cv_pcc.md`.
 | **3 · Seguridad** | security-auditor | Sin hallazgos 🔴 (permisos por rol, sin IDOR, input validado) |
 | **4 · Pruebas** | qa-engineer | pytest + Vitest en verde; ramas de error + autorización cubiertas |
 | **5 · Revisión** | code-reviewer + localization-reviewer | Sin 🔴; idioma consistente; flujos de gerencia intactos |
-| **6 · Entrega** | devops-release | Docker up + migrate + seed OK; commit/PR en Conventional Commits |
+| **6 · Entrega** | devops-release | Docker up + migrate + seed OK; commit/PR en Conventional Commits, sin atribución de IA |
 
 Reglas de los gates: **no avanzas de fase con un gate incumplido.** Si Seguridad (F3) o Revisión (F5) marcan 🔴, vuelve al agente responsable (usa `SendMessage` para retomarlo con su contexto), corrige, y re-valida antes de seguir.
 
@@ -50,7 +50,7 @@ Reglas de los gates: **no avanzas de fase con un gate incumplido.** Si Seguridad
 Los subagentes están aislados: no se ven entre sí. Tú los comunicas de dos formas, y usas AMBAS:
 
 1. **Relay directo**: pasas la salida de cada fase como entrada de la siguiente (el contrato de API de F0 entra en el prompt de F1, etc.).
-2. **Archivo de handoff compartido**: `.claude/handoffs/<feature-slug>.md`. En el prompt de CADA agente incluye estas dos instrucciones:
+2. **Archivo de handoff compartido**: `.claude/handoffs/<feature-slug>.md` (por convención con el ticket, p.ej. `SYSPCC-025-almacen-epp-real.md`; es local, `.gitignore` no lo versiona). En el prompt de CADA agente incluye estas dos instrucciones:
    - *"Antes de empezar, lee `.claude/handoffs/<feature>.md` para el contexto de las fases anteriores."*
    - *"Al terminar, añade tu bloque de handoff a ese archivo."*
 
@@ -72,7 +72,7 @@ Crea el archivo de handoff al iniciar la Fase 0 (encabezado con el nombre de la 
 
 ## Cómo reportas al usuario
 Fase por fase, conciso: qué agente actuó, qué produjo, si el gate pasó, y qué sigue. Ejemplo:
-> **FASE 1 · Backend** (django-backend + database-engineer) → 3 endpoints en `/api/v1/rq/`, migración `0007` (revisada, segura). Gate ✅. Sigue FASE 2 · Frontend.
+> **FASE 1 · Backend** (django-backend + database-engineer) → 3 endpoints en `/api/v1/requests/`, migración `0007` (revisada, segura). Gate ✅. Sigue FASE 2 · Frontend.
 
 Al final: resumen de la feature, estado de cada gate, y el commit/PR propuesto (no commitees salvo que el usuario lo pida).
 

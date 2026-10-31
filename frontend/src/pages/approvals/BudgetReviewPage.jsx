@@ -13,7 +13,7 @@ import {
   PlusCircle,
 } from 'lucide-react';
 import { ROLES, STATUS } from '../../data/constants';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { getRequests, getRequest, getApprovals, performAction } from '../../api/requests';
 import { getProject } from '../../api/core';
 // Quotation review is now in QuoteCostReviewPage
@@ -21,7 +21,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ConfirmModal from '../../components/ui/ConfirmModal';
 import ApprovalChain from '../../components/requests/ApprovalChain';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 function formatCurrency(val) {
   if (!val && val !== 0) return 'S/ 0';
@@ -62,7 +62,8 @@ export default function BudgetReviewPage() {
   const { showToast }   = useToast();
 
   const [req,       setReq]       = useState(null);
-  const [project,   setProject]   = useState(null);
+  // El proyecto se sigue cargando (la pantalla ya no lo muestra); se conserva solo el setter.
+  const [, setProject]   = useState(null);
   const [approvals, setApprovals] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
@@ -123,7 +124,7 @@ export default function BudgetReviewPage() {
       }
     };
     fetchData();
-  }, [id]);
+  }, [id, navigate]);
 
   const isAdm = req?.flow === 'ADMINISTRATIVE';
 
@@ -198,8 +199,6 @@ export default function BudgetReviewPage() {
   const reqCost     = req.estimated_cost ?? req.estimatedCost ?? 0;
 
 
-
-  const projectCode = req.project_code ?? req.projectCode ?? project?.code ?? '';
 
   return (
     <>

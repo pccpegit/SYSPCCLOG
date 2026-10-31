@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import SystemSelectPage from './SystemSelectPage';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 
 // SYSPCC-018 (rediseño) — SystemSelectPage es el punto de entrada donde
 // aparece la tarjeta nueva "Administración del Sistema" (/sistema),
@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 // (no existe rol SUPERADMIN de negocio en RoleChoices — ver decisión 4 de
 // FASE 0b). `useAuth` se mockea directo para variar isSuperUser/userRoles
 // sin tocar el bootstrap CSRF/getMe real.
-vi.mock('../../context/AuthContext', () => ({
+vi.mock('../../context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 

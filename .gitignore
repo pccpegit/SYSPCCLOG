@@ -84,6 +84,7 @@ docs/html/
 # carpetas de Claude descolocadas fuera de la raíz
 frontend/.claude/
 frontend/src/.claude/
+docs/.claude/
 # volcados de BD con datos de negocio (proyectos, cotizaciones, OC)
 frontend/docs/schema_actual.sql
 *.sql

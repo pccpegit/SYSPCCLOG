@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { getUser, getProjects, getDepartments } from '../../api/core';
 import { createUser, updateUser } from '../../api/users';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { ROLES, ROLE_LABELS } from '../../data/constants';
 import { extractFieldErrors, extractErrorMessage } from '../../utils/apiErrors';
 import TemporaryPasswordModal from '../../components/sistema/TemporaryPasswordModal';

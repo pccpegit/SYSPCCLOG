@@ -10,8 +10,9 @@ import {
   Settings,
   ChevronLeft,
   ClipboardList,
+  Table2,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROLES } from '../../data/constants';
 
 const ALL_ROLES = Object.values(ROLES);
@@ -38,6 +39,13 @@ const NAV_ITEMS = [
     icon: FileText,
     roles: ALL_ROLES,
     end: true,
+  },
+  {
+    label: 'Master de RQ',
+    to: '/rq/master',
+    icon: Table2,
+    roles: ALL_ROLES,
+    end: false,
   },
   {
     label: 'Aprobaciones',

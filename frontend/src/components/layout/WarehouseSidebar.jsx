@@ -5,13 +5,20 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   ArrowLeftRight,
+  ArrowRightLeft,
   ClipboardList,
   ChevronLeft,
+  FileUp,
+  Scale,
   X,
   Warehouse,
   Settings,
 } from 'lucide-react';
+import { useAuth } from '../../context/useAuth';
+import { COUNTER_ROLES, IMPORT_ROLES } from '../../data/almacenRoles';
 
+// `roles` (opcional) oculta el enlace a quien no tiene ninguno de esos roles.
+// Es solo UX: cada pantalla y cada endpoint validan el permiso por su cuenta.
 const NAV_ITEMS = [
   {
     label: 'Dashboard',
@@ -25,6 +32,12 @@ const NAV_ITEMS = [
     icon: Package,
     end: false,
   },
+  {
+    label: 'Resumen de movimiento',
+    to: '/almacen/resumen',
+    icon: Scale,
+    end: false,
+  },
   { section: 'Operaciones' },
   {
     label: 'RQ Pendientes',
@@ -33,16 +46,23 @@ const NAV_ITEMS = [
     end: false,
   },
   {
-    label: 'Entrada de Material',
+    label: 'Ingreso de Material',
     to: '/almacen/entrada',
     icon: ArrowDownToLine,
     end: false,
   },
   {
-    label: 'Salida de Material',
+    label: 'Entrega / Egreso',
     to: '/almacen/salida',
     icon: ArrowUpFromLine,
     end: false,
+  },
+  {
+    label: 'Transferencia interna',
+    to: '/almacen/transferencia',
+    icon: ArrowRightLeft,
+    end: false,
+    roles: COUNTER_ROLES,
   },
   { section: 'Consultas' },
   {
@@ -51,7 +71,21 @@ const NAV_ITEMS = [
     icon: ArrowLeftRight,
     end: false,
   },
+  { section: 'Administración' },
+  {
+    label: 'Importar Excel',
+    to: '/almacen/importar',
+    icon: FileUp,
+    end: false,
+    roles: IMPORT_ROLES,
+  },
 ];
+
+/** Enlaces visibles para los roles dados; una sección sin enlaces visibles se omite. */
+function visibleNavItems(userRoles) {
+  const allowed = NAV_ITEMS.filter((item) => item.section || !item.roles || item.roles.some((r) => userRoles.includes(r)));
+  return allowed.filter((item, idx) => !item.section || (allowed[idx + 1] && !allowed[idx + 1].section));
+}
 
 const ACCENT = {
   activeBg: 'bg-emerald-500/12',
@@ -66,6 +100,8 @@ const ACCENT = {
 
 export default function WarehouseSidebar({ isOpen, onClose }) {
   const navigate = useNavigate();
+  const { userRoles } = useAuth();
+  const navItems = visibleNavItems(userRoles ?? []);
 
   return (
     <>
@@ -93,7 +129,7 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
           <div className="flex justify-end px-3 pt-3 lg:hidden">
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
               aria-label="Cerrar menú"
             >
               <X size={18} />
@@ -120,7 +156,7 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
             </div>
             <div className="leading-tight">
               <p className="text-[13px] font-bold text-white/90 tracking-tight font-display">Almacén</p>
-              <p className="text-[10px] text-white/25 font-medium">Control de Inventario</p>
+              <p className="text-[11px] text-white/60 font-medium">Control de Inventario</p>
             </div>
           </div>
         </div>
@@ -128,11 +164,11 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
         {/* ── Navigation ── */}
         <nav className="flex-1 overflow-y-auto px-3 pt-3 pb-4">
           <ul className="flex flex-col gap-0.5">
-            {NAV_ITEMS.map((item, idx) => {
+            {navItems.map((item, idx) => {
               if (item.section) {
                 return (
                   <li key={`section-${idx}`} className="pt-5 pb-1.5 px-3">
-                    <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] font-display">
+                    <p className="text-[11px] font-bold text-white/60 uppercase tracking-[0.15em] font-display">
                       {item.section}
                     </p>
                   </li>
@@ -152,7 +188,7 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
                         'transition-all duration-150 active:scale-[0.97] active:brightness-90',
                         isActive
                           ? `${ACCENT.activeBg} ${ACCENT.activeText}`
-                          : 'text-white/40 hover:bg-white/[0.04] hover:text-white/75',
+                          : 'text-white/60 hover:bg-white/[0.04] hover:text-white',
                       ].join(' ')
                     }
                   >
@@ -170,7 +206,7 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
                         ].join(' ')}>
                           <Icon
                             size={16}
-                            className={isActive ? ACCENT.activeIcon : 'text-white/30 group-hover:text-white/55'}
+                            className={isActive ? ACCENT.activeIcon : 'text-white/50 group-hover:text-white/75'}
                             strokeWidth={isActive ? 2.2 : 1.6}
                           />
                         </div>
@@ -197,20 +233,20 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
 
           <button
             onClick={() => { onClose(); navigate('/settings'); }}
-            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-white/30 hover:bg-white/[0.04] hover:text-white/65 active:scale-[0.97] active:brightness-90 transition-all duration-150"
+            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-white/60 hover:bg-white/[0.04] hover:text-white active:scale-[0.97] active:brightness-90 transition-all duration-150"
           >
             <div className="w-8 h-8 rounded-lg bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all duration-200">
-              <Settings size={16} className="text-white/25 group-hover:text-white/50" strokeWidth={1.6} />
+              <Settings size={16} className="text-white/50 group-hover:text-white/75" strokeWidth={1.6} />
             </div>
-            <span className="font-display">Configuracion</span>
+            <span className="font-display">Configuración</span>
           </button>
 
           <button
             onClick={() => { onClose(); navigate('/'); }}
-            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-white/30 hover:bg-white/[0.04] hover:text-white/65 active:scale-[0.97] active:brightness-90 transition-all duration-150"
+            className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-white/60 hover:bg-white/[0.04] hover:text-white active:scale-[0.97] active:brightness-90 transition-all duration-150"
           >
             <div className="w-8 h-8 rounded-lg bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all duration-200">
-              <ChevronLeft size={16} className="text-white/25 group-hover:text-white/50" strokeWidth={1.6} />
+              <ChevronLeft size={16} className="text-white/50 group-hover:text-white/75" strokeWidth={1.6} />
             </div>
             <span className="font-display">Menú principal</span>
           </button>
@@ -220,7 +256,7 @@ export default function WarehouseSidebar({ isOpen, onClose }) {
           </div>
           <div className="px-3 py-2.5 flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${ACCENT.dot} ${ACCENT.dotGlow}`} />
-            <p className="text-[10px] text-white/15 font-medium font-display">
+            <p className="text-[11px] text-white/45 font-medium font-display">
               Módulo Almacén &middot; v1.0
             </p>
           </div>

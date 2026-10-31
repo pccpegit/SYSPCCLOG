@@ -49,11 +49,20 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'user': '1000/min',
     'login': '30/min',
     'login_user': '30/min',
+    # SYSPCC-034: token refresh per IP (an office behind one NAT refreshes together)
+    'token_refresh': '300/min',
     'hr_assistant': '20/min',
     'hr_download': '60/min',
     'hr_cv_upload': '60/min',
     'hr_cv_progress': '90/min',
     'hr_cv_posting': '20/min',
+    # SYSPCC-025 (warehouse)
+    'warehouse_lookup': '120/min',
+    'warehouse_import': '10/hour',
+    # SYSPCC-029 (entregas parciales y reversas de RQ)
+    'warehouse_delivery': '60/min',
+    # SYSPCC-030 (Master de RQ: descarga en Excel)
+    'rq_master_export': '10/min',
 }
 REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'] = REST_FRAMEWORK_THROTTLE_RATES  # noqa: F405
 

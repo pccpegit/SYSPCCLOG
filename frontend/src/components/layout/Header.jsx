@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { User, LogOut, Menu, Bell, ChevronDown } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROLE_LABELS } from '../../data/constants';
 import ThemeToggleButton from '../ui/ThemeToggleButton';
 

@@ -13,7 +13,7 @@ App interna con uso intensivo de teclado (operadores de almacén, aprobadores). 
 3. **Foco visible**: no elimines el outline de foco sin reemplazarlo por uno claro (ring Tailwind). El usuario debe ver dónde está.
 4. **Modales**: atrapan el foco, cierran con `Esc`, devuelven el foco al disparador al cerrar, `role="dialog"` + `aria-modal="true"` + `aria-labelledby`.
 5. **Labels y estados**: inputs con `<label>` o `aria-label`; errores con `aria-invalid` + `aria-describedby` apuntando al mensaje.
-6. **Contraste**: texto normal ≥ 4.5:1, texto grande ≥ 3:1. Ojo con grises claros sobre blanco en badges de estado.
+6. **Contraste**: texto normal ≥ 4.5:1, texto grande ≥ 3:1, **en los dos temas** (claro y oscuro: clase `.dark` en `<html>`, tokens y remapeos en `index.css`, SYSPCC-020). Ojo con grises claros sobre blanco en badges de estado y con colores saturados sin variante `dark:`.
 7. **No solo color**: los estados de RQ no se distinguen solo por color (daltonismo) — añade texto o icono. Un badge "Rechazado" lleva la palabra, no solo rojo.
 8. **Feedback dinámico**: toasts y cambios async con `aria-live="polite"` (errores `assertive`) para que el lector los anuncie.
 9. **Imágenes/iconos**: iconos Lucide decorativos → `aria-hidden="true"`; iconos que son la única etiqueta de un botón → `aria-label`.

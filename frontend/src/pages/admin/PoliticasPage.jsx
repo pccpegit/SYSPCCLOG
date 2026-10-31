@@ -14,7 +14,7 @@ import {
   updatePolitica,
   deletePolitica,
 } from '../../api/administracion';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import NumberInput from '../../components/ui/NumberInput';
 import { fmtNum } from '../../utils/format';
 

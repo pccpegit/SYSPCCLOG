@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Outlet, Navigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../../context/useAuth';
 import SystemSidebar from './SystemSidebar';
 import Header from './Header';
+import RouteOutlet from './RouteOutlet';
 
 // SYSPCC-018 (rediseño) — shell for the standalone "Administración del
 // Sistema" module (/sistema/*), structurally identical to AdminShell but
@@ -34,7 +35,7 @@ export default function SystemAdminShell() {
         <Header onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6 md:px-8 md:py-7">
           <div className="page-fade-in">
-            <Outlet />
+            <RouteOutlet />
           </div>
         </main>
       </div>

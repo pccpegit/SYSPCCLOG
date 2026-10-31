@@ -1,14 +1,13 @@
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   resolveTheme,
   computeNextBoundaryMs,
   loadStoredTheme,
   saveStoredTheme,
 } from '../utils/theme';
+import { ThemeContext } from './contexts';
 
-// Same pattern as AuthContext/ToastContext: createContext(null) + a hook
-// that throws outside the provider.
-const ThemeContext = createContext(null);
+// El objeto de contexto vive en ./contexts y el hook en ./useTheme (react-refresh).
 
 // How long the `.theme-transitioning` class stays on <html> after a theme
 // change — long enough for the CSS transitions in index.css to finish,
@@ -101,13 +100,14 @@ export function ThemeProvider({ children }) {
       document.removeEventListener('visibilitychange', handleWake);
       window.removeEventListener('focus', handleWake);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- evaluate/scheduleNext are re-created intentionally each run from mode/autoRange
   }, [mode, autoRange]);
 
   // Cleanup the transition-class timer on unmount — survives StrictMode's
   // dev-time double-invoke because it's a ref, not component state.
   useEffect(() => {
     return () => {
+      // Se lee .current al desmontar a propósito: el timer vigente en ese momento es el que hay que cancelar.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- ref de timer, no de nodo DOM
       if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
     };
   }, []);
@@ -142,10 +142,4 @@ export function ThemeProvider({ children }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used inside ThemeProvider');
-  return ctx;
 }

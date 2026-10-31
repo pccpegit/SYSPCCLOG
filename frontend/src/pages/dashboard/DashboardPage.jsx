@@ -13,7 +13,7 @@ import {
   ClipboardList,
   Layers,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { ROLES, STATUS } from '../../data/constants';
 import { getRequests } from '../../api/requests';
 import { getProjects } from '../../api/core';
@@ -24,12 +24,6 @@ import PriorityBadge from '../../components/ui/PriorityBadge';
 function formatCurrency(val) {
   if (!val && val !== 0) return 'S/ 0';
   return `S/ ${Number(val).toLocaleString('es-PE')}`;
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function LoadingSpinner() {
@@ -108,11 +102,11 @@ function RequestsTable({ requests, onRowClick }) {
           {requests.map((req) => (
             <tr
               key={req.id}
-              onClick={() => onRowClick(req.rq_number ?? req.rqNumber)}
+              onClick={() => onRowClick(req.status === 'DRAFT' ? `draft/${req.id}` : (req.rq_number ?? req.rqNumber))}
               className="border-b border-gray-50 cursor-pointer hover:bg-blue-50/60 dark:hover:bg-blue-500/10 hover:shadow-[inset_3px_0_0_0_#3b82f6] transition-all duration-100"
             >
               <td className="py-3.5 px-5 font-mono font-bold text-blue-600 whitespace-nowrap text-xs">
-                {req.rq_number ?? req.rqNumber}
+                {req.status === 'DRAFT' ? 'Borrador' : (req.rq_number ?? req.rqNumber)}
               </td>
               <td className="py-3.5 px-5 text-gray-700 max-w-xs">
                 <span className="line-clamp-2 leading-snug">{req.description}</span>

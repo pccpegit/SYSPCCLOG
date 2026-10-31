@@ -5,6 +5,7 @@ The core entity of the SYSPCCLOG system.
 
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
@@ -17,6 +18,9 @@ from apps.core.enums import (
     PriorityChoices,
     AcquisitionTypeChoices,
     BudgetClassificationChoices,
+    RequestingAreaChoices,
+    ItemSourceChoices,
+    AttentionOverrideChoices,
 )
 
 
@@ -68,6 +72,16 @@ class Request(TimeStampedModel):
     )
 
     # Request details
+    requesting_area = models.CharField(
+        _('área solicitante'),
+        max_length=8,
+        choices=RequestingAreaChoices.choices,
+        blank=True,
+        help_text=_(
+            'Área funcional que origina el RQ (OP, QC, HSE, ADM). Distinta del '
+            'departamento del usuario y del frente de trabajo. Vacío en RQs históricos.'
+        ),
+    )
     front_area = models.CharField(
         _('frente de trabajo'),
         max_length=100,
@@ -160,7 +174,12 @@ class Request(TimeStampedModel):
     # Dates
     fecha_necesidad = models.DateField(
         _('fecha de necesidad'),
-        help_text=_('Fecha en que se necesitan los materiales/servicios'),
+        null=True,
+        blank=True,
+        help_text=_(
+            'Fecha en que se necesitan los materiales/servicios. Solo un borrador (DRAFT) '
+            'puede no tenerla todavía: al enviarlo se exige (SYSPCC-031).'
+        ),
     )
     fecha_estimada_entrega = models.DateField(
         _('fecha estimada de entrega'),
@@ -238,7 +257,11 @@ class RequestItem(models.Model):
         _('cantidad'),
         max_digits=12,
         decimal_places=3,
-        validators=[MinValueValidator(0)],
+        # SYSPCC-026: a line of 0 units can never be served (the item would stay
+        # PENDING forever in the tracking). 0.001 is the smallest representable amount.
+        validators=[MinValueValidator(
+            Decimal('0.001'), message=_('La cantidad debe ser mayor que cero.'),
+        )],
     )
     unit = models.CharField(
         _('unidad'),
@@ -300,7 +323,7 @@ class RequestItem(models.Model):
         blank=True,
     )
     supply_source = models.CharField(
-        _('fuente de atención'),
+        _('origen de atención'),
         max_length=20,
         blank=True,
         choices=[('STOCK', 'Atender de stock'), ('PURCHASE', 'Requiere compra')],
@@ -315,7 +338,57 @@ class RequestItem(models.Model):
         verbose_name=_('Producto de inventario'),
         help_text=_('Vinculacion directa al catalogo de inventario'),
     )
+    is_off_catalog = models.BooleanField(
+        _('fuera de catálogo'),
+        default=False,
+        help_text=_(
+            'Marcado a propósito para ítems que no pasan por el almacén (servicios, '
+            'compras directas). Excluyente con el producto de inventario vinculado.'
+        ),
+    )
+    # SYSPCC-026 provenance of the catalog decision. The requester may PROPOSE a
+    # product (or the off-catalog mark) when creating the RQ; only logistics
+    # CONFIRMS it (update-items). Both stay NULL until then, so a link proposed by
+    # the requester is never mistaken for one logistics checked. Stock must only
+    # move for confirmed links.
+    inventory_item_confirmed_at = models.DateTimeField(
+        _('vínculo confirmado el'),
+        null=True,
+        blank=True,
+        help_text=_('Cuándo Logística confirmó el producto de catálogo (o el ítem fuera de catálogo).'),
+    )
+    inventory_item_confirmed_by = models.ForeignKey(
+        'core.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+        verbose_name=_('vínculo confirmado por'),
+    )
+    item_source = models.CharField(
+        _('fuente'),
+        max_length=16,
+        choices=ItemSourceChoices.choices,
+        blank=True,
+        help_text=_('Familia del ítem (EPP, herramientas, materiales, etc.)'),
+    )
     comentarios = models.TextField(_('comentarios'), blank=True)
+    # SYSPCC-030 (Master de RQ): the ONLY manual decision on the attention status of a
+    # line. Everything else in the Master (status, attended quantity, dates) is derived
+    # from the warehouse movements. Who/when is audited in ActivityLog, not here.
+    attention_override = models.CharField(
+        _('seguimiento manual'),
+        max_length=16,
+        choices=AttentionOverrideChoices.choices,
+        blank=True,
+        help_text=_('Stand by o Desestimado, fijado por Logística. Vacío = estado derivado.'),
+    )
+    attention_note = models.CharField(
+        _('motivo del seguimiento manual'),
+        max_length=300,
+        blank=True,
+        help_text=_('Obligatorio mientras haya un seguimiento manual.'),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -324,9 +397,48 @@ class RequestItem(models.Model):
         verbose_name_plural = _('ítems de requerimiento')
         unique_together = [('request', 'line_number')]
         ordering = ['line_number']
+        constraints = [
+            # SYSPCC-026: a line is either linked to a catalog product or
+            # explicitly off-catalog, never both. DB-level safety net on top of
+            # the serializer validation (same idea as inventory_stock_quantity_gte_0).
+            models.CheckConstraint(
+                condition=~(models.Q(inventory_item__isnull=False) & models.Q(is_off_catalog=True)),
+                name='request_item_not_linked_and_off_catalog',
+            ),
+            # SYSPCC-030: a manual attention status always carries its reason, and only
+            # the two known values are storable.
+            models.CheckConstraint(
+                condition=models.Q(attention_override='') | ~models.Q(attention_note=''),
+                name='request_item_override_requires_note',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(attention_override__in=['', *AttentionOverrideChoices.values]),
+                name='request_item_override_valid_value',
+            ),
+        ]
 
     def __str__(self) -> str:
         return f'{self.request.rq_number} / Línea {self.line_number}: {self.description}'
+
+    @property
+    def link_confirmed(self) -> bool:
+        """
+        True when logistics confirmed this line's catalog decision (a product or
+        the off-catalog mark). A line with neither has nothing to confirm; a
+        confirmation left over from a removed link does not count.
+        """
+        has_target = self.inventory_item_id is not None or self.is_off_catalog
+        return bool(self.inventory_item_confirmed_at) and has_target
+
+    def clean(self):
+        super().clean()
+        # Friendly form error (admin) before the DB CHECK constraint would raise.
+        if self.inventory_item_id and self.is_off_catalog:
+            raise ValidationError({
+                'is_off_catalog': _(
+                    'Un ítem vinculado a un producto del catálogo no puede marcarse como fuera de catálogo.'
+                ),
+            })
 
     def save(self, *args, **kwargs):
         # Auto-calculate total_price if unit_price is set

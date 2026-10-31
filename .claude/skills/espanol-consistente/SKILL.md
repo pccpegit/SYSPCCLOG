@@ -48,7 +48,7 @@ raise WorkflowError("Solo el Residente de Proyecto puede aprobar técnicamente e
 
 # Mal: mezcla idiomas en texto de usuario / término inconsistente
 raise WorkflowError("Request cannot be approved")          # inglés al usuario
-toast.error("El pedido fue rechazado")                     # "pedido" en vez de "RQ/Requerimiento"
+showToast({ type: 'error', message: 'El pedido fue rechazado' })   # "pedido" en vez de "RQ/Requerimiento"
 ```
 
 ## Checklist

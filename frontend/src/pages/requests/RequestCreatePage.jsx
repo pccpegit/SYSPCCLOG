@@ -1,13 +1,30 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Plus, Trash2, ArrowLeft, Save, Send, AlertCircle, Download } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { getProjects, getDepartments } from '../../api/core';
-import { createRequest } from '../../api/requests';
+import { createRequest, createDraft, getRequest, submitDraft, updateRequest } from '../../api/requests';
 import { exportRQToExcel } from '../../utils/exportRQ';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { isOficinaCentral } from '../../data/constants';
-import { extractErrorMessage } from '../../utils/apiErrors';
+import { ITEM_SOURCES, MAX_REQUEST_ITEMS, REQUESTING_AREAS, RFI_FWO_MAX_LENGTH, itemSourceLabel } from '../../data/requestCapture';
+import { extractFieldErrors } from '../../utils/apiErrors';
+import {
+  applyProduct,
+  buildItemsPayload,
+  clearProduct,
+  countUnresolvedTouched,
+  extractCreateErrorMessage,
+  extractSubmitErrorMessages,
+  getItemResolution,
+  itemsFromDraft,
+  payloadRowNumbers,
+  newCaptureItem,
+  setItemSource,
+  setOffCatalog,
+  validateCaptureItems,
+} from '../../utils/requestCapture';
+import ItemProductCell, { OFF_CATALOG_HELP_ID } from '../../components/requests/ItemProductCell';
 
 const UNITS = [
   'UND', 'KG', 'M', 'M2', 'M3', 'GLB', 'SACO', 'L',
@@ -29,23 +46,6 @@ function formatDateDisplay(dateStr) {
   return `${d}/${m}/${y}`;
 }
 
-function newItem() {
-  return {
-    id:                      Date.now() + Math.random(),
-    descripcion:             '',
-    unidad:                  'UND',
-    cantidad:                '',
-    stockAlmacenObra:        0,
-    stockAlmacenPrincipal:   0,
-    xAtender:                '',
-    xAtenderManual:          false,
-    presupuestadoAdicional:  'P',
-    rfiFwo:                  '',
-    estatusGuia:             '',
-    comentarios:             '',
-  };
-}
-
 function calcXAtender(item) {
   if (item.xAtenderManual) return item.xAtender;
   const qty  = parseFloat(item.cantidad)              || 0;
@@ -56,7 +56,7 @@ function calcXAtender(item) {
 }
 
 // ── Step heading with number badge + colored accent ──────────
-function StepHeading({ number, title, subtitle }) {
+function StepHeading({ number, title, subtitle, help, helpId }) {
   return (
     <div className="flex items-start gap-3 pl-4 border-l-4 border-blue-500 mb-3">
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-extrabold flex items-center justify-center shadow-sm">
@@ -65,6 +65,7 @@ function StepHeading({ number, title, subtitle }) {
       <div>
         <p className="text-base font-bold text-gray-900 leading-tight">{title}</p>
         {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+        {help && <p id={helpId} className="text-xs text-gray-700 mt-1">{help}</p>}
       </div>
     </div>
   );
@@ -75,15 +76,75 @@ function RequiredLabel({ children }) {
   return (
     <span>
       {children}
-      <span className="text-red-500 ml-0.5 font-bold">*</span>
+      <span className="text-red-500 ml-0.5 font-bold" aria-hidden="true">*</span>
     </span>
   );
+}
+
+// Label of a field of the official form: a real <label> when the control exists
+// (the cell next to it is a layout table, so without this the control has no name).
+function FieldLabel({ htmlFor, required = false, children }) {
+  const text = required ? <RequiredLabel>{children}</RequiredLabel> : children;
+  return htmlFor ? <label htmlFor={htmlFor}>{text}</label> : text;
+}
+
+// Error under a field; `id` is what the control's aria-describedby points to.
+function FieldError({ id, children }) {
+  if (!children) return null;
+  return (
+    <p id={id} className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
+      <AlertCircle size={11} aria-hidden="true" />
+      {children}
+    </p>
+  );
+}
+
+// Props every control with an inline error shares.
+function invalidProps(errors, name, required = false) {
+  return {
+    ...(required ? { 'aria-required': 'true' } : {}),
+    'aria-invalid': errors[name] ? true : undefined,
+    'aria-describedby': errors[name] ? `${name}-error` : undefined,
+  };
+}
+
+// Error summary: order of the header fields and the controls each message links to.
+const FORM_ERROR_ORDER = ['rqNumber', 'area', 'frente', 'requestingArea', 'fechaEntrega', 'destinationKey'];
+const FORM_ERROR_TARGETS = {
+  rqNumber:       ['rqNumber'],
+  area:           ['area'],
+  frente:         ['frente'],
+  requestingArea: ['requestingArea'],
+  fechaEntrega:   ['fechaEntrega'],
+  destinationKey: ['servicio', 'frente'],
+};
+
+// Controls that fix a line problem (the first one that exists in the page takes the focus).
+function itemIssueTargets(issue, items) {
+  if (issue.itemId == null) return items.map((it) => `item-${it.id}-search`);
+  const item = items.find((it) => it.id === issue.itemId);
+  if (!item) return [];
+  if (issue.field === 'quantity') return [`item-${item.id}-quantity`];
+  if (issue.field === 'source') return [`item-${item.id}-source`];
+  return [item.mode === 'off_catalog' ? `item-${item.id}-description` : `item-${item.id}-search`];
+}
+
+function focusField(targets) {
+  for (const id of targets) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.focus();
+      return;
+    }
+  }
 }
 
 export default function RequestCreatePage() {
   const { currentUser } = useAuth();
   const navigate        = useNavigate();
   const { showToast }   = useToast();
+  // SYSPCC-031: /rq/requests/draft/:draftId reopens a saved draft in this same form.
+  const { draftId: routeDraftId } = useParams();
 
   // Determine user's primary role info
   const primaryRoleObj = currentUser?.roles?.find((r) => r.is_primary) ?? currentUser?.roles?.[0];
@@ -118,11 +179,31 @@ export default function RequestCreatePage() {
     usoEspecifico:      '',
     fechaRequerimiento: today(),
     fechaEntrega:       '',
+    // SYSPCC-026: functional area of the RQ (OP / QC / HSE / ADM). Not the same
+    // thing as `area` above, which is the user's department / legacy form field.
+    requestingArea:     '',
   });
 
-  const [items, setItems]           = useState(() => Array.from({ length: 5 }, newItem));
+  const [items, setItems]           = useState(() => Array.from({ length: 5 }, newCaptureItem));
   const [errors, setErrors]         = useState({});
   const [submitting, setSubmitting] = useState(false);
+  // After the first failed submit the lines are validated live, so each message
+  // disappears as soon as the line is fixed.
+  const [submitAttempt, setSubmitAttempt] = useState(0);
+  // Line + control that must take the focus when it mounts: the search box after
+  // "Cambiar" / unmarking "Fuera de catálogo", the description after marking it.
+  const [focusTarget, setFocusTarget] = useState(null);
+  // Always-mounted live region: what happened to a line when its control unmounted.
+  const [announcement, setAnnouncement] = useState('');
+  // A 400 from the server that is not tied to one field; shown in the summary so the
+  // message does not depend on a toast that disappears.
+  // A string, or the list of messages the server sent when a draft is not ready to be sent.
+  const [serverError, setServerError] = useState(null);
+  // Id of the draft being edited (from the route, or once "Guardar borrador" created it).
+  const [draftId, setDraftId] = useState(routeDraftId ?? null);
+  const [draftState, setDraftState] = useState(routeDraftId ? 'loading' : 'ready'); // loading | ready | missing
+  const submitLock  = useRef(false);
+  const summaryRef  = useRef(null);
 
   // Parse destination key
   const destType = form.destinationKey?.startsWith('proj-') ? 'project'
@@ -147,6 +228,9 @@ export default function RequestCreatePage() {
         projList.forEach((p) => { if (p.frente) frenteSet.add(p.frente); });
         deptList.forEach((d) => { if (d.frente) frenteSet.add(d.frente); });
         setFrentes([...frenteSet].sort());
+
+        // A saved draft carries its own origin: do not overwrite it with the user's defaults.
+        if (routeDraftId) return;
 
         // If user has a project assigned (OPS), auto-fill and lock
         if (userProjectId) {
@@ -175,7 +259,53 @@ export default function RequestCreatePage() {
       }
     };
     fetchData();
+    // Solo al montar: recargar al cambiar el usuario o el borrador pisaría lo que ya escribió quien captura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reopen a saved draft: the form is filled with what the server kept.
+  useEffect(() => {
+    if (!routeDraftId) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await getRequest(routeDraftId);
+        if (cancelled) return;
+        if (data.status !== 'DRAFT') {
+          showToast({ type: 'error', message: 'Este requerimiento ya fue enviado y no se puede editar.' });
+          navigate(`/rq/requests/${data.rq_number ?? routeDraftId}`, { replace: true });
+          return;
+        }
+        let destinationKey = '';
+        if (isOficinaCentral(data.front_area)) {
+          destinationKey = userDepartmentId ? `dept-${userDepartmentId}` : 'dept-oficina';
+        } else if (data.project) {
+          destinationKey = `proj-${data.project}`;
+        } else if (data.department) {
+          destinationKey = `dept-${data.department}`;
+        }
+        setForm((f) => ({
+          ...f,
+          destinationKey,
+          frente:         data.front_area ?? '',
+          servicio:       data.service ?? '',
+          usoEspecifico:  data.specific_use ?? '',
+          fechaEntrega:   data.fecha_necesidad ?? '',
+          requestingArea: data.requesting_area ?? '',
+        }));
+        setItems(itemsFromDraft(data.items));
+        setDraftState('ready');
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Error al cargar el borrador:', err);
+        setDraftState('missing');
+      }
+    })();
+    return () => { cancelled = true; };
+    // Solo debe recargar cuando cambia el borrador de la ruta; navigate/showToast/userDepartmentId
+    // no pueden disparar una nueva lectura del borrador.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeDraftId]);
 
   const selectedProject = destType === 'project' ? projects.find((p) => p.id === destId) : null;
   const selectedDepartment = destType === 'department' ? departments.find((d) => d.id === destId) : null;
@@ -194,7 +324,33 @@ export default function RequestCreatePage() {
   const rqNumber = `REQ-${form.rqNumber}`;
 
   const currentDate = formatDateDisplay(today());
-  const hasErrors   = Object.keys(errors).length > 0;
+
+  const liveCapture = submitAttempt > 0 ? validateCaptureItems(items) : null;
+  const itemProblems = liveCapture?.byItem ?? {};
+  const summaryEntries = [
+    ...[...FORM_ERROR_ORDER, ...Object.keys(errors).filter((k) => !FORM_ERROR_ORDER.includes(k))]
+      .filter((key) => errors[key])
+      .map((key) => ({ key: `field-${key}`, text: errors[key], targets: FORM_ERROR_TARGETS[key] ?? [] })),
+    ...(liveCapture?.issues ?? []).map((issue) => ({
+      key: `item-${issue.itemId ?? 'none'}-${issue.field ?? 'none'}`,
+      text: issue.message,
+      targets: itemIssueTargets(issue, items),
+    })),
+    ...[].concat(serverError ?? []).map((text, i) => ({ key: `server-${i}`, text, targets: [] })),
+  ];
+  const hasErrors = summaryEntries.length > 0;
+
+  // Layout of the header fields: which are real controls (and so get a <label>).
+  const isLockedToProject = Boolean(userProjectId) && !hasGlobalAccess;
+  const servicioIsSelect = !isLockedToProject
+    && !isOficinaCentral(form.frente)
+    && !(form.frente && !projects.some((p) => p.frente === form.frente));
+
+  // Move the focus to the error summary after each failed submit (keyboard and
+  // screen-reader users land on the list of what to fix).
+  useEffect(() => {
+    if (submitAttempt > 0) summaryRef.current?.focus();
+  }, [submitAttempt]);
 
   // ── Helpers ─────────────────────────────────────────────────
 
@@ -256,8 +412,46 @@ export default function RequestCreatePage() {
     );
   }
 
+  function updateItem(id, transform) {
+    setItems((prev) => prev.map((item) => (item.id === id ? transform(item) : item)));
+  }
+
+  const lineNumber = (id) => items.findIndex((item) => item.id === id) + 1;
+
+  function handleSelectProduct(id, product) {
+    const current = items.find((item) => item.id === id);
+    const next = current ? applyProduct(current, product) : null;
+    updateItem(id, (item) => applyProduct(item, product));
+    setAnnouncement(
+      `Ítem ${lineNumber(id)}: ${product.product_code} – ${product.description} elegido.`
+      + (next?.itemSourceProposed ? ` Fuente propuesta: ${itemSourceLabel(next.itemSource)}.` : ''),
+    );
+  }
+
+  function handleClearProduct(id) {
+    updateItem(id, clearProduct);
+    setFocusTarget({ id, field: 'search' });
+    setAnnouncement(`Ítem ${lineNumber(id)}: producto quitado. Busque otro producto del catálogo.`);
+  }
+
+  function handleToggleOffCatalog(id, enabled) {
+    updateItem(id, (item) => setOffCatalog(item, enabled));
+    setFocusTarget({ id, field: enabled ? 'description' : 'search' });
+    setAnnouncement(
+      enabled
+        ? `Ítem ${lineNumber(id)}: fuera de catálogo. Describa el ítem.`
+        : `Ítem ${lineNumber(id)}: vuelve al catálogo. Busque el producto.`,
+    );
+  }
+
+  const atItemLimit = items.length >= MAX_REQUEST_ITEMS;
+
   function addItem() {
-    setItems((prev) => [...prev, newItem()]);
+    if (atItemLimit) return;
+    setItems((prev) => (prev.length >= MAX_REQUEST_ITEMS ? prev : [...prev, newCaptureItem()]));
+    if (items.length + 1 >= MAX_REQUEST_ITEMS) {
+      setAnnouncement(`Ítem ${items.length + 1} agregado. Alcanzó el máximo de ${MAX_REQUEST_ITEMS} ítems por requerimiento.`);
+    }
   }
 
   function removeItem(id) {
@@ -266,84 +460,142 @@ export default function RequestCreatePage() {
 
   // ── Validation ───────────────────────────────────────────────
 
+  // Full send (direct, or a draft that is sent from this form). The area is checked in both
+  // paths; the N° is only typed on a NEW requirement: a saved draft has no N° of its own (the
+  // system assigns the official one when it is sent), so it is not asked again.
+  // A DRAFT is saved with minimal validation (see handleSaveDraft): nothing here.
   function validate() {
     const errs = {};
-    if (!form.rqNumber.trim()) errs.rqNumber = 'Ingrese el N° de Requerimiento.';
+    if (!form.requestingArea) errs.requestingArea = 'Seleccione el área del RQ (OP, QC, HSE o ADM).';
+    if (!draftId && !form.rqNumber.trim()) errs.rqNumber = 'Ingrese el N° de Requerimiento.';
     if (!form.frente)          errs.frente        = 'Seleccione el frente.';
     if (!form.destinationKey)  errs.destinationKey = 'Seleccione un servicio.';
     if (!form.area)            errs.area         = 'Seleccione el área.';
     if (!form.fechaEntrega)    errs.fechaEntrega = 'Ingrese la fecha de entrega.';
-    const filledItems = items.filter((i) => i.descripcion.trim());
-    if (filledItems.length === 0) errs.items = 'Agregue al menos un ítem con descripción.';
     return errs;
   }
 
-  // ── Submit ───────────────────────────────────────────────────
+  // Body of POST /requests/ and PATCH /requests/{id}/. Only resolved lines go out (catalog
+  // product or explicit off-catalog); `supply_source` is logistics' call and is never sent from
+  // here. As a draft the header fields that are still empty go out empty (the server accepts it).
+  function buildPayload(asDraft) {
+    const isProject = form.destinationKey?.startsWith('proj-');
+    const isOficina = form.destinationKey === 'dept-oficina';
+    const parsedDestId = isOficina ? null : destId;
+    // For Oficina Central, find the ADM department
+    const adminDept = departments.find((d) => d.code === 'ADM');
+    const deptIdToSend = isOficina ? (adminDept?.id ?? null) : (isProject ? null : parsedDestId);
+    return {
+      // The server generates the official number: only a brand-new full send keeps the legacy field.
+      ...(asDraft || draftId ? {} : { rq_number: `REQ-${form.rqNumber.trim()}` }),
+      flow:                isProject ? 'OPERATIONS' : 'ADMINISTRATIVE',
+      requesting_area:     form.requestingArea,
+      project:             isProject ? destId : null,
+      department:          deptIdToSend,
+      front_area:          form.frente,
+      service:             form.servicio,
+      specific_use:        form.usoEspecifico,
+      acquisition_type:    form.tipoPedido || 'COMPRA_LOCAL',
+      priority:            'NORMAL',
+      fecha_necesidad:     asDraft ? (form.fechaEntrega || null) : (form.fechaEntrega || today()),
+      estimated_cost:      0,
+      items:               buildItemsPayload(items, calcXAtender),
+    };
+  }
 
-  async function handleSubmit(asDraft = false) {
-    if (!asDraft) {
-      const errs = validate();
-      if (Object.keys(errs).length > 0) {
-        setErrors(errs);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
+  // ── Save as draft ────────────────────────────────────────────
+
+  // SYSPCC-031: stores the requirement as a DRAFT. Minimal validation: at least one resolved line
+  // (a catalog product or an off-catalog description). Lines still half-filled are not saved.
+  async function handleSaveDraft() {
+    if (submitLock.current) return;
+
+    setServerError(null);
+    if (!items.some((item) => getItemResolution(item))) {
+      setErrors({});
+      setServerError('Para guardar el borrador agregue al menos un ítem: elija un producto del catálogo o márquelo como fuera de catálogo.');
+      setSubmitAttempt((n) => n + 1);
+      return;
     }
+    setErrors({});
+    submitLock.current = true;
     setSubmitting(true);
+    const rowNumbers = payloadRowNumbers(items);
+    const skipped = countUnresolvedTouched(items);
 
     try {
-      const filledItems = items
-        .filter((i) => i.descripcion.trim())
-        .map((i, idx) => ({
-          line_number:              idx + 1,
-          description:              i.descripcion,
-          unit:                     i.unidad,
-          quantity:                 parseFloat(i.cantidad) || 0,
-          stock_almacen_obra:       parseFloat(i.stockAlmacenObra) || 0,
-          stock_almacen_principal:  parseFloat(i.stockAlmacenPrincipal) || 0,
-          x_atender:                parseFloat(calcXAtender(i)) || 0,
-          presupuestado_adicional:  i.presupuestadoAdicional,
-          rfi_fwo:                  i.rfiFwo,
-          comentarios:              i.comentarios,
-        }));
+      const payload = buildPayload(true);
+      if (draftId) {
+        await updateRequest(draftId, payload);
+      } else {
+        const { data } = await createDraft(payload);
+        setDraftId(data.id);
+      }
+      showToast({
+        type: 'success',
+        message: skipped > 0
+          ? `Borrador guardado. ${skipped} ítem${skipped === 1 ? ' incompleto no se guardó' : 's incompletos no se guardaron'}.`
+          : 'Borrador guardado.',
+      });
+      setTimeout(() => navigate('/rq/requests'), 250);
+    } catch (err) {
+      console.error('Error al guardar el borrador:', err);
+      const message = extractCreateErrorMessage(err, 'No se pudo guardar el borrador.', rowNumbers);
+      if (err?.response?.status === 400) {
+        setServerError(message);
+        setSubmitAttempt((n) => n + 1);
+      }
+      showToast({ type: 'error', message });
+      submitLock.current = false;
+      setSubmitting(false);
+    }
+  }
 
-      const isProject = form.destinationKey?.startsWith('proj-');
-      const isOficina = form.destinationKey === 'dept-oficina';
-      const parsedDestId = isOficina ? null : destId;
-      // For Oficina Central, find the ADM department
-      const adminDept = departments.find((d) => d.code === 'ADM');
-      const deptIdToSend = isOficina ? (adminDept?.id ?? null) : (isProject ? null : parsedDestId);
-      const payload = {
-        rq_number:           `REQ-${form.rqNumber.trim()}`,
-        flow:                isProject ? 'OPERATIONS' : 'ADMINISTRATIVE',
-        project:             isProject ? destId : null,
-        department:          deptIdToSend,
-        front_area:          form.frente,
-        service:             form.servicio,
-        specific_use:        form.usoEspecifico,
-        acquisition_type:    form.tipoPedido || 'COMPRA_LOCAL',
-        priority:            'NORMAL',
-        fecha_necesidad:     form.fechaEntrega || today(),
-        estimated_cost:      0,
-        items:               filledItems,
-      };
+  // ── Send ─────────────────────────────────────────────────────
 
-      const { data: createdReq } = await createRequest(payload);
+  async function handleSubmit() {
+    // Double click / Enter twice: the state below is not updated yet, the ref is.
+    if (submitLock.current) return;
 
-      // Download Excel for submitted requests
-      if (!asDraft) {
-        try {
-          await exportRQToExcel({ form, items, currentUser, rqNumber: createdReq.rq_number ?? rqNumber });
-        } catch (excelErr) {
-          console.error('Error al exportar Excel:', excelErr);
-        }
+    setServerError(null);
+    const errs = validate();
+    const capture = validateCaptureItems(items);
+    if (Object.keys(errs).length > 0 || !capture.valid) {
+      setErrors(errs);
+      setSubmitAttempt((n) => n + 1);
+      return;
+    }
+    setErrors({});
+    submitLock.current = true;
+    setSubmitting(true);
+    // The server points at a line by its position among the lines SENT (blank rows are skipped);
+    // keep the map to the form's row numbers from this very submit.
+    const rowNumbers = payloadRowNumbers(items);
+    // A saved draft is first brought up to date with the form, then sent: that way what the
+    // server validates is exactly what the person sees.
+    let draftSaved = false;
+
+    try {
+      const payload = buildPayload(false);
+      let createdReq;
+      if (draftId) {
+        await updateRequest(draftId, payload);
+        draftSaved = true;
+        ({ data: createdReq } = await submitDraft(draftId));
+      } else {
+        ({ data: createdReq } = await createRequest(payload));
+      }
+
+      // Download the Excel of the submitted requirement (with the official number).
+      try {
+        await exportRQToExcel({ form, items, currentUser, rqNumber: createdReq.rq_number ?? rqNumber });
+      } catch (excelErr) {
+        console.error('Error al exportar Excel:', excelErr);
       }
 
       showToast({
         type:    'success',
-        message: asDraft
-          ? 'Borrador guardado exitosamente.'
-          : 'Requerimiento enviado exitosamente. El Excel se ha descargado.',
+        message: 'Requerimiento enviado exitosamente. El Excel se ha descargado.',
       });
       setTimeout(() => navigate('/rq/requests'), 250);
     } catch (err) {
@@ -351,7 +603,25 @@ export default function RequestCreatePage() {
       // Cubre también el 400 { flow: [...] } del backend (SYSPCC-019) si la
       // combinación front_area/flow llegara a ser inconsistente — no debería
       // ocurrir desde esta UI, pero es la red de seguridad.
-      showToast({ type: 'error', message: extractErrorMessage(err, 'Error al guardar el requerimiento.') });
+      const fieldErrors = extractFieldErrors(err);
+      const message = extractCreateErrorMessage(err, 'Error al guardar el requerimiento.', rowNumbers);
+      const areaFromServer = typeof fieldErrors.requesting_area === 'string';
+      if (areaFromServer) {
+        setErrors((prev) => ({ ...prev, requestingArea: fieldErrors.requesting_area }));
+      }
+      if (err?.response?.status === 400) {
+        // Something to fix: put it in the summary and move the focus there (the toast alone
+        // disappears in seconds and the user is looking at the buttons at the bottom).
+        if (draftSaved) {
+          // The draft was rejected by the send: every message the server listed.
+          setServerError(extractSubmitErrorMessages(err, message));
+        } else if (!areaFromServer) {
+          setServerError(message);
+        }
+        setSubmitAttempt((n) => n + 1);
+      }
+      showToast({ type: 'error', message: draftSaved && err?.response?.status === 400 ? 'El borrador no está listo para enviarse. Revise los errores.' : message });
+      submitLock.current = false;
       setSubmitting(false);
     }
   }
@@ -381,8 +651,37 @@ export default function RequestCreatePage() {
     }`;
   }
 
+  if (draftState === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-64" role="status" aria-label="Cargando borrador">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200 border-t-blue-600 dark:border-t-blue-400" />
+      </div>
+    );
+  }
+
+  if (draftState === 'missing') {
+    return (
+      <div className="max-w-xl mx-auto py-16 text-center">
+        <p className="text-lg font-extrabold text-gray-700">No se encontró el borrador</p>
+        <p className="text-sm text-gray-500 mt-2">
+          Puede que ya se haya enviado o eliminado. Revise su lista de requerimientos.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/rq/requests')}
+          className="mt-5 px-5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700"
+        >
+          Ir a mis requerimientos
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[1400px] mx-auto">
+
+      {/* Always mounted: announces what happened to a line when the control that had the focus unmounts. */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</div>
 
       {/* Back navigation — bigger, clearer breadcrumb */}
       <div className="flex items-center gap-3 mb-6">
@@ -395,20 +694,42 @@ export default function RequestCreatePage() {
           Volver
         </button>
         <span className="text-gray-300 text-lg font-light">/</span>
-        <span className="text-base font-bold text-gray-800">Nuevo Requerimiento</span>
+        <span className="text-base font-bold text-gray-800">{draftId ? 'Borrador de requerimiento' : 'Nuevo Requerimiento'}</span>
       </div>
 
       {/* ── Global error banner ──────────────────────────────────── */}
       {hasErrors && (
-        <div className="mb-5 flex items-start gap-3 p-4 bg-red-50 border-2 border-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-xl">
-          <AlertCircle size={20} className="text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
+        <div
+          ref={summaryRef}
+          tabIndex={-1}
+          role="group"
+          aria-labelledby="form-errors-title"
+          aria-describedby="form-errors-list"
+          className="mb-5 flex items-start gap-3 p-4 bg-red-50 border-2 border-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+        >
+          <AlertCircle size={20} aria-hidden="true" className="text-red-500 dark:text-red-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-700 dark:text-red-300">Por favor corrija los siguientes campos antes de enviar:</p>
-            <ul className="mt-1.5 space-y-0.5">
-              {Object.values(errors).filter(Boolean).map((msg, i) => (
-                <li key={i} className="text-sm text-red-600 dark:text-red-400 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-                  {msg}
+            <p id="form-errors-title" className="text-sm font-bold text-red-700 dark:text-red-300">
+              {summaryEntries.length === 1
+                ? 'Corrija 1 error antes de enviar'
+                : `Corrija ${summaryEntries.length} errores antes de enviar`}
+            </p>
+            {/* red-700 on red-50 = 6.5:1 (red-600 was 4.4:1). Each message takes you to its control. */}
+            <ul id="form-errors-list" className="mt-1.5 space-y-0.5">
+              {summaryEntries.map((entry) => (
+                <li key={entry.key} className="text-sm text-red-700 dark:text-red-300 flex items-start gap-1.5">
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" aria-hidden="true" />
+                  {entry.targets.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => focusField(entry.targets)}
+                      className="text-left underline underline-offset-2 rounded hover:text-red-900 dark:hover:text-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+                    >
+                      {entry.text}
+                    </button>
+                  ) : (
+                    <span>{entry.text}</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -494,31 +815,38 @@ export default function RequestCreatePage() {
                   {currentUser?.full_name ?? (`${currentUser?.first_name ?? ''} ${currentUser?.last_name ?? ''}`.trim() || '—')}
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600 whitespace-nowrap w-44">
-                  <RequiredLabel>N° Requerimiento:</RequiredLabel>
+                  {draftId ? 'N° Requerimiento:' : <FieldLabel htmlFor="rqNumber" required>N° Requerimiento:</FieldLabel>}
                 </td>
                 <td className="px-2 py-2">
+                  {draftId ? (
+                    <p className="text-xs text-gray-600 px-2 py-1.5">Borrador: el sistema asigna el N° al enviarlo.</p>
+                  ) : (
                   <div className="flex items-center gap-0">
                     <span className="text-xs font-mono font-bold text-gray-700 bg-gray-100 border border-r-0 border-gray-200 rounded-l px-2 py-1.5 select-none">REQ-</span>
                     <input
+                      id="rqNumber"
                       type="text"
                       name="rqNumber"
                       value={form.rqNumber}
                       onChange={handleChange}
                       placeholder="001"
+                      {...invalidProps(errors, 'rqNumber', true)}
                       className={fieldCls(errors.rqNumber) + ' font-mono font-bold rounded-l-none'}
                     />
                   </div>
-                  {errors.rqNumber && <p className="text-red-500 dark:text-red-400 text-[10px] mt-0.5">{errors.rqNumber}</p>}
+                  )}
+                  <FieldError id="rqNumber-error">{errors.rqNumber}</FieldError>
                 </td>
               </tr>
 
               {/* Row 2: Uso específico / Fecha de requerimiento */}
               <tr className="border-b border-gray-300">
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600 align-top pt-3">
-                  Uso específico:
+                  <FieldLabel htmlFor="usoEspecifico">Uso específico:</FieldLabel>
                 </td>
                 <td className="border-r border-gray-300 px-2 py-2">
                   <textarea
+                    id="usoEspecifico"
                     name="usoEspecifico"
                     value={form.usoEspecifico}
                     onChange={handleChange}
@@ -528,10 +856,11 @@ export default function RequestCreatePage() {
                   />
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600 whitespace-nowrap">
-                  Fecha de requerimiento:
+                  <FieldLabel htmlFor="fechaRequerimiento">Fecha de requerimiento:</FieldLabel>
                 </td>
                 <td className="px-2 py-2">
                   <input
+                    id="fechaRequerimiento"
                     type="date"
                     name="fechaRequerimiento"
                     value={form.fechaRequerimiento}
@@ -544,7 +873,8 @@ export default function RequestCreatePage() {
               {/* Row 3: Área (required) / Frente */}
               <tr className="border-b border-gray-300">
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600">
-                  <RequiredLabel>Área:</RequiredLabel>
+                  {/* On screen only: the exported Excel keeps the official "Área" text. */}
+                  <FieldLabel htmlFor={currentUser?.department ? undefined : 'area'} required>Área (departamento):</FieldLabel>
                 </td>
                 <td className="border-r border-gray-300 px-2 py-2">
                   {currentUser?.department ? (
@@ -553,9 +883,11 @@ export default function RequestCreatePage() {
                     </span>
                   ) : (
                     <select
+                      id="area"
                       name="area"
                       value={form.area}
                       onChange={handleChange}
+                      {...invalidProps(errors, 'area', true)}
                       className={fieldCls(errors.area)}
                     >
                       <option value="">-- Seleccione --</option>
@@ -564,15 +896,10 @@ export default function RequestCreatePage() {
                       ))}
                     </select>
                   )}
-                  {errors.area && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
-                      <AlertCircle size={11} />
-                      {errors.area}
-                    </p>
-                  )}
+                  <FieldError id="area-error">{errors.area}</FieldError>
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600">
-                  <RequiredLabel>Frente:</RequiredLabel>
+                  <FieldLabel htmlFor={isLockedToProject ? undefined : 'frente'} required>Frente:</FieldLabel>
                 </td>
                 <td className="px-2 py-2">
                   {userProjectId && !hasGlobalAccess ? (
@@ -581,9 +908,11 @@ export default function RequestCreatePage() {
                     </span>
                   ) : (
                     <select
+                      id="frente"
                       name="frente"
                       value={form.frente}
                       onChange={handleChange}
+                      {...invalidProps(errors, 'frente', true)}
                       className={fieldCls(errors.frente)}
                     >
                       <option value="">-- Seleccione --</option>
@@ -592,37 +921,58 @@ export default function RequestCreatePage() {
                       ))}
                     </select>
                   )}
-                  {errors.frente && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
-                      <AlertCircle size={11} />
-                      {errors.frente}
-                    </p>
-                  )}
+                  <FieldError id="frente-error">{errors.frente}</FieldError>
+                </td>
+              </tr>
+
+              {/* Row 3b: Área del RQ — OP / QC / HSE / ADM (SYSPCC-026) */}
+              <tr className="border-b border-gray-300">
+                <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600">
+                  <FieldLabel htmlFor="requestingArea" required>Área del RQ (OP / QC / HSE / ADM):</FieldLabel>
+                </td>
+                <td colSpan={3} className="px-2 py-2">
+                  <select
+                    id="requestingArea"
+                    name="requestingArea"
+                    value={form.requestingArea}
+                    onChange={handleChange}
+                    aria-required="true"
+                    aria-invalid={errors.requestingArea ? true : undefined}
+                    aria-describedby={errors.requestingArea ? 'requestingArea-help requestingArea-error' : 'requestingArea-help'}
+                    className={fieldCls(errors.requestingArea) + ' max-w-sm'}
+                  >
+                    <option value="">-- Seleccione --</option>
+                    {REQUESTING_AREAS.map((a) => (
+                      <option key={a.value} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                  {/* Right under the select (it used to sit in another column) and kept in aria-describedby. */}
+                  <p id="requestingArea-help" className="mt-1 text-[11px] text-gray-600 normal-case">
+                    Área funcional que solicita (Operaciones, Calidad, Seguridad o Administración). No es el departamento.
+                  </p>
+                  <FieldError id="requestingArea-error">{errors.requestingArea}</FieldError>
                 </td>
               </tr>
 
               {/* Row 4: Fecha entrega (required) / Servicio */}
               <tr className="border-b border-gray-300">
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600 whitespace-nowrap">
-                  <RequiredLabel>Fecha entrega:</RequiredLabel>
+                  <FieldLabel htmlFor="fechaEntrega" required>Fecha entrega:</FieldLabel>
                 </td>
                 <td className="border-r border-gray-300 px-2 py-2">
                   <input
+                    id="fechaEntrega"
                     type="date"
                     name="fechaEntrega"
                     value={form.fechaEntrega}
                     onChange={handleChange}
+                    {...invalidProps(errors, 'fechaEntrega', true)}
                     className={fieldCls(errors.fechaEntrega)}
                   />
-                  {errors.fechaEntrega && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
-                      <AlertCircle size={11} />
-                      {errors.fechaEntrega}
-                    </p>
-                  )}
+                  <FieldError id="fechaEntrega-error">{errors.fechaEntrega}</FieldError>
                 </td>
                 <td className="border-r border-gray-300 bg-gray-50 px-3 py-2.5 font-semibold uppercase text-gray-600">
-                  <RequiredLabel>Servicio:</RequiredLabel>
+                  <FieldLabel htmlFor={servicioIsSelect ? 'servicio' : undefined} required>Servicio:</FieldLabel>
                 </td>
                 <td className="px-2 py-2">
                   {userProjectId && !hasGlobalAccess ? (
@@ -640,10 +990,14 @@ export default function RequestCreatePage() {
                   ) : (
                     <>
                       <select
+                        id="servicio"
                         name="servicio"
                         value={form.destinationKey}
                         onChange={handleChange}
-                        className={fieldCls(errors.servicio)}
+                        aria-required="true"
+                        aria-invalid={errors.destinationKey ? true : undefined}
+                        aria-describedby={errors.destinationKey ? 'destinationKey-error' : undefined}
+                        className={fieldCls(errors.destinationKey)}
                         disabled={!form.frente}
                       >
                         <option value="">{form.frente ? '-- Seleccione servicio --' : '-- Seleccione frente primero --'}</option>
@@ -651,12 +1005,6 @@ export default function RequestCreatePage() {
                           <option key={s.key} value={s.key}>{s.label}</option>
                         ))}
                       </select>
-                      {errors.servicio && (
-                        <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
-                          <AlertCircle size={11} />
-                          {errors.servicio}
-                        </p>
-                      )}
                     </>
                   )}
                 </td>
@@ -677,12 +1025,7 @@ export default function RequestCreatePage() {
                       ? `${selectedDepartment.name}`
                       : form.destinationKey ? form.servicio : '— Seleccione frente y servicio —'}
                   </span>
-                  {errors.destinationKey && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
-                      <AlertCircle size={11} />
-                      {errors.destinationKey}
-                    </p>
-                  )}
+                  <FieldError id="destinationKey-error">{errors.destinationKey}</FieldError>
                 </td>
               </tr>
 
@@ -692,114 +1035,181 @@ export default function RequestCreatePage() {
         </div>
 
         {/* ── STEP 2 HEADING inside document — Items ───────────────── */}
-        <div className="px-4 pt-4 pb-2 border-b border-gray-200 bg-gray-50/50">
+        <div className="px-4 pt-4 pb-2 border-b border-gray-200 bg-gray-50/50 dark:bg-transparent">
           <StepHeading
             number="2"
             title="Lista de Materiales y/o Equipos"
-            subtitle="Complete al menos un ítem con descripción. La columna X Atender se calcula automaticamente."
+            subtitle="Cada ítem lleva su fuente y su cantidad. La columna X Atender se calcula automáticamente."
+            helpId={OFF_CATALOG_HELP_ID}
+            help={'Elija el producto en el buscador. Marque "Fuera de catálogo" solo para servicios u otros ítems que no pasan por el almacén (p. ej. alquiler o transporte).'}
           />
-          {errors.items && (
-            <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-lg">
-              <AlertCircle size={14} className="text-red-500 dark:text-red-400 flex-shrink-0" />
-              <p className="text-sm text-red-700 dark:text-red-300 font-semibold">{errors.items}</p>
-            </div>
-          )}
         </div>
 
         {/* ── ITEMS TABLE ───────────────────────────────────────────── */}
         <div className="border-b border-gray-400">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs" style={{ minWidth: '1100px' }}>
+          {/* `relative`: the table's sr-only elements are absolutely positioned; without a
+              positioned scroller they escape the clipping and widen the whole page. */}
+          <div className="relative overflow-x-auto">
+            <table className="w-full border-collapse text-xs" style={{ minWidth: '1380px' }}>
+              <caption className="sr-only">
+                Lista de materiales y equipos del requerimiento. Cada ítem se elige del catálogo de almacén
+                o se marca como fuera de catálogo, y lleva su fuente.
+              </caption>
               <thead>
                 <tr className="bg-blue-50 dark:bg-blue-500/10 border-b border-gray-300">
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-8">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-8">
                     #
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-48">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-72">
                     Equipos / Unidades
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
                     Unidad
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-16">
-                    Cantidad
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
+                    Cantidad <span className="text-red-500 font-bold" aria-hidden="true">*</span>
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-20">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-32">
+                    Fuente <span className="text-red-500 font-bold" aria-hidden="true">*</span>
+                  </th>
+                  <th
+                    scope="col"
+                    title="Stock que usted declara en el almacén de obra"
+                    className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-20"
+                  >
                     Stock Obra
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
+                  <th
+                    scope="col"
+                    title="Stock que usted declara en el almacén principal (el almacén central del sistema)"
+                    className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24"
+                  >
                     Stock Principal
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-blue-700 uppercase text-[10px] w-16 bg-yellow-50 dark:text-blue-300 dark:bg-yellow-500/10">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-blue-700 uppercase text-[10px] w-16 bg-yellow-50 dark:text-blue-300 dark:bg-yellow-500/10">
                     X Atender
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
                     Pres. / Adic.
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-20">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-20">
                     RFI / FWO
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px] w-24">
                     Estatus / Guía
                   </th>
-                  <th className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px]">
+                  <th scope="col" className="border-r border-gray-200 px-2 py-2.5 text-center font-bold text-gray-700 uppercase text-[10px]">
                     Comentarios
                   </th>
-                  <th className="px-2 py-2.5 w-10" />
+                  <th scope="col" className="px-2 py-2.5 w-10">
+                    <span className="sr-only">Acciones</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, idx) => {
+                  const n = idx + 1;
                   const xAtenderVal = calcXAtender(item);
                   const isEven = idx % 2 === 0;
+                  const problems = itemProblems[item.id] ?? {};
+                  const sourceErrorId = `item-${item.id}-source-error`;
+                  const quantityErrorId = `item-${item.id}-quantity-error`;
+                  const linked = item.mode === 'catalog' && item.product;
                   return (
                     <tr
                       key={item.id}
                       className={[
-                        'border-b border-gray-200 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors',
-                        isEven ? 'bg-white' : 'bg-gray-50/50',
+                        'border-b border-gray-200 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors align-top',
+                        isEven ? 'bg-white' : 'bg-gray-50/50 dark:bg-white/5',
                       ].join(' ')}
                     >
                       {/* Item number */}
                       <td className="border-r border-gray-200 px-2 py-2 text-center text-gray-600 font-mono font-bold">
-                        {idx + 1}
+                        {n}
                       </td>
 
-                      {/* Equipos/Unidades */}
-                      <td className="border-r border-gray-200 px-1.5 py-1.5">
-                        <input
-                          type="text"
-                          value={item.descripcion}
-                          onChange={(e) => handleItemChange(item.id, 'descripcion', e.target.value)}
-                          placeholder="Descripción del material..."
-                          className={cellInput}
+                      {/* Equipos/Unidades — catalog product or explicit off-catalog */}
+                      <td className="border-r border-gray-200 px-2 py-1.5">
+                        <ItemProductCell
+                          item={item}
+                          index={idx}
+                          error={problems.product}
+                          focusSearch={focusTarget?.id === item.id && focusTarget.field === 'search'}
+                          focusDescription={focusTarget?.id === item.id && focusTarget.field === 'description'}
+                          onSelect={(product) => handleSelectProduct(item.id, product)}
+                          onClear={() => handleClearProduct(item.id)}
+                          onToggleOffCatalog={(enabled) => handleToggleOffCatalog(item.id, enabled)}
+                          onDescription={(text) => handleItemChange(item.id, 'descripcion', text)}
+                          onSearchText={(text) => handleItemChange(item.id, 'searchText', text)}
                         />
                       </td>
 
-                      {/* Unidad de Medida */}
+                      {/* Unidad de Medida — fixed by the catalog product when linked */}
                       <td className="border-r border-gray-200 px-1.5 py-1.5">
-                        <select
-                          value={item.unidad}
-                          onChange={(e) => handleItemChange(item.id, 'unidad', e.target.value)}
-                          className={cellSelect}
-                        >
-                          {UNITS.map((u) => (
-                            <option key={u} value={u}>{u}</option>
-                          ))}
-                        </select>
+                        {linked ? (
+                          <span className="block px-1.5 py-1 font-mono text-xs text-gray-700">{item.product.unit}</span>
+                        ) : (
+                          <select
+                            value={item.unidad}
+                            onChange={(e) => handleItemChange(item.id, 'unidad', e.target.value)}
+                            aria-label={`Unidad del ítem ${n}`}
+                            className={cellSelect}
+                          >
+                            {UNITS.map((u) => (
+                              <option key={u} value={u}>{u}</option>
+                            ))}
+                          </select>
+                        )}
                       </td>
 
                       {/* Cantidad */}
                       <td className="border-r border-gray-200 px-1.5 py-1.5">
                         <input
+                          id={`item-${item.id}-quantity`}
                           type="number"
                           min="0"
                           step="any"
                           value={item.cantidad}
                           onChange={(e) => handleItemChange(item.id, 'cantidad', e.target.value)}
+                          aria-label={`Cantidad del ítem ${n}`}
+                          aria-required="true"
+                          aria-invalid={problems.quantity ? true : undefined}
+                          aria-describedby={problems.quantity ? quantityErrorId : undefined}
                           placeholder="0"
-                          className={`${cellInput} text-right`}
+                          className={`${cellInput} text-right ${problems.quantity ? 'ring-1 ring-red-500 bg-red-50 dark:bg-red-500/10' : ''}`}
                         />
+                        {problems.quantity && (
+                          <p id={quantityErrorId} className="mt-0.5 px-1 text-[11px] font-medium text-red-600 dark:text-red-400">
+                            {problems.quantity}
+                          </p>
+                        )}
+                      </td>
+
+                      {/* Fuente (required) — proposed from the product category, correctable */}
+                      <td className="border-r border-gray-200 px-1.5 py-1.5">
+                        <select
+                          id={`item-${item.id}-source`}
+                          value={item.itemSource}
+                          onChange={(e) => updateItem(item.id, (it) => setItemSource(it, e.target.value))}
+                          aria-label={`Fuente del ítem ${n}`}
+                          aria-required="true"
+                          aria-invalid={problems.source ? true : undefined}
+                          aria-describedby={problems.source ? sourceErrorId : undefined}
+                          className={`${cellSelect} ${problems.source ? 'ring-1 ring-red-400 bg-red-50 dark:bg-red-500/10' : ''}`}
+                        >
+                          <option value="">-- Fuente --</option>
+                          {ITEM_SOURCES.map((src) => (
+                            <option key={src.value} value={src.value}>{src.label}</option>
+                          ))}
+                        </select>
+                        {item.itemSourceProposed && !problems.source && (
+                          <p className="mt-0.5 px-1 text-[10px] text-gray-500">Propuesta según el producto</p>
+                        )}
+                        {problems.source && (
+                          <p id={sourceErrorId} className="mt-0.5 px-1 text-[11px] font-medium text-red-600 dark:text-red-400">
+                            {problems.source}
+                          </p>
+                        )}
                       </td>
 
                       {/* Stock Almacén Obra */}
@@ -810,11 +1220,14 @@ export default function RequestCreatePage() {
                           step="any"
                           value={item.stockAlmacenObra}
                           onChange={(e) => handleItemChange(item.id, 'stockAlmacenObra', e.target.value)}
+                          aria-label={`Stock declarado en el almacén de obra del ítem ${n}`}
                           className={`${cellInput} text-right`}
                         />
                       </td>
 
-                      {/* Stock Almacén Principal */}
+                      {/* Stock Almacén Principal = the system's central warehouse. What the person types is
+                          DECLARED (labelled so); the live figure is "Disponible en almacén central" of the
+                          catalog search. The column keeps the official Excel header. */}
                       <td className="border-r border-gray-200 px-1.5 py-1.5">
                         <input
                           type="number"
@@ -822,6 +1235,7 @@ export default function RequestCreatePage() {
                           step="any"
                           value={item.stockAlmacenPrincipal}
                           onChange={(e) => handleItemChange(item.id, 'stockAlmacenPrincipal', e.target.value)}
+                          aria-label={`Stock declarado en el almacén principal (central) del ítem ${n}`}
                           className={`${cellInput} text-right`}
                         />
                       </td>
@@ -834,6 +1248,7 @@ export default function RequestCreatePage() {
                           step="any"
                           value={item.xAtenderManual ? item.xAtender : xAtenderVal}
                           onChange={(e) => handleItemChange(item.id, 'xAtender', e.target.value)}
+                          aria-label={`Cantidad por atender del ítem ${n}`}
                           className={`${cellInput} text-right font-bold text-blue-700 dark:text-blue-300`}
                           title="Auto-calculado: Cantidad - Stock Obra - Stock Principal. Editable."
                         />
@@ -844,6 +1259,7 @@ export default function RequestCreatePage() {
                         <select
                           value={item.presupuestadoAdicional}
                           onChange={(e) => handleItemChange(item.id, 'presupuestadoAdicional', e.target.value)}
+                          aria-label={`Presupuestado o adicional del ítem ${n}`}
                           className={cellSelect}
                         >
                           <option value="P">P - Presupuestado</option>
@@ -856,20 +1272,23 @@ export default function RequestCreatePage() {
                         <input
                           type="text"
                           value={item.rfiFwo}
+                          maxLength={RFI_FWO_MAX_LENGTH}
                           onChange={(e) => handleItemChange(item.id, 'rfiFwo', e.target.value)}
+                          aria-label={`RFI o FWO del ítem ${n}`}
                           placeholder="RFI-000"
                           className={cellInput}
                         />
                       </td>
 
                       {/* Estatus/Guía (read-only in create) */}
-                      <td className="border-r border-gray-200 px-1.5 py-1.5 bg-gray-100/60">
+                      <td className="border-r border-gray-200 px-1.5 py-1.5 bg-gray-100/60 dark:bg-white/5">
                         <input
                           type="text"
                           value={item.estatusGuia}
                           readOnly
+                          aria-label={`Estatus o guía del ítem ${n} (lo completa Logística o Almacén)`}
                           placeholder="—"
-                          className={`${cellInput} text-gray-400 cursor-not-allowed`}
+                          className={`${cellInput} text-gray-500 cursor-not-allowed`}
                           title="Se completa por Logística/Almacén"
                         />
                       </td>
@@ -880,6 +1299,7 @@ export default function RequestCreatePage() {
                           type="text"
                           value={item.comentarios}
                           onChange={(e) => handleItemChange(item.id, 'comentarios', e.target.value)}
+                          aria-label={`Comentarios del ítem ${n}`}
                           placeholder="Observaciones..."
                           className={cellInput}
                         />
@@ -891,10 +1311,11 @@ export default function RequestCreatePage() {
                           type="button"
                           onClick={() => removeItem(item.id)}
                           disabled={items.length === 1}
-                          className="p-1.5 text-gray-300 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all rounded-md"
+                          aria-label={`Eliminar el ítem ${n}`}
+                          className="p-1.5 text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all rounded-md"
                           title="Eliminar fila"
                         >
-                          <Trash2 size={14} />
+                          <Trash2 size={14} aria-hidden="true" />
                         </button>
                       </td>
                     </tr>
@@ -909,14 +1330,23 @@ export default function RequestCreatePage() {
             <button
               type="button"
               onClick={addItem}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-white border-2 border-blue-300 rounded-lg hover:bg-blue-50 hover:border-blue-400 active:scale-95 transition-all duration-200 shadow-sm dark:text-blue-300 dark:border-blue-500/30 dark:hover:bg-blue-500/10"
+              aria-disabled={atItemLimit || undefined}
+              aria-describedby={atItemLimit ? 'items-limit-note' : undefined}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-700 bg-white border-2 border-blue-300 rounded-lg hover:bg-blue-50 hover:border-blue-400 active:scale-95 transition-all duration-200 shadow-sm dark:text-blue-300 dark:border-blue-500/30 dark:hover:bg-blue-500/10 ${
+                atItemLimit ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
-              <Plus size={16} />
-              Agregar Item
+              <Plus size={16} aria-hidden="true" />
+              Agregar ítem
             </button>
-            <span className="text-xs text-gray-400">
-              {items.length} fila{items.length !== 1 ? 's' : ''} · "X Atender" se calcula automaticamente
+            <span className="text-xs text-gray-500">
+              {items.length} fila{items.length !== 1 ? 's' : ''} · "X Atender" se calcula automáticamente
             </span>
+            {atItemLimit && (
+              <span id="items-limit-note" className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                Alcanzó el máximo de {MAX_REQUEST_ITEMS} ítems por requerimiento. Para pedir más, cree otro requerimiento.
+              </span>
+            )}
           </div>
         </div>
 
@@ -997,21 +1427,21 @@ export default function RequestCreatePage() {
             Descargar Excel
           </button>
 
-          {/* Secondary — save draft */}
+          {/* Secondary — saves a real draft (DRAFT): minimal validation, nothing is sent. */}
           <button
             type="button"
-            onClick={() => handleSubmit(true)}
+            onClick={handleSaveDraft}
             disabled={submitting}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 border-2 border-gray-400 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 hover:border-gray-500 transition-all duration-200 disabled:opacity-50"
           >
-            <Save size={18} />
-            Guardar Borrador
+            <Save size={18} aria-hidden="true" />
+            Guardar borrador
           </button>
 
           {/* Primary — submit: BIG and obvious */}
           <button
             type="button"
-            onClick={() => handleSubmit(false)}
+            onClick={handleSubmit}
             disabled={submitting}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-10 py-4 bg-blue-600 text-white rounded-xl text-base font-extrabold hover:bg-blue-700 hover:shadow-xl hover:-translate-y-0.5 active:scale-95 transition-all duration-200 disabled:opacity-50 shadow-lg"
           >

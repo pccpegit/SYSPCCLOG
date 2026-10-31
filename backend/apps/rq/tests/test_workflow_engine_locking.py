@@ -17,6 +17,17 @@ from apps.rq.models import Request
 from apps.rq.services.workflow_engine import WorkflowEngine
 
 
+@pytest.fixture
+def ops_request(ops_request):
+    """
+    These tests drive the DRAFT -> SUBMITTED transition: the shared fixture is born SUBMITTED
+    (a draft is private to its requester since SYSPCC-031), so this module moves it back to DRAFT.
+    """
+    Request.objects.filter(pk=ops_request.pk).update(status=RQStatusChoices.DRAFT)
+    ops_request.refresh_from_db()
+    return ops_request
+
+
 @pytest.mark.django_db
 class TestWorkflowEngineHappyAndIllegalPaths:
     """Baseline regression: the OPS SUBMITTED transition still works after the fix."""

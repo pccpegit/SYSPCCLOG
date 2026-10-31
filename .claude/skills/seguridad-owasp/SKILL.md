@@ -14,10 +14,10 @@ Auth: JWT por cookie vía `CookieJWTAuthentication` (SimpleJWT, access 15 min / 
 - Valida el rol del actor en cada acción de workflow, no solo al entrar a la vista.
 
 ## Autenticación / sesiones
-- Cookies de token: `HttpOnly`, `Secure` (prod), `SameSite`. Nunca el token en `localStorage`.
+- Cookies de token: `HttpOnly`, `Secure` (prod), `SameSite` (las fija `apps/core/views/auth.py`). Nunca el token en `localStorage`.
 - No loguees tokens ni contraseñas. No los pongas en URLs.
 - Respeta rotación + blacklist del refresh; no desactives la blacklist.
-- Rate limits vigentes: anon 30/min, auth 200/min, login 5/min. No los relajes sin motivo.
+- Rate limits vigentes (`REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']`): anon 30/min, auth 200/min, login 5/min, login por usuario 10/min, más scopes de módulo (`hr_assistant`, `hr_download`, `hr_cv_*`, `warehouse_lookup`, `warehouse_import` 10/hour). Los contadores viven en `settings.THROTTLE_CACHE_ALIAS` (`apps/core/throttling.py`). No los relajes sin motivo.
 
 ## Input / inyección (A03)
 - Valida TODO input con serializers DRF (tipos, rangos, choices, longitud). Ver `drf-api-design`.
@@ -31,11 +31,12 @@ Auth: JWT por cookie vía `CookieJWTAuthentication` (SimpleJWT, access 15 min / 
 - `DEBUG=False` en prod; `ALLOWED_HOSTS` restringido.
 - Prod: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_CONTENT_TYPE_NOSNIFF`.
 - **CORS**: `CORS_ALLOWED_ORIGINS` explícito (no `CORS_ALLOW_ALL_ORIGINS=True` en prod). Con cookies, `CORS_ALLOW_CREDENTIALS=True` exige orígenes específicos.
-- **CSRF**: al usar cookies para auth, mantén la protección CSRF de Django activa para métodos que mutan.
+- **CSRF**: al usar cookies para auth, mantén la protección CSRF activa para métodos que mutan: `CookieJWTAuthentication.enforce_csrf()` valida el token double-submit y el cliente Axios lo adjunta (también en el refresh).
 
 ## Datos sensibles (A02)
 - No expongas campos sensibles en serializers (no incluyas `password`, hashes, tokens). Lista `fields` explícita, nunca `fields = '__all__'` en datos sensibles.
 - Logs sin PII ni credenciales.
+- Módulos con PII alta: RR. HH. (contratos con DNI, sueldo y domicilio; CVs) guarda archivos en almacenamiento privado (`get_private_storage` de `apps/hr/storage.py`; por defecto `HR_PRIVATE_ROOT`, fuera de `MEDIA_ROOT`), servidos solo por vistas con permiso, y `/api/v1/hr/*` responde con `no-store` (`HRNoStoreMiddleware`); el import del almacén vacía el libro guardado al confirmar, cancelar o vencer.
 - Errores al cliente: mensaje genérico; el detalle va al log del servidor (el `custom_exception_handler` no debe filtrar stacktraces en prod).
 
 ## Dependencias / logging (A06, A09)

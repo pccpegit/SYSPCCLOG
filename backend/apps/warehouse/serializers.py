@@ -1,12 +1,129 @@
 """
 Warehouse serializers for standalone inventory management.
 """
+from datetime import date
 from decimal import Decimal
 
+from django.db.models.functions import Trim, Upper
+from django.utils import timezone
 from rest_framework import serializers
 
+from apps.core.models import Personal, Project, User
 from apps.warehouse.models import Inventory, InventoryStock, InventoryMovement, MovementGroup
+from apps.warehouse.services import catalog as catalog_svc
+from apps.warehouse.services import locations as locations_svc
+from apps.warehouse.services.epp import requires_integer_quantity
+from apps.warehouse.services.personal_matching import NO_DESTINATION_LABEL, destination_key
 from apps.core.enums import WarehouseOriginChoices, MovementSourceChoices, MovementDestinationChoices
+
+
+MAX_BIGINT = 2 ** 63 - 1
+MIN_OPERATIONAL_DATE = date(2000, 1, 1)     # same window the importer accepts (2000-2099)
+MAX_BATCH_ITEMS = 200                        # lines in one vale; a paper vale holds a few dozen
+MAX_NOTES_LENGTH = 2000                      # header observations of a vale / movement
+
+
+class ExistingIdField(serializers.IntegerField):
+    """
+    Integer id that must exist in ``model``.
+
+    ``project`` / ``requested_by`` / ``authorized_by`` used to be bare integers: an id that
+    does not exist fell silently to the central pool (``_get_or_create_stock`` ignores it) and
+    left the movement pointing at nothing; on PostgreSQL the commit then failed and the API
+    answered a misleading 409. The id is validated here, the services still receive an int.
+    """
+
+    default_error_messages = {'does_not_exist': 'El registro seleccionado no existe.'}
+
+    def __init__(self, model, *, not_found_message=None, **kwargs):
+        self.model = model
+        kwargs.setdefault('min_value', 1)
+        kwargs.setdefault('max_value', MAX_BIGINT)
+        super().__init__(**kwargs)
+        if not_found_message:
+            self.error_messages['does_not_exist'] = not_found_message
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if not self.model.objects.filter(pk=value).exists():
+            self.fail('does_not_exist')
+        return value
+
+
+def project_id_field(**kwargs):
+    return ExistingIdField(
+        Project, required=False, allow_null=True,
+        not_found_message='El proyecto seleccionado no existe.', **kwargs,
+    )
+
+
+def user_id_field(**kwargs):
+    return ExistingIdField(
+        User, required=False, allow_null=True,
+        not_found_message='El usuario seleccionado no existe.', **kwargs,
+    )
+
+
+def validate_not_future(value):
+    """Operational dates are real dates: not in the future (America/Lima) and not before 2000."""
+    if value and value > timezone.localdate():
+        raise serializers.ValidationError('La fecha no puede ser futura.')
+    if value and value < MIN_OPERATIONAL_DATE:
+        raise serializers.ValidationError(
+            f'La fecha no puede ser anterior al {MIN_OPERATIONAL_DATE.strftime("%d/%m/%Y")}.'
+        )
+    return value
+
+
+def validate_integer_quantity(inventory, quantity):
+    """EA / UND / PAR / JGO are counted in whole pieces."""
+    if requires_integer_quantity(inventory.unit) and quantity != quantity.to_integral_value():
+        raise serializers.ValidationError(
+            {'quantity': f'La cantidad de {inventory.unit} debe ser un número entero.'}
+        )
+
+
+class DocumentFieldsMixin(serializers.Serializer):
+    """Optional document fields shared by every movement-registering payload (SYSPCC-025)."""
+
+    movement_date = serializers.DateField(
+        required=False, allow_null=True, validators=[validate_not_future]
+    )
+    voucher_number = serializers.CharField(
+        max_length=30, required=False, allow_blank=True, default=''
+    )
+    po_number = serializers.CharField(
+        max_length=50, required=False, allow_blank=True, default=''
+    )
+    guide_number = serializers.CharField(
+        max_length=50, required=False, allow_blank=True, default=''
+    )
+    internal_transfer = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=''
+    )
+
+    def validate_voucher_number(self, value):
+        return value.strip()
+
+
+class ExitDocumentFieldsMixin(DocumentFieldsMixin):
+    destination_personal = serializers.PrimaryKeyRelatedField(
+        queryset=Personal.objects.all(), required=False, allow_null=True
+    )
+    allow_duplicate_voucher = serializers.BooleanField(required=False, default=False)
+
+
+def document_kwargs(validated: dict) -> dict:
+    """Keyword arguments for the movement services from a validated payload."""
+    personal = validated.get('destination_personal')
+    return {
+        'movement_date': validated.get('movement_date'),
+        'voucher_number': validated.get('voucher_number', ''),
+        'po_number': validated.get('po_number', ''),
+        'guide_number': validated.get('guide_number', ''),
+        'internal_transfer': validated.get('internal_transfer', ''),
+        **({'destination_personal_id': personal.pk} if personal else {}),
+    }
 
 
 class InventoryStockSerializer(serializers.ModelSerializer):
@@ -32,6 +149,11 @@ class InventoryListSerializer(serializers.ModelSerializer):
         source='get_item_type_display', read_only=True
     )
     total_stock = serializers.SerializerMethodField()
+    location_status = serializers.CharField(read_only=True)
+    location_display = serializers.CharField(read_only=True)
+    project_id = serializers.IntegerField(read_only=True)
+    project_code = serializers.CharField(source='project.code', read_only=True, default='')
+    project_name = serializers.CharField(source='project.name', read_only=True, default='')
 
     class Meta:
         model = Inventory
@@ -39,6 +161,10 @@ class InventoryListSerializer(serializers.ModelSerializer):
             'id', 'product_code', 'description', 'unit', 'category',
             'item_type', 'item_type_display', 'brand', 'model_name',
             'location', 'min_stock', 'total_stock', 'stocks', 'created_at',
+            # SYSPCC-025
+            'order_number', 'purchase_order_ref', 'packing_list', 'size',
+            'floor', 'location_status', 'location_display', 'observation',
+            'project_id', 'project_code', 'project_name',
         ]
 
     def get_total_stock(self, obj):
@@ -46,12 +172,77 @@ class InventoryListSerializer(serializers.ModelSerializer):
 
 
 class InventoryCreateUpdateSerializer(serializers.ModelSerializer):
+    project = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(), required=False, allow_null=True
+    )
+
     class Meta:
         model = Inventory
         fields = [
             'product_code', 'description', 'unit', 'category',
             'item_type', 'brand', 'model_name', 'location', 'min_stock',
+            # SYSPCC-025
+            'order_number', 'purchase_order_ref', 'packing_list', 'size',
+            'floor', 'observation', 'project',
         ]
+        # Uniqueness is checked on the NORMALIZED code in ``validate_product_code`` (the
+        # model constraint only compares raw text).
+        extra_kwargs = {'product_code': {'validators': []}}
+
+    def validate_product_code(self, value):
+        """
+        Codes are stored stripped and upper-case, and are unique on that normalized value:
+        ``' epp000001 '`` is the same item as ``EPP000001`` (the importer looks items up by
+        ``Upper(Trim(code))``, so two spellings would let it pick one at random).
+        """
+        code = catalog_svc.normalize_product_code(value)
+        if not code:
+            raise serializers.ValidationError('Indique el código del ítem.')
+        clash = Inventory.objects.annotate(normalized_code=Upper(Trim('product_code'))).filter(
+            normalized_code=code,
+        )
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError('Ya existe un ítem con ese código.')
+        return code
+
+    def validate_location(self, value):
+        """
+        Only the official format is accepted, and only when the value CHANGES:
+        legacy free-text locations keep being readable and do not block a PUT/PATCH
+        of other fields.
+        """
+        value = locations_svc.normalize_location(value)
+        if not value:
+            return ''
+        if self.instance is not None and value == locations_svc.normalize_location(self.instance.location):
+            return value
+        try:
+            locations_svc.validate_location(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return value
+
+    def validate(self, attrs):
+        instance = self.instance
+        location = attrs.get('location', instance.location if instance else '')
+        floor = attrs.get('floor', instance.floor if instance else None)
+        parsed = locations_svc.parse_location(location)
+        if parsed:
+            if attrs.get('floor') and attrs['floor'] != parsed.floor:
+                raise serializers.ValidationError({
+                    'floor': f'El pabellón {parsed.pavilion} está en el piso {parsed.floor}.'
+                })
+            if 'floor' not in attrs and 'location' in attrs:
+                attrs['floor'] = parsed.floor  # location changed: floor follows it
+            elif floor is None:
+                attrs['floor'] = parsed.floor
+            elif 'floor' in attrs and not attrs['floor']:
+                attrs['floor'] = parsed.floor
+        if instance is None and not attrs.get('size'):
+            attrs['size'] = catalog_svc.derive_size(attrs.get('description', ''))
+        return attrs
 
 
 class MovementListSerializer(serializers.ModelSerializer):
@@ -75,6 +266,10 @@ class MovementListSerializer(serializers.ModelSerializer):
     )
     requested_by_name = serializers.SerializerMethodField()
     authorized_by_name = serializers.SerializerMethodField()
+    destination_personal_name = serializers.CharField(
+        source='destination_personal.apellidos_nombres', read_only=True, default=None
+    )
+    destination_key = serializers.SerializerMethodField()
 
     class Meta:
         model = InventoryMovement
@@ -88,7 +283,19 @@ class MovementListSerializer(serializers.ModelSerializer):
             'authorized_by', 'authorized_by_name',
             'registered_by', 'registered_by_name',
             'notes', 'created_at',
+            # SYSPCC-025
+            'movement_date', 'voucher_number', 'tag', 'po_number', 'guide_number',
+            'internal_transfer', 'destination_personal', 'destination_personal_name',
+            'destination_key', 'import_batch',
         ]
+
+    def get_destination_key(self, obj):
+        """Normalized key to link an unlinked destination to a worker (link-personal)."""
+        if obj.destination_personal_id or not obj.destination_detail:
+            return ''
+        if obj.destination_detail.strip().upper() == NO_DESTINATION_LABEL:
+            return ''                   # "Sin destino" (SYSPCC-032) is not a person to link
+        return destination_key(obj.destination_detail)
 
     def get_requested_by_name(self, obj):
         return obj.requested_by.get_full_name() if obj.requested_by else None
@@ -97,11 +304,12 @@ class MovementListSerializer(serializers.ModelSerializer):
         return obj.authorized_by.get_full_name() if obj.authorized_by else None
 
 
-class EntryCreateSerializer(serializers.Serializer):
+class EntryCreateSerializer(DocumentFieldsMixin, serializers.Serializer):
+    tag = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     inventory = serializers.PrimaryKeyRelatedField(queryset=Inventory.objects.all())
-    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=0.001)
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=Decimal('0.001'))
     warehouse = serializers.ChoiceField(choices=['CENTRAL', 'SITE', 'OFFICE'])
-    project = serializers.IntegerField(required=False, allow_null=True)
+    project = project_id_field()
     source_type = serializers.ChoiceField(
         choices=['PURCHASE', 'RETURN', 'TRANSFER_IN', 'INITIAL_LOAD', 'ADJUSTMENT']
     )
@@ -111,21 +319,29 @@ class EntryCreateSerializer(serializers.Serializer):
     invoice_number = serializers.CharField(
         max_length=50, required=False, allow_blank=True, default=''
     )
-    notes = serializers.CharField(required=False, allow_blank=True, default='')
+    notes = serializers.CharField(max_length=MAX_NOTES_LENGTH, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        validate_integer_quantity(attrs['inventory'], attrs['quantity'])
+        return attrs
 
 
-class ExitCreateSerializer(serializers.Serializer):
+class ExitCreateSerializer(ExitDocumentFieldsMixin, serializers.Serializer):
     inventory = serializers.PrimaryKeyRelatedField(queryset=Inventory.objects.all())
-    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=0.001)
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=Decimal('0.001'))
     warehouse = serializers.ChoiceField(choices=['CENTRAL', 'SITE', 'OFFICE'])
-    project = serializers.IntegerField(required=False, allow_null=True)
+    project = project_id_field()
     destination_type = serializers.ChoiceField(
         choices=['PROJECT', 'DEPARTMENT', 'EMPLOYEE', 'TRANSFER_OUT', 'ADJUSTMENT']
     )
     destination_detail = serializers.CharField(max_length=200)
-    requested_by = serializers.IntegerField(required=False, allow_null=True)
-    authorized_by = serializers.IntegerField(required=False, allow_null=True)
-    notes = serializers.CharField(required=False, allow_blank=True, default='')
+    requested_by = user_id_field()
+    authorized_by = user_id_field()
+    notes = serializers.CharField(max_length=MAX_NOTES_LENGTH, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        validate_integer_quantity(attrs['inventory'], attrs['quantity'])
+        return attrs
 
 
 # ---------------------------------------------------------------------------
@@ -138,16 +354,22 @@ class BatchEntryItemSerializer(serializers.Serializer):
     quantity = serializers.DecimalField(
         max_digits=12, decimal_places=3, min_value=Decimal('0.001')
     )
+    tag = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    notes = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        validate_integer_quantity(attrs['inventory'], attrs['quantity'])
+        return attrs
 
 
-class BatchEntryCreateSerializer(serializers.Serializer):
+class BatchEntryCreateSerializer(DocumentFieldsMixin, serializers.Serializer):
     """
     POST body for a multi-item inventory entry.
     At least one item is required.
     """
-    items = BatchEntryItemSerializer(many=True, min_length=1)
+    items = BatchEntryItemSerializer(many=True, min_length=1, max_length=MAX_BATCH_ITEMS)
     warehouse = serializers.ChoiceField(choices=WarehouseOriginChoices.choices)
-    project = serializers.IntegerField(required=False, allow_null=True)
+    project = project_id_field()
     source_type = serializers.ChoiceField(choices=MovementSourceChoices.choices)
     supplier_name = serializers.CharField(
         max_length=200, required=False, allow_blank=True, default=''
@@ -155,7 +377,7 @@ class BatchEntryCreateSerializer(serializers.Serializer):
     invoice_number = serializers.CharField(
         max_length=50, required=False, allow_blank=True, default=''
     )
-    notes = serializers.CharField(required=False, allow_blank=True, default='')
+    notes = serializers.CharField(max_length=MAX_NOTES_LENGTH, required=False, allow_blank=True, default='')
 
 
 class BatchExitItemSerializer(serializers.Serializer):
@@ -164,21 +386,26 @@ class BatchExitItemSerializer(serializers.Serializer):
     quantity = serializers.DecimalField(
         max_digits=12, decimal_places=3, min_value=Decimal('0.001')
     )
+    notes = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        validate_integer_quantity(attrs['inventory'], attrs['quantity'])
+        return attrs
 
 
-class BatchExitCreateSerializer(serializers.Serializer):
+class BatchExitCreateSerializer(ExitDocumentFieldsMixin, serializers.Serializer):
     """
     POST body for a multi-item inventory exit.
     At least one item is required.
     """
-    items = BatchExitItemSerializer(many=True, min_length=1)
+    items = BatchExitItemSerializer(many=True, min_length=1, max_length=MAX_BATCH_ITEMS)
     warehouse = serializers.ChoiceField(choices=WarehouseOriginChoices.choices)
-    project = serializers.IntegerField(required=False, allow_null=True)
+    project = project_id_field()
     destination_type = serializers.ChoiceField(choices=MovementDestinationChoices.choices)
     destination_detail = serializers.CharField(max_length=200)
-    requested_by = serializers.IntegerField(required=False, allow_null=True)
-    authorized_by = serializers.IntegerField(required=False, allow_null=True)
-    notes = serializers.CharField(required=False, allow_blank=True, default='')
+    requested_by = user_id_field()
+    authorized_by = user_id_field()
+    notes = serializers.CharField(max_length=MAX_NOTES_LENGTH, required=False, allow_blank=True, default='')
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +427,9 @@ class MovementGroupSerializer(serializers.ModelSerializer):
     )
     movements = MovementListSerializer(many=True, read_only=True)
     item_count = serializers.SerializerMethodField()
+    destination_personal_name = serializers.CharField(
+        source='destination_personal.apellidos_nombres', read_only=True, default=None
+    )
 
     class Meta:
         model = MovementGroup
@@ -212,7 +442,94 @@ class MovementGroupSerializer(serializers.ModelSerializer):
             'notes', 'document_url',
             'registered_by', 'registered_by_name',
             'created_at', 'item_count', 'movements',
+            # SYSPCC-025
+            'movement_date', 'voucher_number', 'po_number', 'guide_number',
+            'internal_transfer', 'destination_personal', 'destination_personal_name',
         ]
 
     def get_item_count(self, obj):
         return obj.movements.count()
+
+
+# ---------------------------------------------------------------------------
+# SYSPCC-025 — EPP delivery, location assignment, personal linking
+# ---------------------------------------------------------------------------
+
+class EppRecipientSerializer(serializers.Serializer):
+    """Exactly one of: ``personal`` (id), ``name`` (free text), ``internal`` (floor/area)."""
+
+    personal = serializers.PrimaryKeyRelatedField(
+        queryset=Personal.objects.all(), required=False, allow_null=True
+    )
+    name = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    internal = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        given = [
+            bool(attrs.get('personal')),
+            bool(attrs.get('name', '').strip()),
+            bool(attrs.get('internal', '').strip()),
+        ]
+        if sum(given) != 1:
+            raise serializers.ValidationError(
+                'Seleccione o escriba el trabajador que recibe (un solo destinatario).'
+            )
+        return attrs
+
+
+class EppDeliveryItemSerializer(serializers.Serializer):
+    inventory = serializers.PrimaryKeyRelatedField(queryset=Inventory.objects.all())
+    quantity = serializers.DecimalField(
+        max_digits=12, decimal_places=3, min_value=Decimal('0.001')
+    )
+    notes = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        validate_integer_quantity(attrs['inventory'], attrs['quantity'])
+        return attrs
+
+
+class EppDeliverySerializer(serializers.Serializer):
+    """POST body for ``movements/epp-delivery/``. Vale number and date are mandatory here."""
+
+    warehouse = serializers.ChoiceField(
+        choices=WarehouseOriginChoices.choices, default=WarehouseOriginChoices.CENTRAL
+    )
+    project = project_id_field()
+    voucher_number = serializers.CharField(max_length=30)
+    movement_date = serializers.DateField(validators=[validate_not_future])
+    recipient = EppRecipientSerializer()
+    internal_transfer = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=''
+    )
+    notes = serializers.CharField(max_length=MAX_NOTES_LENGTH, required=False, allow_blank=True, default='')
+    items = EppDeliveryItemSerializer(many=True, min_length=1, max_length=MAX_BATCH_ITEMS)
+    allow_duplicate_voucher = serializers.BooleanField(required=False, default=False)
+
+    def validate_voucher_number(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError('Indique el N° de vale.')
+        return value
+
+
+class LocationAssignmentSerializer(serializers.Serializer):
+    inventory = serializers.IntegerField(min_value=1, max_value=MAX_BIGINT)
+    location = serializers.CharField(max_length=100)
+
+
+class AssignLocationsSerializer(serializers.Serializer):
+    MAX_ASSIGNMENTS = 300
+
+    assignments = LocationAssignmentSerializer(many=True, min_length=1, max_length=MAX_ASSIGNMENTS)
+
+
+class LinkPersonalSerializer(serializers.Serializer):
+    destination_key = serializers.CharField(max_length=300)
+    personal = serializers.PrimaryKeyRelatedField(queryset=Personal.objects.all())
+
+    def validate_destination_key(self, value):
+        key = destination_key(value)
+        if not key:
+            raise serializers.ValidationError('Clave de destino inválida.')
+        return key

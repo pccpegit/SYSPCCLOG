@@ -62,15 +62,14 @@ class TestGuards:
             [sys.executable, '-c', f'import {module} as s; print("OK", s.HR_CV_PROVIDER)'],
             env=env, capture_output=True, text=True, timeout=90)
 
-    def test_production_and_demo_refuse_to_boot_with_fake(self):
-        for module in ('config.settings.production', 'config.settings.demo'):
-            out = self._import(module, HR_CV_PROVIDER='fake')
-            assert out.returncode != 0 and 'ImproperlyConfigured' in out.stderr, module
-            assert 'solo se permite con DEBUG=True' in out.stderr
+    def test_production_refuses_to_boot_with_fake(self):
+        out = self._import('config.settings.production', HR_CV_PROVIDER='fake')
+        assert out.returncode != 0 and 'ImproperlyConfigured' in out.stderr
+        assert 'solo se permite con DEBUG=True' in out.stderr
 
-    def test_demo_with_debug_true_still_refuses_fake(self):
-        """demo may run with DEBUG=true (to seed); the simulated provider stays forbidden."""
-        out = self._import('config.settings.demo', HR_CV_PROVIDER='fake', DEBUG='true')
+    def test_production_with_debug_true_still_refuses_fake(self):
+        """production may be imported with DEBUG=true (to seed); the simulated provider stays forbidden."""
+        out = self._import('config.settings.production', HR_CV_PROVIDER='fake', DEBUG='true')
         assert out.returncode != 0 and 'ImproperlyConfigured' in out.stderr
 
     def test_production_boots_with_the_real_provider(self):

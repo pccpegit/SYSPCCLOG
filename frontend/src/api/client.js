@@ -48,20 +48,36 @@ export function attachCsrfToken(config) {
 
 client.interceptors.request.use(attachCsrfToken);
 
-// ─── Request queue for concurrent 401s during refresh ────────────────────────
-let isRefreshing = false;
-let failedQueue = [];
+// ─── Refresh de sesión (cookie HttpOnly `refresh_token`) ─────────────────────
+// Única vía para renovar la sesión: la usan el interceptor 401 (peticiones
+// normales) y AuthContext.restoreSession (carga de la app, SYSPCC-034). Una
+// sola promesa en vuelo: si varias peticiones (o la restauración de sesión)
+// piden refrescar a la vez, comparten la misma llamada en vez de disparar N
+// POST (con rotación + blacklist, el segundo refresh con el token ya rotado
+// fallaría).
+let refreshPromise = null;
 
-const processQueue = (error) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve();
-    }
-  });
-  failedQueue = [];
-};
+/**
+ * POST /auth/token/refresh/ con credenciales y cabecera CSRF. Resuelve cuando
+ * el backend reescribió las cookies; rechaza (401/red) si el refresh no sirve.
+ * Usa axios "pelado" (no `client`) para no recursar por el interceptor 401, y
+ * por eso arma a mano el X-CSRFToken (es un POST que muta estado).
+ */
+export function refreshSession() {
+  if (!refreshPromise) {
+    const headers = { 'Content-Type': 'application/json' };
+    const csrfToken = getCookie(CSRF_COOKIE_NAME);
+    if (csrfToken) headers[CSRF_HEADER_NAME] = csrfToken;
+
+    refreshPromise = axios
+      .post(`${API_BASE_URL}auth/token/refresh/`, {}, { withCredentials: true, headers })
+      .then(() => undefined)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
 
 // URLs that should NOT trigger the refresh/redirect cycle
 const SKIP_REFRESH_URLS = ['/auth/token/refresh/', '/auth/login/', '/users/me/'];
@@ -102,40 +118,12 @@ client.interceptors.response.use(
       error.response?.status === 401 &&
       !originalRequest._retry
     ) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then(() => client(originalRequest))
-          .catch((err) => Promise.reject(err));
-      }
-
       originalRequest._retry = true;
-      isRefreshing = true;
 
-      try {
-        // Bare axios (not `client`) so it can't recurse through the 401
-        // handler, but it still mutates state server-side, so it still
-        // needs the CSRF header attached by hand.
-        const refreshHeaders = { 'Content-Type': 'application/json' };
-        const csrfToken = getCookie(CSRF_COOKIE_NAME);
-        if (csrfToken) refreshHeaders[CSRF_HEADER_NAME] = csrfToken;
-
-        await axios.post(
-          `${API_BASE_URL}auth/token/refresh/`,
-          {},
-          { withCredentials: true, headers: refreshHeaders },
-        );
-
-        processQueue(null);
-        return client(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError);
-        // Don't redirect here — let AuthContext handle navigation
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+      // Refresh compartido y deduplicado; si falla, AuthContext decide la
+      // navegación (no se redirige desde aquí).
+      await refreshSession();
+      return client(originalRequest);
     }
 
     return Promise.reject(error);

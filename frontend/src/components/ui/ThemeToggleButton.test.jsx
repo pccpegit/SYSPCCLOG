@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ThemeToggleButton from './ThemeToggleButton';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../context/useTheme';
 
 // Isolated from ThemeProvider — mocks useTheme() directly, same pattern as
 // ChangePasswordRequiredPage.test.jsx mocking useAuth(). This component is
 // pure (all state comes from the hook), so it doesn't need the real
 // provider/localStorage to be exercised here (that's ThemeContext.test.jsx).
-vi.mock('../../context/ThemeContext', () => ({
+vi.mock('../../context/useTheme', () => ({
   useTheme: vi.fn(),
 }));
 

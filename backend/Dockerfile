@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # SYSPCC-022: optional LibreOffice (headless) to convert generated .docx to PDF.
-# Off by default (keeps the image small for Render free tier); docker-compose
+# Off by default (keeps the image small; the DigitalOcean spec sets it explicitly); docker-compose
 # local turns it on via build.args. Without it the API answers `pdf_not_available`.
 ARG INSTALL_LIBREOFFICE=false
 RUN if [ "$INSTALL_LIBREOFFICE" = "true" ]; then \

@@ -24,8 +24,10 @@ Skills de apoyo: `backend-produccion` (ajuste de stock atómico + lock, sin sobr
 - Mejora validaciones, permisos, logging, UI y tests — no el proceso.
 
 ## No olvides
-- Valida SIEMPRE el formato de ubicación `{Pabellón}{Sección}-{Nivel}` (Pabellones A–K, Secciones 4–6, Niveles 1–5) contra el layout; no aceptes ubicaciones inexistentes.
-- Todo movimiento de stock dentro de `transaction.atomic()` con `select_for_update()` para evitar sobre-despacho por concurrencia.
-- Usa los enums `MovementType/Source/Destination`, no strings sueltos; registra quién, cuándo, cantidad, origen, destino, RQ.
+- Valida SIEMPRE el formato de ubicación `{Pabellón}{Sección}-{Nivel}` con `apps/warehouse/services/locations.py` (`validate_location`/`parse_location`; layout en `LAYOUT_SECTIONS`: A=7, B=7, C=4, D=4, E=6 secciones; F–K con tope 6 pendiente de confirmar con el almacén; niveles 1–5); no aceptes ubicaciones inexistentes. Un ítem puede tener solo el piso mientras su ubicación exacta está pendiente (`location_status`: `EXACT` / `FLOOR_ONLY` / `NONE`).
+- Todo movimiento de stock dentro de `transaction.atomic()` con `select_for_update()` para evitar sobre-despacho por concurrencia (reutiliza `apps/warehouse/services/movements.py`).
+- Usa los enums `MovementTypeChoices` / `MovementSourceChoices` / `MovementDestinationChoices`, no strings sueltos; registra quién, cuándo, cantidad, origen, destino, RQ.
+- Permisos por acción en `apps/warehouse/permissions.py` (`IsWarehouseRole`, `CanImportInventory`, `CanAssignLocations`, `CanLinkPersonal`, `CanDeliverEPP`, `CanLookupPersonal`), sin bypass por `is_staff`/`is_superuser`.
+- Funcionalidades del almacén real de EPP (SYSPCC-025): entrega de EPP con vale (`services/epp.py`, no toca el WorkflowEngine), resumen de movimiento/kardex, importación del libro Excel en dos pasos (`services/imports/`, previsualizar → confirmar).
 - El rechazo en Fase 2 (QC) dispara el ciclo de reclamo a proveedor del WorkflowEngine, no un flujo paralelo.
 - Recuerda que OPS y ADM difieren en el despacho.

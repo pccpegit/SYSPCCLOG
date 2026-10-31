@@ -5,8 +5,29 @@ Thread-safe via database-level locking.
 """
 
 import re
+import zlib
 from datetime import date
-from django.db import transaction
+from django.db import connection, transaction
+
+
+def _serialize_sequence(prefix: str) -> None:
+    """
+    Serialize every generator of the sequence `prefix` (e.g. 'RQ-2026-') until the end of
+    the CURRENT TRANSACTION (the caller's, not just the savepoint of `generate`).
+
+    `SELECT ... FOR UPDATE ... LIMIT 1` on the latest row does not serialize anything: all
+    concurrent callers lock the SAME current latest row and, once it is released, each
+    computes the same "next" number (the new row is not in the first one's lock set), so
+    all but one then collide on the unique constraint. A transaction-scoped advisory lock on
+    the sequence does: the next caller waits until the previous one committed, and its
+    READ COMMITTED query then sees the number just taken. PostgreSQL only; SQLite has a
+    single writer and needs nothing.
+    """
+    if connection.vendor != 'postgresql':
+        return
+    key = zlib.crc32(prefix.encode('utf-8'))  # stable 32-bit key per sequence and year
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT pg_advisory_xact_lock(%s, %s)', [0x5359, key - 2**31])
 
 
 class RQNumberGenerator:
@@ -30,7 +51,8 @@ class RQNumberGenerator:
         year = date.today().year
         prefix = f'{cls.PREFIX}-{year}-'
 
-        # Lock the latest RQ for this year to prevent race conditions
+        _serialize_sequence(prefix)
+        # (the row lock below stays as an extra guard; the advisory lock is what serializes)
         latest = (
             Request.objects
             .filter(rq_number__startswith=prefix)
@@ -70,6 +92,7 @@ class PONumberGenerator:
         year = date.today().year
         prefix = f'{cls.PREFIX}-{year}-'
 
+        _serialize_sequence(prefix)
         latest = (
             PurchaseOrder.objects
             .filter(po_number__startswith=prefix)

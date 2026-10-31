@@ -40,8 +40,14 @@ class WorkflowStepAdmin(admin.ModelAdmin):
 class RequestItemInline(admin.TabularInline):
     model = RequestItem
     extra = 0
-    fields = ['line_number', 'description', 'quantity', 'unit', 'unit_price', 'total_price']
-    readonly_fields = ['total_price']
+    fields = [
+        'line_number', 'description', 'quantity', 'unit', 'unit_price', 'total_price',
+        'inventory_item', 'is_off_catalog', 'item_source',
+        'inventory_item_confirmed_at', 'inventory_item_confirmed_by',
+    ]
+    # The confirmation is stamped by logistics through update-items, never by hand.
+    readonly_fields = ['total_price', 'inventory_item_confirmed_at', 'inventory_item_confirmed_by']
+    raw_id_fields = ['inventory_item']  # the catalog is too long for a <select>
 
 
 class ApprovalInline(admin.TabularInline):
@@ -59,7 +65,7 @@ class RequestAdmin(admin.ModelAdmin):
         'rq_number', 'flow', 'status_badge', 'priority', 'acquisition_type',
         'requested_by', 'project', 'department', 'estimated_cost', 'fecha_necesidad', 'created_at',
     ]
-    list_filter = ['flow', 'status', 'priority', 'acquisition_type', 'budget_classification']
+    list_filter = ['flow', 'status', 'requesting_area', 'priority', 'acquisition_type', 'budget_classification']
     search_fields = ['rq_number', 'description', 'requested_by__username']
     readonly_fields = ['rq_number', 'status', 'current_step', 'created_at', 'updated_at']
     ordering = ['-created_at']

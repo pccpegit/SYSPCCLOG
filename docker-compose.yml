@@ -41,7 +41,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        # SYSPCC-022: LibreOffice for .docx -> PDF (local only; Render demo = false)
+        # SYSPCC-022: LibreOffice for .docx -> PDF (local only)
         INSTALL_LIBREOFFICE: "true"
     container_name: syspcclog_backend
     ports:
@@ -91,7 +91,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        # SYSPCC-022: LibreOffice for .docx -> PDF (local only; Render demo = false)
+        # SYSPCC-022: LibreOffice for .docx -> PDF (local only)
         INSTALL_LIBREOFFICE: "true"
     container_name: syspcclog_celery_worker
     command: celery -A config worker -l info

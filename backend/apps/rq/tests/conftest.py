@@ -2,10 +2,12 @@
 Shared fixtures for apps/rq access-control tests (SYSPCC-006).
 """
 import datetime
+import uuid
 
 import pytest
+from django.core.cache import caches
 
-from apps.core.enums import AcquisitionTypeChoices, RQFlowChoices
+from apps.core.enums import AcquisitionTypeChoices, RQFlowChoices, RQStatusChoices
 from apps.rq.models import Request
 
 
@@ -17,6 +19,7 @@ def ops_request(db, project, requester):
         flow=RQFlowChoices.OPERATIONS,
         project=project,
         requested_by=requester,
+        status=RQStatusChoices.SUBMITTED,
         acquisition_type=AcquisitionTypeChoices.COMPRA_LOCAL,
         fecha_necesidad=datetime.date.today() + datetime.timedelta(days=7),
     )
@@ -33,6 +36,7 @@ def foreign_request(db, other_project, other_requester):
         flow=RQFlowChoices.OPERATIONS,
         project=other_project,
         requested_by=other_requester,
+        status=RQStatusChoices.SUBMITTED,
         acquisition_type=AcquisitionTypeChoices.COMPRA_LOCAL,
         fecha_necesidad=datetime.date.today() + datetime.timedelta(days=7),
     )
@@ -51,6 +55,7 @@ def ops_request_same_project_other_owner(db, project, other_requester_same_proje
         flow=RQFlowChoices.OPERATIONS,
         project=project,
         requested_by=other_requester_same_project,
+        status=RQStatusChoices.SUBMITTED,
         acquisition_type=AcquisitionTypeChoices.COMPRA_LOCAL,
         fecha_necesidad=datetime.date.today() + datetime.timedelta(days=7),
     )
@@ -64,6 +69,7 @@ def admin_request(db, department, department_requester):
         flow=RQFlowChoices.ADMINISTRATIVE,
         department=department,
         requested_by=department_requester,
+        status=RQStatusChoices.SUBMITTED,
         acquisition_type=AcquisitionTypeChoices.COMPRA_LOCAL,
         fecha_necesidad=datetime.date.today() + datetime.timedelta(days=7),
     )
@@ -81,6 +87,7 @@ def admin_request_same_department_other_owner(db, department, other_department_r
         flow=RQFlowChoices.ADMINISTRATIVE,
         department=department,
         requested_by=other_department_requester,
+        status=RQStatusChoices.SUBMITTED,
         acquisition_type=AcquisitionTypeChoices.COMPRA_LOCAL,
         fecha_necesidad=datetime.date.today() + datetime.timedelta(days=7),
     )
@@ -97,6 +104,33 @@ def foreign_admin_request(db, other_department, other_department_requester):
         flow=RQFlowChoices.ADMINISTRATIVE,
         department=other_department,
         requested_by=other_department_requester,
+        status=RQStatusChoices.SUBMITTED,
         acquisition_type=AcquisitionTypeChoices.COMPRA_LOCAL,
         fecha_necesidad=datetime.date.today() + datetime.timedelta(days=7),
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_throttle_counters(settings):
+    """
+    DRF throttle counters (the global 200/min per user and the catalog's own 120/min)
+    live in a private LocMem cache, brand new for every test.
+
+    The default cache is the Redis the whole team shares (db 8 in the documented test
+    command). The counters there are keyed by the user's pk, which repeats from test to
+    test (SQLite hands the same ids back after each rollback), so they accumulated
+    across tests and a second pytest run on the same Redis added to them: the 429 test
+    failed with `[200, 200, 429]` instead of `[200, 200, 200]`. Only the throttle
+    alias moves; everything else keeps using the default cache.
+    """
+    alias = 'rq_tests_throttle'
+    settings.CACHES = {
+        **settings.CACHES,
+        alias: {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': f'rq-tests-throttle-{uuid.uuid4().hex}',
+        },
+    }
+    settings.THROTTLE_CACHE_ALIAS = alias
+    yield
+    caches[alias].clear()

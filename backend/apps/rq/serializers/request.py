@@ -3,18 +3,196 @@ Request and RequestItem serializers.
 """
 
 import logging
+from collections.abc import Mapping
+from decimal import Decimal
 
 from django.db import IntegrityError, transaction
+from django.db.models import prefetch_related_objects
+from django.utils.functional import lazy
 from rest_framework import serializers
 
 from apps.rq.models import Request, RequestItem
-from apps.core.enums import OFICINA_CENTRAL_FRENTE
+from apps.core.enums import OFICINA_CENTRAL_FRENTE, ItemSourceChoices, RoleChoices
 from apps.core.serializers.user import UserListSerializer
+from apps.rq.services.request_items import log_proposed_catalog_links
+from apps.rq.services.request_submission import (
+    MAX_REQUEST_ITEMS as _SUBMISSION_MAX_ITEMS,
+    new_provisional_number,
+)
+from apps.warehouse.models import Inventory
 
 logger = logging.getLogger(__name__)
 
+# Primary keys are BigAutoField (signed 64-bit). A number outside this range cannot
+# be an id and, worse, makes some drivers raise OverflowError (HTTP 500) when it is
+# used in a lookup. Inside the range a non-existent id is simply "not found".
+MIN_DB_INT = -(2**63)
+MAX_DB_INT = 2**63 - 1
+
+# One POST must not be an amplifier: every line costs queries and log volume.
+MAX_REQUEST_ITEMS = _SUBMISSION_MAX_ITEMS
+
+# The unknown-keys warning is one record per request, bounded in size.
+MAX_LOGGED_UNKNOWN_KEYS = 10
+MAX_LOGGED_KEY_LENGTH = 64
+
+# User-facing messages (es-PE) for the fields SYSPCC-026 added. DRF's defaults are
+# either English ("Must be a valid boolean.") or jargon ('Clave primaria "9" inválida
+# - objeto no existe.') and they reach the screen as-is.
+INVENTORY_ITEM_ERRORS = {
+    'does_not_exist': 'El producto del catálogo ya no existe. Búsquelo de nuevo.',
+    'incorrect_type': 'Indique un producto válido del catálogo.',
+}
+IS_OFF_CATALOG_ERRORS = {'invalid': 'Indique verdadero o falso.'}
+
+
+def _item_source_message():
+    labels = [str(label) for label in ItemSourceChoices.labels]
+    return 'Seleccione la fuente del ítem: {} o {}.'.format(', '.join(labels[:-1]), labels[-1])
+
+
+# Built from the enum (lazily, so it follows the active language and never goes stale
+# when a family is added).
+ITEM_SOURCE_MESSAGE = lazy(_item_source_message, str)()
+# `item_source` may be omitted or sent empty (see RequestItemCreateSerializer), but an
+# unknown family or an explicit null is a mistake the person can fix.
+ITEM_SOURCE_ERRORS = {'invalid_choice': ITEM_SOURCE_MESSAGE, 'null': ITEM_SOURCE_MESSAGE}
+SUPPLY_SOURCE_MESSAGE = (
+    'Indique el origen de atención: STOCK (atender de stock) o PURCHASE (requiere compra).'
+)
+
+# Request-scoped cache {field_name: {pk: instance}} filled by the list serializers
+# below so a payload of N lines validates its catalog links with ONE query.
+PREFETCHED_RELATED_CONTEXT_KEY = '_prefetched_related'
+
+
+class StrictPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
+    """
+    PrimaryKeyRelatedField that refuses floats. Django coerces `get(pk=1.9)` to
+    `pk=1`, so a hostile or sloppy `{"inventory_item": 1.9}` would silently link
+    product 1. Booleans are already refused by the parent class.
+
+    When the enclosing list serializer pre-fetched the related objects of the whole
+    payload (see PrefetchingListSerializer) an integer id is resolved from that
+    cache instead of one `get()` per line; anything else takes the normal path.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, float):
+            self.fail('incorrect_type', data_type=type(data).__name__)
+        prefetched = self.context.get(PREFETCHED_RELATED_CONTEXT_KEY, {}).get(self.field_name)
+        if prefetched is not None and type(data) is int:
+            try:
+                return prefetched[data]
+            except KeyError:
+                self.fail('does_not_exist', pk_value=data)
+        return super().to_internal_value(data)
+
+
+class PrefetchingListSerializer(serializers.ListSerializer):
+    """
+    ListSerializer that resolves every `inventory_item` id of the payload with a
+    single query (instead of one per line) before the lines are validated.
+
+    Only well-formed integer ids are collected; anything else (strings, floats,
+    nested junk, absurdly large numbers) is left for the field to reject exactly as
+    before.
+    """
+
+    prefetch_field = 'inventory_item'
+
+    def to_internal_value(self, data):
+        if isinstance(data, list):
+            self._prefetch(data)
+        return super().to_internal_value(data)
+
+    def _prefetch(self, data):
+        field = self.child.fields.get(self.prefetch_field)
+        if field is None:
+            return
+        ids = {
+            entry[self.prefetch_field]
+            for entry in data
+            if isinstance(entry, Mapping)
+            and type(entry.get(self.prefetch_field)) is int
+            and 0 < entry[self.prefetch_field] <= MAX_DB_INT
+        }
+        found = {obj.pk: obj for obj in field.get_queryset().filter(pk__in=ids)} if ids else {}
+        self.context.setdefault(PREFETCHED_RELATED_CONTEXT_KEY, {})[self.prefetch_field] = found
+
+
+class RequestItemCreateListSerializer(PrefetchingListSerializer):
+    """
+    Lines of a new request. Besides the bulk catalog lookup it reports, ONCE per
+    request, the keys that are not serializer fields.
+
+    DRF silently drops them, which hid the `stock_almacen_principal` vs
+    `stock_almacen_central` mismatch for months: we keep tolerating them (old
+    clients) but leave one bounded warning (at most MAX_LOGGED_UNKNOWN_KEYS keys,
+    each cut to MAX_LOGGED_KEY_LENGTH characters) so a hostile payload cannot turn a
+    single POST into thousands of log lines.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, list):
+            self._log_unknown_keys(data)
+        return super().to_internal_value(data)
+
+    def _log_unknown_keys(self, data):
+        known = set(self.child.fields)
+        sample, total, lines = set(), 0, 0
+        for entry in data:
+            if not isinstance(entry, Mapping):
+                continue
+            extra = [key for key in entry if key not in known]
+            if not extra:
+                continue
+            lines += 1
+            total += len(extra)
+            for key in extra:
+                if len(sample) >= MAX_LOGGED_UNKNOWN_KEYS:
+                    break
+                sample.add(str(key)[:MAX_LOGGED_KEY_LENGTH])
+        if not total:
+            return
+        http_request = self.context.get('request')
+        logger.warning(
+            'rq.create.item_unknown_fields',
+            extra={
+                'unknown_fields': sorted(sample),
+                'unknown_total': total,
+                'lines_affected': lines,
+                'user_id': getattr(getattr(http_request, 'user', None), 'id', None),
+            },
+        )
+
 
 class RequestItemSerializer(serializers.ModelSerializer):
+    """
+    A request line.
+
+    SYSPCC-026: exposes the warehouse catalog link (`inventory_item`, validated
+    to exist; code/description/unit are returned flat for display), the explicit
+    off-catalog mark (`is_off_catalog`, mutually exclusive with the link) and
+    the family (`item_source`). `supply_source` is read-only: it is decided by
+    logistics during the stock check (PATCH update-items), not by the requester.
+    """
+
+    inventory_item_code = serializers.CharField(
+        source='inventory_item.product_code', read_only=True, allow_null=True,
+    )
+    inventory_item_description = serializers.CharField(
+        source='inventory_item.description', read_only=True, allow_null=True,
+    )
+    inventory_item_unit = serializers.CharField(
+        source='inventory_item.unit', read_only=True, allow_null=True,
+    )
+    item_source_display = serializers.CharField(source='get_item_source_display', read_only=True)
+    # True once logistics confirmed the line's catalog decision (a product or the
+    # off-catalog mark). A product proposed by the requester is NOT confirmed.
+    link_confirmed = serializers.BooleanField(read_only=True)
+
+    serializer_related_field = StrictPrimaryKeyRelatedField
 
     class Meta:
         model = RequestItem
@@ -35,29 +213,143 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'rfi_fwo',
             'estatus_guia',
             'supply_source',
+            'inventory_item',
+            'inventory_item_code',
+            'inventory_item_description',
+            'inventory_item_unit',
+            'is_off_catalog',
+            'link_confirmed',
+            'item_source',
+            'item_source_display',
             'comentarios',
             'created_at',
         ]
-        read_only_fields = ['request', 'total_price', 'created_at']
+        read_only_fields = ['request', 'total_price', 'supply_source', 'created_at']
+        extra_kwargs = {
+            'inventory_item': {'error_messages': INVENTORY_ITEM_ERRORS},
+            'is_off_catalog': {'error_messages': IS_OFF_CATALOG_ERRORS},
+            'item_source': {'error_messages': ITEM_SOURCE_ERRORS},
+        }
+
+    def validate(self, attrs):
+        # A line is linked to a catalog product OR explicitly off-catalog, never both.
+        if attrs.get('inventory_item') is not None and attrs.get('is_off_catalog'):
+            raise serializers.ValidationError({
+                'is_off_catalog': (
+                    'Un ítem vinculado a un producto del catálogo no puede marcarse como '
+                    'fuera de catálogo.'
+                ),
+            })
+        return attrs
+
+
+class RequestItemCreateSerializer(RequestItemSerializer):
+    """
+    Line payload when creating a request. The quantity must be greater than zero.
+
+    `item_source` (the family), the catalog product and the off-catalog mark are
+    optional at the API level: integrations, old clients and historical data may send
+    none of them (orchestrator decisions 2 and 3 of SYSPCC-026), and creating an RQ is
+    the first action of the management-defined flow, so it must not start failing for
+    them. The new screen requires them. When `item_source` IS sent it must be one of
+    the families (an unknown value is a 400). The product or the off-catalog mark is
+    only a PROPOSAL: logistics confirms it later (`link_confirmed`).
+    """
+
+    class Meta(RequestItemSerializer.Meta):
+        list_serializer_class = RequestItemCreateListSerializer
+        extra_kwargs = {
+            **RequestItemSerializer.Meta.extra_kwargs,
+            'quantity': {
+                'min_value': Decimal('0.001'),
+                'error_messages': {'min_value': 'La cantidad debe ser mayor que cero.'},
+            },
+        }
 
 
 class UpdateItemPayloadSerializer(serializers.Serializer):
     """
-    SYSPCC-011 FIX 2: one line of the update-items payload. Validates types so
-    a malformed request body returns 400 instead of reaching the raw
-    Case/When queryset update in RequestViewSet.update_items.
+    One line of the update-items payload (logistics, stock check). Only the keys
+    present are applied. `inventory_item` accepts null to drop the link;
+    `is_off_catalog` and a non-null `inventory_item` are mutually exclusive.
+
+    SYSPCC-011 FIX 2: validates types so a malformed body returns 400 instead of
+    reaching the database layer.
     """
 
-    item_id = serializers.IntegerField()
+    UPDATABLE_FIELDS = ('supply_source', 'inventory_item', 'is_off_catalog', 'item_source')
+
+    class Meta:
+        list_serializer_class = PrefetchingListSerializer
+
+    # Bounded to the 64-bit range of the primary keys: beyond it the number is not an
+    # id and reaching the database with it raises OverflowError (HTTP 500).
+    item_id = serializers.IntegerField(min_value=MIN_DB_INT, max_value=MAX_DB_INT)
     supply_source = serializers.ChoiceField(
-        choices=RequestItem._meta.get_field('supply_source').choices
+        choices=RequestItem._meta.get_field('supply_source').choices,
+        required=False,
+        error_messages={'invalid_choice': SUPPLY_SOURCE_MESSAGE},
     )
+    inventory_item = StrictPrimaryKeyRelatedField(
+        queryset=Inventory.objects.all(), required=False, allow_null=True,
+        error_messages=INVENTORY_ITEM_ERRORS,
+    )
+    is_off_catalog = serializers.BooleanField(
+        required=False, error_messages=IS_OFF_CATALOG_ERRORS,
+    )
+    item_source = serializers.ChoiceField(
+        choices=ItemSourceChoices.choices, required=False, allow_blank=True,
+        error_messages=ITEM_SOURCE_ERRORS,
+    )
+
+    def validate(self, attrs):
+        if not any(name in attrs for name in self.UPDATABLE_FIELDS):
+            raise serializers.ValidationError(
+                'Indique al menos un campo a actualizar: origen de atención, producto de '
+                'catálogo, fuera de catálogo o fuente.'
+            )
+        if attrs.get('inventory_item') is not None and attrs.get('is_off_catalog'):
+            raise serializers.ValidationError({
+                'is_off_catalog': (
+                    'Un ítem vinculado a un producto del catálogo no puede marcarse como '
+                    'fuera de catálogo.'
+                ),
+            })
+        return attrs
 
 
 class UpdateItemsSerializer(serializers.Serializer):
-    """Payload for PATCH /api/v1/requests/{id}/update-items/."""
+    """
+    Payload for PATCH /api/v1/requests/{id}/update-items/.
 
-    items = UpdateItemPayloadSerializer(many=True)
+    The stock-check screen sends every line of the RQ in one PATCH. `MAX_ITEMS` bounds a
+    hostile payload, but it must never reject a legitimate one: develop had no cap and an
+    RQ created before the 200-line creation limit can carry more than `MAX_ITEMS` lines.
+    The view therefore passes the RQ's own number of lines as `line_count` and the cap
+    becomes `max(MAX_ITEMS, line_count)`: a payload cannot have more distinct, valid ids
+    than the RQ has lines (repeated ids are rejected below, foreign ones are ignored).
+    """
+
+    MAX_ITEMS = 500
+
+    items = UpdateItemPayloadSerializer(
+        many=True,
+        max_length=MAX_ITEMS,
+        error_messages={
+            'max_length': 'Se pueden actualizar como máximo {max_length} ítems por solicitud.',
+        },
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        line_count = self.context.get('line_count') or 0
+        self.fields['items'].max_length = max(self.MAX_ITEMS, line_count)
+
+    def validate_items(self, value):
+        item_ids = [entry['item_id'] for entry in value]
+        if len(item_ids) != len(set(item_ids)):
+            raise serializers.ValidationError('Hay ítems repetidos en los datos enviados.')
+        return value
 
 
 class RequestListSerializer(serializers.ModelSerializer):
@@ -68,6 +360,7 @@ class RequestListSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
     acquisition_type_display = serializers.CharField(source='get_acquisition_type_display', read_only=True)
+    requesting_area_display = serializers.CharField(source='get_requesting_area_display', read_only=True)
     project_code = serializers.CharField(source='project.code', read_only=True, allow_null=True)
     project_name = serializers.CharField(source='project.name', read_only=True, allow_null=True)
     department_code = serializers.CharField(source='department.code', read_only=True, allow_null=True)
@@ -80,6 +373,8 @@ class RequestListSerializer(serializers.ModelSerializer):
             'rq_number',
             'flow',
             'flow_display',
+            'requesting_area',
+            'requesting_area_display',
             'description',
             'project',
             'project_code',
@@ -115,6 +410,7 @@ class RequestDetailSerializer(serializers.ModelSerializer):
     budget_classification_display = serializers.CharField(
         source='get_budget_classification_display', read_only=True, allow_null=True
     )
+    requesting_area_display = serializers.CharField(source='get_requesting_area_display', read_only=True)
     project_code = serializers.CharField(source='project.code', read_only=True, allow_null=True)
     project_name = serializers.CharField(source='project.name', read_only=True, allow_null=True)
     project_frente = serializers.CharField(source='project.frente', read_only=True, allow_null=True)
@@ -140,6 +436,8 @@ class RequestDetailSerializer(serializers.ModelSerializer):
             'requested_by',
             'requested_by_name',
             'requested_by_detail',
+            'requesting_area',
+            'requesting_area_display',
             'front_area',
             'service',
             'specific_use',
@@ -175,15 +473,26 @@ class RequestDetailSerializer(serializers.ModelSerializer):
 class RequestCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating a new request (DRAFT status)."""
 
-    items = RequestItemSerializer(many=True)
+    items = RequestItemCreateSerializer(
+        many=True,
+        allow_empty=False,
+        max_length=MAX_REQUEST_ITEMS,
+        error_messages={
+            'empty': 'Agregue al menos un ítem al requerimiento.',
+            'max_length': 'Un requerimiento admite como máximo {max_length} ítems.',
+        },
+    )
 
     class Meta:
         model = Request
         fields = [
+            'id',
+            'status',
             'rq_number',
             'flow',
             'project',
             'department',
+            'requesting_area',
             'front_area',
             'service',
             'specific_use',
@@ -201,7 +510,15 @@ class RequestCreateSerializer(serializers.ModelSerializer):
         # locks the latest RQ row). Making it read-only closes the TOCTOU window where
         # a client-supplied number could collide with one generated concurrently, and
         # stops clients from spoofing/forging the RQ number.
-        read_only_fields = ['rq_number']
+        read_only_fields = ['id', 'status', 'rq_number']
+        # SYSPCC-026: the area (OP/QC/HSE/ADM) is mandatory when creating an RQ.
+        # It stays optional on the model so historical RQs remain valid.
+        extra_kwargs = {
+            'requesting_area': {'required': True, 'allow_blank': False},
+            # The column accepts NULL only so a draft can be saved without a date
+            # (SYSPCC-031); a full creation still demands it.
+            'fecha_necesidad': {'required': True, 'allow_null': False},
+        }
 
     def validate(self, attrs):
         flow = attrs.get('flow')
@@ -236,9 +553,14 @@ class RequestCreateSerializer(serializers.ModelSerializer):
                 validated_data['rq_number'] = RQNumberGenerator.generate()
                 request_obj = Request.objects.create(**validated_data)
 
+                created_items = []
                 for idx, item_data in enumerate(items_data, start=1):
                     item_data['line_number'] = idx
-                    RequestItem.objects.create(request=request_obj, **item_data)
+                    created_items.append(RequestItem.objects.create(request=request_obj, **item_data))
+
+                # A product picked by the requester is only a proposal (nothing is
+                # confirmed at creation): leave the trail for logistics to review.
+                log_proposed_catalog_links(request_obj, created_items, user)
 
                 # Register the submission in the approval chain
                 Approval.objects.create(
@@ -261,4 +583,139 @@ class RequestCreateSerializer(serializers.ModelSerializer):
                 {'rq_number': 'No se pudo generar el número de requerimiento, intente nuevamente.'}
             )
 
+        # The 201 body serializes every line with its product code/description: load
+        # them in two queries instead of one per line.
+        prefetch_related_objects([request_obj], 'items__inventory_item')
         return request_obj
+
+
+class RequestItemDraftSerializer(RequestItemSerializer):
+    """
+    Line of a draft (SYSPCC-031). Same fields as a full creation, but the quantity may
+    still be 0 (the requester has not decided it yet); a line with 0 units cannot be sent,
+    `request_submission.readiness_errors` demands it greater than zero at that moment.
+    """
+
+    class Meta(RequestItemSerializer.Meta):
+        list_serializer_class = RequestItemCreateListSerializer
+        extra_kwargs = {
+            **RequestItemSerializer.Meta.extra_kwargs,
+            # The server numbers the lines of a draft by position.
+            'line_number': {'required': False},
+            'quantity': {
+                'min_value': Decimal('0'),
+                'error_messages': {'min_value': 'La cantidad no puede ser negativa.'},
+            },
+        }
+
+
+class RequestDraftSerializer(RequestCreateSerializer):
+    """
+    Saves an RQ as a draft (`DRAFT`): POST /requests/ with `save_as_draft: true` and
+    PATCH/PUT /requests/{id}/ on a draft (SYSPCC-031).
+
+    Minimal validation, only what is needed to store the data: the flow, at least one
+    line, and the consistency rules that never change (Oficina Central goes through the
+    Administración flow; quantities cannot be negative). The area, the frente, the
+    service, the need date and the origin (project / department) can be filled in later:
+    they are all demanded when the draft is SENT (`request_submission.readiness_errors`).
+
+    Nothing of the workflow runs here: no approval record, no activity log, no
+    notification, no SLA. The draft gets a provisional `rq_number` (see
+    `request_submission`); the official one is assigned when it is sent. On update, `items`
+    (when sent) REPLACES the lines of the draft.
+    """
+
+    save_as_draft = serializers.BooleanField(write_only=True, required=False, default=False)
+    items = RequestItemDraftSerializer(
+        many=True,
+        allow_empty=False,
+        max_length=MAX_REQUEST_ITEMS,
+        error_messages={
+            'empty': 'Agregue al menos un ítem al borrador.',
+            'max_length': 'Un requerimiento admite como máximo {max_length} ítems.',
+        },
+    )
+
+    class Meta(RequestCreateSerializer.Meta):
+        fields = [*RequestCreateSerializer.Meta.fields, 'save_as_draft']
+        extra_kwargs = {
+            'requesting_area': {'required': False, 'allow_blank': True},
+            'fecha_necesidad': {'required': False, 'allow_null': True},
+            'acquisition_type': {'required': False},
+        }
+
+    def validate(self, attrs):
+        # Only the rule that does not depend on what is still missing. On a partial update
+        # the keys not sent keep the value of the draft.
+        current = self.instance
+        front_area = attrs.get('front_area', getattr(current, 'front_area', '')) or ''
+        flow = attrs.get('flow', getattr(current, 'flow', None))
+        if front_area.strip().upper() == OFICINA_CENTRAL_FRENTE and flow != 'ADMINISTRATIVE':
+            raise serializers.ValidationError({
+                'flow': 'El frente "Oficina Central" debe registrarse por el flujo de Administración.',
+            })
+        return attrs
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        validated_data.pop('save_as_draft', None)
+        validated_data.pop('rq_number', None)
+        validated_data.setdefault('acquisition_type', 'COMPRA_LOCAL')
+        validated_data['requested_by'] = self.context['request'].user
+        validated_data['status'] = 'DRAFT'
+
+        with transaction.atomic():
+            request_obj = None
+            for _attempt in range(3):
+                validated_data['rq_number'] = new_provisional_number()
+                try:
+                    with transaction.atomic():
+                        request_obj = Request.objects.create(**validated_data)
+                    break
+                except IntegrityError:
+                    # 48 random bits: a collision is practically impossible, but retrying is free.
+                    logger.warning('request.draft.number_collision')
+            if request_obj is None:
+                raise serializers.ValidationError(
+                    {'rq_number': 'No se pudo guardar el borrador, intente nuevamente.'}
+                )
+            self._replace_items(request_obj, items_data)
+
+        prefetch_related_objects([request_obj], 'items__inventory_item')
+        return request_obj
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        validated_data.pop('save_as_draft', None)
+        validated_data.pop('rq_number', None)
+
+        with transaction.atomic():
+            # Lock the row: a concurrent send (DRAFT -> SUBMITTED) must not be overwritten.
+            locked = Request.objects.select_for_update().get(pk=instance.pk)
+            if locked.status != 'DRAFT':
+                raise serializers.ValidationError(
+                    {'detail': 'Solo se pueden editar requerimientos en estado BORRADOR.'}
+                )
+            for attr, value in validated_data.items():
+                setattr(locked, attr, value)
+            locked.save()
+            if items_data is not None:
+                locked.items.all().delete()
+                self._replace_items(locked, items_data)
+
+        prefetch_related_objects([locked], 'items__inventory_item')
+        return locked
+
+    @staticmethod
+    def _replace_items(request_obj, items_data):
+        for idx, item_data in enumerate(items_data, start=1):
+            item_data['line_number'] = idx
+            RequestItem.objects.create(request=request_obj, **item_data)
+
+
+class SubmitDraftSerializer(serializers.Serializer):
+    """Optional body of POST /requests/{id}/submit/ (SYSPCC-031)."""
+
+    acting_role = serializers.ChoiceField(choices=RoleChoices.choices, default=RoleChoices.REQUESTER)
+    comments = serializers.CharField(required=False, allow_blank=True, default='', max_length=1000)

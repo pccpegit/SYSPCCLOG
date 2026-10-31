@@ -5,11 +5,11 @@ import { renderWithProviders } from '../../test/renderWithProviders';
 import { authAs, cvConfig, listRow } from '../../test/cvFixtures';
 import HRCVAnalysesListPage from './HRCVAnalysesListPage';
 import * as hrApi from '../../api/hr';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { installMemoryLocalStorage } from '../../test/memoryStorage';
 
 vi.mock('../../api/hr');
-vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const page = (results, count = results.length) => ({ data: { count, results } });
 

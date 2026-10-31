@@ -5,6 +5,7 @@ Tasks
 -----
 upload_group_pdf_task   — Generate PDF for a MovementGroup and upload to OneDrive.
 check_low_stock_alerts  — Scan inventory and log low-stock warnings.
+purge_stale_imports     — Expire old inventory-import previews and drop their workbooks (SYSPCC-025).
 """
 import logging
 
@@ -240,3 +241,16 @@ def check_low_stock_alerts():
         )
 
     return f'{len(items)} items with low stock — email sent to {recipients}'
+
+
+@shared_task(name='warehouse.purge_stale_imports')
+def purge_stale_imports():
+    """
+    Daily: previews past ``expires_at`` become EXPIRED and every finished import loses
+    the workbook it kept (it may contain worker names). Logs counters only.
+    """
+    from apps.warehouse.services.imports import service
+
+    outcome = service.purge_stale_imports()
+    logger.info('warehouse.import.purge', extra=outcome)
+    return outcome

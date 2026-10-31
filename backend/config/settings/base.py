@@ -190,6 +190,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'warehouse.check_low_stock',
         'schedule': crontab(hour=7, minute=30),  # Every day at 7:30 AM Lima time
     },
+    # SYSPCC-025: expire inventory-import previews and drop the uploaded workbooks (personal data)
+    'warehouse-purge-stale-imports': {
+        'task': 'warehouse.purge_stale_imports',
+        'schedule': crontab(hour=3, minute=0),  # Every day at 3 AM Lima time
+    },
     # SYSPCC-023: re-enqueue CV items stuck in QUEUED/PROCESSING (worker crash, lost broker)
     'hr-cv-requeue-stale': {
         'task': 'hr.cv_requeue_stale',
@@ -274,6 +279,8 @@ REST_FRAMEWORK = {
         'login': '5/min',
         # SYSPCC-024: per-username login limit (credential guessing from many IPs)
         'login_user': '10/min',
+        # SYSPCC-034: token refresh per IP (an office behind one NAT refreshes together)
+        'token_refresh': '300/min',
         # SYSPCC-022 (RR. HH.)
         'hr_assistant': '20/min',
         'hr_download': '60/min',
@@ -281,6 +288,13 @@ REST_FRAMEWORK = {
         'hr_cv_upload': '60/min',
         'hr_cv_progress': '90/min',
         'hr_cv_posting': '20/min',
+        # SYSPCC-025 (warehouse)
+        'warehouse_lookup': '120/min',
+        'warehouse_import': '10/hour',
+        # SYSPCC-029 (entregas parciales y reversas de RQ)
+        'warehouse_delivery': '60/min',
+        # SYSPCC-030 (Master de RQ: descarga en Excel)
+        'rq_master_export': '10/min',
     },
 }
 
@@ -440,7 +454,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Private storage OUTSIDE MEDIA_ROOT: templates and generated contracts hold
 # PII (DNI, salary, address). Never served by URL — only through permissioned
-# views (FileResponse). On ephemeral-disk platforms (Render free) files are
+# views (FileResponse). On ephemeral-disk platforms (App Platform) files are
 # lost on each deploy; production should swap HR_FILE_STORAGE for a private
 # bucket with short-lived signed URLs.
 HR_PRIVATE_ROOT = config('HR_PRIVATE_ROOT', default=str(BASE_DIR / 'private_media'))
@@ -493,7 +507,7 @@ HR_CV_MAX_TOKENS = config('HR_CV_MAX_TOKENS', default=6000, cast=int)
 HR_CV_TIMEOUT = config('HR_CV_TIMEOUT', default=120, cast=int)
 HR_CV_MAX_ATTEMPTS = config('HR_CV_MAX_ATTEMPTS', default=4, cast=int)
 HR_CV_SERVER_FALLBACK = config('HR_CV_SERVER_FALLBACK', default=False, cast=bool)
-# 'celery' (worker, queue hr_cv) | 'thread' (in-process pool, demo without worker)
+# 'celery' (worker, queue hr_cv) | 'thread' (in-process pool, no worker)
 # | 'inline' (synchronous; tests only)
 HR_CV_DISPATCH = config('HR_CV_DISPATCH', default='celery')
 HR_CV_THREAD_WORKERS = config('HR_CV_THREAD_WORKERS', default=2, cast=int)
@@ -532,7 +546,7 @@ HR_CV_POSTING_MAX_COST_USD = config('HR_CV_POSTING_MAX_COST_USD', default='0.50'
 HR_CV_POSTING_DAILY_LIMIT_PER_USER = config('HR_CV_POSTING_DAILY_LIMIT_PER_USER', default=40, cast=int)  # AI reads/day
 
 # Provider: 'anthropic' (real) | 'fake' (simulated "modo de prueba gratis"; only with
-# DEBUG=True: production.py / demo.py refuse to boot with it, see guards.py).
+# DEBUG=True: production.py refuses to boot with it, see guards.py).
 HR_CV_PROVIDER = check_cv_provider_value(config('HR_CV_PROVIDER', default='anthropic'))
 HR_CV_FAKE_DELAY_SECONDS = config('HR_CV_FAKE_DELAY_SECONDS', default=1.5, cast=float)
 # Percentage (0-100) of simulated CVs that fail on purpose, to try the error UI.

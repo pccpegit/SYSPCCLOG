@@ -5,9 +5,9 @@ import {
   Mail, Briefcase, Building2, Eye, EyeOff, Check, AlertCircle, CheckCircle2,
   PenTool, Camera, Trash2, Upload, Sun, Moon, SunMoon,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
-import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/useAuth';
+import { useToast } from '../../context/useToast';
+import { useTheme } from '../../context/useTheme';
 import { changePassword, uploadSignatureFile, uploadSignatureDrawing, deleteSignature } from '../../api/auth';
 import { getOneDriveStatus, oneDriveConnect, oneDrivePoll, oneDriveDisconnect } from '../../api/almacen';
 import { BACKEND_URL } from '../../api/config';
@@ -905,7 +905,7 @@ function OneDriveTab({ showToast }) {
         }
       }, 300000);
 
-    } catch (err) {
+    } catch {
       showToast({ type: 'error', message: 'No se pudo iniciar la conexion.' });
       setConnecting(false);
     }

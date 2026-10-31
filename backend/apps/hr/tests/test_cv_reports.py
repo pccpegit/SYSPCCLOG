@@ -5,6 +5,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from django.core.signals import request_finished
+from django.db import close_old_connections
 from openpyxl import load_workbook
 
 from apps.hr.enums import CVItemStatus
@@ -93,7 +95,13 @@ class TestPdfReport:
         resp = hr_client.get(f'{BASE}{analysis.pk}/items/{item.pk}/file/')
         assert resp.status_code == 200 and resp['X-Content-Type-Options'] == 'nosniff'
         assert resp['Content-Disposition'].startswith('attachment') and 'evil' not in resp['Content-Disposition']
-        resp.close()
+        # resp.close() releases the file but also fires request_finished, whose
+        # close_old_connections would drop the PostgreSQL connection mid-test.
+        request_finished.disconnect(close_old_connections)
+        try:
+            resp.close()
+        finally:
+            request_finished.connect(close_old_connections)
         item.file.storage.delete(item.file.name)
         gone = hr_client.get(f'{BASE}{analysis.pk}/items/{item.pk}/file/')
         assert gone.status_code == 404 and gone.data['code'] == 'file_missing'

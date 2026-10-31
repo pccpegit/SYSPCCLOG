@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { getProject } from '../../api/core';
 import { createProject, updateProject } from '../../api/projects';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 import { extractFieldErrors, extractErrorMessage } from '../../utils/apiErrors';
 import NumberInput from '../../components/ui/NumberInput';
 

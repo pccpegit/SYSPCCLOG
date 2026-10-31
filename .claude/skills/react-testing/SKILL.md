@@ -5,46 +5,52 @@ description: Testing del frontend React de SYSPCC con Vitest + React Testing Lib
 
 # Testing frontend — SYSPCC (Vitest + RTL)
 
-Stack: Vite 7 → usa **Vitest** + **@testing-library/react** + `@testing-library/user-event`. Si aún no está configurado, añádelo antes de escribir tests (`vitest`, `jsdom`, `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`) y un `setupTests` con los matchers.
+Stack: Vite 7 → **Vitest** + **@testing-library/react** + `@testing-library/user-event`, ya configurado: `frontend/vitest.config.js` (entorno `jsdom`, `globals: true`, separado de `vite.config.js`), setup en `src/test/setup.js` (matchers de `jest-dom`, limpieza de cookies entre tests, polyfill de `localStorage`) y helpers/fixtures en `src/test/`. Los tests van junto al archivo que prueban (`Componente.test.jsx`).
+
+Ejecuta desde `frontend/`: `npm test` (`vitest run`) o `npm run test:watch`.
 
 ## Principios
 1. **Prueba comportamiento, no implementación.** Consulta por rol/texto que ve el usuario (`getByRole`, `getByText`, `findByRole`), no por clases CSS ni estado interno.
 2. **Mockea la capa `api/`**, no `axios` global. Así testeas el componente aislado del backend.
 3. **Cubre los 3 estados**: loading, error, y datos/empty — son justo donde fallan las páginas.
 4. **Interacción con `user-event`**, no `fireEvent` salvo casos puntuales.
-5. Envuelve en los providers reales (AuthContext, ToastContext, Router) con un helper `renderWithProviders`.
+5. Usa el helper real `renderWithProviders` (`src/test/renderWithProviders.jsx`): envuelve en el `ToastProvider` real + `MemoryRouter` (`{ route, initialEntries }`). **No** envuelve `AuthContext`: cada test mockea `context/AuthContext` (`vi.mock` + `useAuth.mockReturnValue(...)`) para fijar el usuario y sus roles.
 
 ## Patrón
 ```jsx
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
-import RequestsPage from './RequestsPage';
-import * as api from '../api/requests';
+import { renderWithProviders } from '../../test/renderWithProviders';
+import { useAuth } from '../../context/AuthContext';
+import * as api from '../../api/requests';
+import MisRQsPage from './MisRQsPage';            // página ilustrativa con estados loading/error/empty
 
-vi.mock('../api/requests');
+vi.mock('../../api/requests');
+vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 
-function renderWithProviders(ui) {
-  return render(<AuthProvider><ToastProvider><MemoryRouter>{ui}</MemoryRouter></ToastProvider></AuthProvider>);
-}
+beforeEach(() => {
+  useAuth.mockReturnValue({ currentUser: { id: 1 }, primaryRole: 'REQUESTER', isAuthenticated: true });
+});
 
-describe('RequestsPage', () => {
+describe('MisRQsPage', () => {
   it('muestra los RQs cuando la carga tiene éxito', async () => {
-    api.listRequests.mockResolvedValue([{ id: 1, code: 'RQ-001', title: 'Cemento' }]);
-    renderWithProviders(<RequestsPage />);
-    expect(await screen.findByText('RQ-001')).toBeInTheDocument();
+    // las funciones de api/ devuelven la respuesta de Axios; las listas vienen paginadas
+    api.getRequests.mockResolvedValue({ data: { count: 1, results: [{ id: 1, rq_number: 'RQ-2026-0001' }] } });
+    renderWithProviders(<MisRQsPage />);
+    expect(await screen.findByText('RQ-2026-0001')).toBeInTheDocument();
   });
 
   it('muestra estado de error si la API falla', async () => {
-    api.listRequests.mockRejectedValue(new Error('boom'));
-    renderWithProviders(<RequestsPage />);
+    api.getRequests.mockRejectedValue(new Error('boom'));
+    renderWithProviders(<MisRQsPage />);
     expect(await screen.findByText(/no se pudieron cargar/i)).toBeInTheDocument();
   });
 
   it('muestra estado vacío sin datos', async () => {
-    api.listRequests.mockResolvedValue([]);
-    renderWithProviders(<RequestsPage />);
-    expect(await screen.findByText(/no hay rqs/i)).toBeInTheDocument();
+    api.getRequests.mockResolvedValue({ data: { count: 0, results: [] } });
+    renderWithProviders(<MisRQsPage />);
+    expect(await screen.findByText(/no hay/i)).toBeInTheDocument();
   });
 
   it('deshabilita submit mientras envía el formulario', async () => {
@@ -68,4 +74,4 @@ describe('RequestsPage', () => {
 - [ ] Capa `api/` mockeada.
 - [ ] Estados loading/error/empty cubiertos.
 - [ ] Interacciones con `user-event`.
-- [ ] Providers reales vía helper.
+- [ ] `ToastProvider` + router vía `renderWithProviders`; `AuthContext` mockeado por test.

@@ -9,7 +9,7 @@ import {
   AlertCircle,
   ChevronRight,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/useAuth';
 import { getMyStats, getTickets } from '../../api/support';
 import SummaryCard from '../../components/ui/SummaryCard';
 import { TICKET_STATUS_CONFIG, TICKET_PRIORITY_CONFIG, TICKET_CATEGORY_CONFIG } from '../../data/supportConstants';

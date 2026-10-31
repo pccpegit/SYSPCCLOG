@@ -1,5 +1,5 @@
 import { Sun, Moon } from 'lucide-react';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme } from '../../context/useTheme';
 
 // Header toggle (SYSPCC-020, Decisión 6). Extracted from Header.jsx so it
 // can be tested in isolation without mounting the whole header/sidebar/auth

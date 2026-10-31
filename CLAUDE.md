@@ -12,25 +12,26 @@ Supply Request Management System (SYSPCC) — internal enterprise app for a cons
 
 ## Modo de trabajo — Equipo multiagente (SIEMPRE)
 
-Este proyecto se opera **por defecto como un equipo multiagente**. Para toda tarea sustantiva (nueva funcionalidad, cambio de comportamiento, bugfix no trivial, refactor, cambio de esquema, o trabajo de seguridad), actúa como **Tech Lead / orquestador** siguiendo el skill **`orquestador-syspcc`**: invócalo al inicio y delega en los 13 agentes de `.claude/agents/` a través del pipeline de 6 fases (Diseño → Backend → Frontend → Seguridad → Pruebas → Revisión → Entrega), respetando los quality gates y el protocolo de handoff.
+Este proyecto se opera **por defecto como un equipo multiagente**. Para toda tarea sustantiva (nueva funcionalidad, cambio de comportamiento, bugfix no trivial, refactor, cambio de esquema, o trabajo de seguridad), actúa como **Tech Lead / orquestador** siguiendo el skill **`orquestador-syspcc`**: invócalo al inicio y delega en los 13 agentes de `.claude/agents/` a través del pipeline de 7 fases, numeradas de la 0 a la 6 (Diseño → Backend → Frontend → Seguridad → Pruebas → Revisión → Entrega), respetando los quality gates y el protocolo de handoff.
 
 Reglas del modo equipo:
-- El **orquestador es la sesión principal**, no un subagente. Los subagentes corren aislados; la comunicación entre ellos es hub-and-spoke (el orquestador relaya la salida de cada fase a la entrada de la siguiente) más el archivo de handoff `.claude/handoffs/<feature>.md`.
+- El **orquestador es la sesión principal**, no un subagente. Los subagentes corren aislados; la comunicación entre ellos es hub-and-spoke (el orquestador relaya la salida de cada fase a la entrada de la siguiente) más el archivo de handoff `.claude/handoffs/<feature>.md` (p.ej. `SYSPCC-025-almacen-epp-real.md`; local, no versionado).
 - **No se cierra ninguna fase** sin cumplir su gate (tests en verde, code-review sin 🔴, reglas DO-NOT-MODIFY intactas).
 - **Escape hatch:** preguntas conversacionales, de solo lectura o ediciones triviales (typo, un renombrado, "¿qué hace esto?") se responden directo, sin desplegar el equipo. Ante la duda de si algo es trivial, trátalo como sustantivo y usa el equipo.
 
 Detalle completo (roster, fases, gates, handoff): skill `orquestador-syspcc`.
 
-## Flujo de trabajo Git — Ramas, tickets y PRs (SIEMPRE)
+## Flujo de trabajo Git — GitFlow con releases (SIEMPRE)
 
-**Cada cambio sustantivo va en su propia rama con ticket y PR.** No se commitea trabajo sustantivo directo sobre `develop` ni `main`. (Aplica el mismo escape hatch que el modo equipo: preguntas de solo lectura o ediciones triviales no requieren rama.)
+**Producción se despliega solo desde `main`.** Modelo completo, procedimientos de release y hotfix: `docs/09_Flujo_Git_y_Releases.md`. Resumen obligatorio:
 
-Procedimiento por cada cambio:
-1. **Ticket**: toma el próximo `SYSPCC-NNN` de `TICKETS.md` (mayor ID + 1) y registra la fila (tipo, rama, descripción, estado).
-2. **Rama** desde `develop`: `<tipo>/SYSPCC-NNN-<slug-en-kebab>`. Tipos: `feature`, `fix`, `chore`, `refactor`, `perf`, `docs`, `test`. Ej: `feature/SYSPCC-014-validacion-presupuesto`.
-3. **Commit** en Conventional Commits (`tipo(scope): descripción`), cuerpo con `Refs SYSPCC-NNN`, y el trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Commitea **solo** los archivos del cambio, nunca `git add -A` a ciegas (el repo tiene cambios de trabajo pre-existentes).
-4. **Push + PR** hacia `develop`: **muestra el plan y confirma con el usuario antes de subir** (push y PR son acciones externas). Usa `gh` para abrir el PR con la plantilla del skill `commits-y-prs`. Requiere `gh` instalado y autenticado; si no lo está, haz push y entrega el link de comparación.
-5. Al mergear, actualiza el estado del ticket en `TICKETS.md`.
+- **Ramas:** `main` = producción (solo recibe `release/vX.Y.0` y `hotfix/*` por PR, con tag `vX.Y.Z`; cada merge despliega DigitalOcean). `develop` = integración (no despliega). Un ticket = una rama `<tipo>/SYSPCC-NNN-<slug-en-kebab>` desde `develop` (tipos: `feature`, `fix`, `chore`, `refactor`, `perf`, `docs`, `test`), PR a `develop` con squash.
+- **Ticket:** próximo `SYSPCC-NNN` de `TICKETS.md` (mayor ID + 1), registrado en la misma rama. El paso a `Mergeado` (con link del PR) se registra en el siguiente PR (otra rama de ticket o la release), para no relanzar la CI solo por esa línea.
+- **Commits:** Conventional Commits (`tipo(scope): descripción`), cuerpo con `Refs SYSPCC-NNN`. **Sin atribución:** ni `Co-Authored-By` ni firmas o menciones de herramientas de IA, tampoco en PRs. Commitea **solo** los archivos del cambio, nunca `git add -A` a ciegas (el repo tiene cambios de trabajo pre-existentes).
+- **Push + PR:** **muestra el plan y confirma con el usuario antes de subir** (acciones externas). PR con `gh` y la plantilla `.github/pull_request_template.md`. Push con la cuenta `pccpegit` (ver skill `commits-y-prs`).
+- **Puertas (protección de ramas en GitHub, también para administradores):** CI en verde (`backend-tests`: pytest contra PostgreSQL 16 en paralelo + `makemigrations --check`; `frontend`: lint, Vitest y build en Node 22), rama al día con su base, conversaciones resueltas, sin force push. Si la CI falla se corrige la causa, nunca se reintenta hasta que pase.
+- **Releases:** `release/vX.Y.0` desde `develop` → PR a `main` (merge commit) → tag + GitHub Release + `CHANGELOG.md`. Merge a `main` solo con OK explícito del usuario (despliega producción).
+- **Repositorio público a propósito:** con el plan gratuito, privado elimina la protección de ramas. Nunca subir secretos ni datos personales.
 
 Detalle de formato: skills `commits-y-prs` y `docker-deploy` (agente `devops-release`).
 
@@ -41,10 +42,13 @@ Detalle de formato: skills `commits-y-prs` y `docker-deploy` (agente `devops-rel
 DJANGO_SETTINGS_MODULE=config.settings.development python manage.py runserver
 python manage.py migrate
 python manage.py seed_demo                # load demo data
-celery -A config worker -l info           # async task worker
+python manage.py seed_hr_template         # demo RR. HH. contract template (idempotent)
+python manage.py import_warehouse_excel libro.xlsx --user <usuario> --dry-run   # warehouse workbook import (preview; without --dry-run it confirms)
+celery -A config worker -l info           # async task worker (default queue)
+celery -A config worker -Q hr_cv -c 3 -n hr@%h -l info   # RR. HH. worker: CV analysis queue hr_cv
 celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
-pytest                                     # run all tests
-pytest tests/test_foo.py::TestClass::test_method  # single test
+DJANGO_SETTINGS_MODULE=config.settings.development pytest   # run all tests (no pytest.ini: the settings module comes from the env)
+pytest apps/<app>/tests/test_foo.py::TestClass::test_method  # single test (same env var; tests live in apps/<app>/tests/)
 ```
 
 ### Frontend (run from `frontend/`)
@@ -52,36 +56,43 @@ pytest tests/test_foo.py::TestClass::test_method  # single test
 npm run dev       # Vite dev server, port 5173
 npm run build
 npm run lint      # ESLint
+npm test          # Vitest (vitest run); npm run test:watch for watch mode
 ```
 
-### Docker (from repo root)
+### Docker (from repo root) — the usual dev environment
 ```bash
 docker compose --env-file .env.docker up --build
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
+docker compose exec -T backend pytest -q -p no:cacheprovider   # backend suite (.env.docker sets DJANGO_SETTINGS_MODULE)
 ```
+Services in `docker-compose.yml`: `redis`, `backend` (runserver, SQLite in the `sqlite_data` volume), `frontend` (Vite), `celery_worker`, `celery_worker_hr` (queue `hr_cv`), `celery_beat`.
 
 ## Architecture
 
 ### Backend (`backend/`)
-- **Settings split:** `config/settings/{base,development,production}.py`
-- **Django apps:** `core` (users, auth, projects, departments), `rq` (requests, approvals, suppliers, quotations, POs, workflow), `warehouse` (inventory, receipts, dispatch, QC), `administracion`
-- **Models** live in `apps/<app>/models/` with `__init__.py` re-exports; one file per entity
-- **Services** in `apps/<app>/services/` hold business logic out of views. `WorkflowEngine` is the central state-machine orchestrator for request lifecycle transitions (43 states, 5 phases)
-- **Auth:** Cookie-based JWT via `CookieJWTAuthentication`. SimpleJWT with 15-min access / 1-day refresh tokens, rotation + blacklist
+- **Settings split:** `config/settings/{base,development,production}.py` (production runs only on DigitalOcean App Platform: spec `.do/app.yaml`, `backend/scripts/do-start.sh` / `do-predeploy.sh`, guide `docs/08_Guia_Despliegue_DigitalOcean.md`); `config/settings/guards.py` holds pure startup checks
+- **Django apps (`INSTALLED_APPS`):** `core` (users/roles, auth, projects, departments + annual plans, personal), `rq` (requests, approvals, suppliers, quotations, POs, claims, notifications, workflow), `warehouse` (inventory catalog, movements/kardex, receipts, dispatch, EPP deliveries, Excel import), `administracion` (pasajes), `support` (IT tickets), `hr` (RR. HH.: contract generator from Word templates + bulk CV analysis)
+- **Models** live in `apps/<app>/models/` with `__init__.py` re-exports, one file per entity (`core`, `rq`, `warehouse`, `hr`); `administracion` and `support` use a single `models.py`
+- **Services** hold business logic out of views: `apps/<app>/services/` (`core`, `rq`, `warehouse`, `hr`) or `services.py` (`administracion`, `support`). `WorkflowEngine` (`apps/rq/services/workflow_engine.py`) is the central state-machine orchestrator for request lifecycle transitions: `RQStatusChoices` has 47 values (10 of them are not used by any transition), `ApprovalActionChoices` 37, `TRANSITIONS` 71 entries, 5 phases per flow
+- **Flow guard:** `apps/rq/tests/test_workflow_snapshot.py` freezes, as hand-written literals, every `TRANSITIONS` entry, the values of `RQStatusChoices` / `ApprovalActionChoices` / `RoleChoices` / `RQFlowChoices` and the terminal set of `Request.is_terminal`; any unauthorized change to the gerencia flows fails the suite
+- **RQ items ↔ warehouse (SYSPCC-026):** each `RequestItem` links to the warehouse catalog (`inventory_item`) or is marked off-catalog (`is_off_catalog`); `Request.requesting_area` (OP/QC/HSE/ADM) and `RequestItem.item_source` (`ItemSourceChoices`); `GET /api/v1/requests/{id}/stock-availability/` compares requested vs. stock for logistics
+- **Warehouse (SYSPCC-025):** location layout and validation in `apps/warehouse/services/locations.py` (items may carry only the floor while the exact location is pending); EPP deliveries with a physical vale (`services/epp.py`); movement summary/kardex; two-step workbook import (preview → confirm) in `services/imports/`
+- **Auth:** Cookie-based JWT via `CookieJWTAuthentication` (HttpOnly cookies + double-submit CSRF on unsafe methods). SimpleJWT with 15-min access / 1-day refresh tokens, rotation + blacklist
 - **Admin panel** at `/mgmt-panel/` (not `/admin/`)
 - **API docs** at `/api/docs/` (Swagger, admin auth required)
-- **Celery tasks:** SLA checks (8 AM), approval reminders (9 AM/2 PM), cache invalidation (15 min), low-stock alerts (7:30 AM). Timezone: America/Lima
+- **Celery tasks (beat, `django_celery_beat` DatabaseScheduler):** SLA checks (8 AM), approval reminders (9 AM/2 PM), dashboard cache invalidation (every 15 min), low-stock alerts (7:30 AM), stale warehouse-import purge (3 AM), CV-item requeue (every 5 min, queue `hr_cv`). Timezone: America/Lima. Workers: default worker + `hr_cv` worker (CV analysis, routed by `CELERY_TASK_ROUTES`) + beat
 
 ### Frontend (`frontend/src/`)
-- **Routing (React Router v7):** Three shells — `AppShell` (`/rq/*`), `WarehouseShell` (`/almacen/*`), `AdminShell` (`/admin/*`)
+- **Routing (React Router v7):** `/` is the module selector (`SystemSelectPage`). Shells — `AppShell` (`/rq/*`), `WarehouseShell` (`/almacen/*`), `AdminShell` (`/admin/*`, with a module menu at `/admin`), `SystemAdminShell` (`/sistema/*`, users and projects, Django `is_superuser` only via `SuperUserRoute`), `SupportShell` (`/soporte/*`), `HRShell` (`/rrhh/*`: `documentos`, `plantillas`, `cvs`). `/settings` and `/cambiar-password` are standalone
 - **API layer:** Axios clients in `api/` with cookie credentials, 401 interceptor with token refresh queue
-- **State:** AuthContext + ToastContext (no Redux)
-- **Pages** organized by domain: `auth/`, `dashboard/`, `requests/`, `approvals/`, `operations/`, `almacen/`, `admin/`, `reports/`, `settings/`
-- **Icons:** Lucide React. **Excel:** ExcelJS (client-side)
+- **State:** AuthContext + ToastContext + ThemeContext (no Redux). Light/dark theme (SYSPCC-020): `.dark` class on `<html>` with Tailwind's `dark:` variant scoped to it (`index.css`), manual or automatic mode
+- **Pages** organized by domain: `auth/`, `dashboard/`, `requests/`, `approvals/`, `operations/`, `almacen/`, `admin/`, `reports/`, `settings/`, `sistema/`, `support/`, `rrhh/`
+- **Icons:** Lucide React. **Excel:** ExcelJS client-side (e.g. RQ export, `utils/exportRQ.js`); the backend uses openpyxl for the warehouse import and some server-side exports
+- **Tests:** Vitest + React Testing Library (`vitest.config.js`, setup in `src/test/setup.js`, helper `src/test/renderWithProviders.jsx`)
 
 ### API Structure
-All endpoints under `/api/v1/`. Namespaces: `auth`, `users`, `projects`, `departments`, `personal`, `rq` (requests/approvals/suppliers/quotations/purchase-orders/claims), `warehouse`, `administracion`, `hr` (RR. HH.: plantillas y documentos de personal).
+All endpoints under `/api/v1/`. URL namespaces: `auth` (`/api/v1/auth/`), `users`, `projects`, `departments`, `personal` and `rq` — these are mounted at the `/api/v1/` root (e.g. `/api/v1/requests/`, `/api/v1/request-catalog/`, `/api/v1/suppliers/`, `/api/v1/quotations/`, `/api/v1/purchase-orders/`, `/api/v1/claims/`; workflow actions via `POST /api/v1/requests/{id}/action/`) — plus `warehouse` (`/api/v1/warehouse/`), `administracion` (`/api/v1/administracion/`), `hr` (`/api/v1/hr/`: templates, documents, CV analyses) and `support` (`/api/v1/support/`: tickets).
 
 ### Roles (13)
 REQUESTER, PROJECT_RESIDENT, PROJECT_CONTROL, GENERAL_MANAGER, LOGISTICS_COORDINATOR, CENTRAL_WAREHOUSE, SITE_WAREHOUSE, DIRECT_SUPERVISOR, ADMIN_MANAGER, LOGISTICS_SUPERVISOR, LOGISTICS_CHIEF, PASAJES_MANAGER, HR_MANAGER
@@ -305,8 +316,8 @@ FASE 06 — DESPACHO
 (*) Pasos que interactuan directamente con el sistema SYSPCC.
 
 ## Key Patterns
-- Views use DRF ViewSets with custom permission classes from `apps/core/permissions.py`
-- Frontend uses `RoleRoute` wrapper for role-gated pages
-- Rate limits: anon 30/min, auth 200/min, login 5/min
+- Views use DRF ViewSets with custom permission classes from `apps/core/permissions.py` (plus `apps/rq/permissions.py` and `apps/warehouse/permissions.py`); RQ visibility is scoped in one place, `apps/rq/permissions.get_accessible_requests_queryset`
+- Frontend uses `RoleRoute` (`requiredRoles`, `redirectTo`) for role-gated pages and `SuperUserRoute` for `/sistema`
+- Rate limits: anon 30/min, auth 200/min, login 5/min, login per username 10/min, plus module scopes (`hr_*`, `warehouse_lookup`, `warehouse_import`) in `REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']`
 - Vite proxies `/api` and `/media` to backend in dev
-- Test fixtures in `conftest.py`: `api_client`, `auth_client`, role-specific users (`requester`, `project_resident`, `general_manager`)
+- Test fixtures in `backend/conftest.py`: `api_client`, `user`, `auth_client`, `superuser`, `project`, `department`, role-specific users (`requester`, `project_resident`, `project_control`, `general_manager`, `admin_manager`, `hr_manager`, `pasajes_manager`, `logistics_coordinator`, `site_warehouse`, `direct_supervisor`, …); app-level `conftest.py` in `apps/rq/tests/`, `apps/warehouse/tests/` and `apps/hr/tests/` (e.g. `ops_request`, `admin_request`)

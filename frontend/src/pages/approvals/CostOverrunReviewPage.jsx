@@ -12,7 +12,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PriorityBadge from '../../components/ui/PriorityBadge';
 import ApprovalChain from '../../components/requests/ApprovalChain';
 import ConfirmModal from '../../components/ui/ConfirmModal';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/useToast';
 
 function formatCurrency(val) {
   if (!val && val !== 0) return 'S/ 0';
@@ -134,7 +134,6 @@ export default function CostOverrunReviewPage() {
   const rqNumber = req.rq_number ?? req.rqNumber;
   const totalBudget = project?.total_budget ?? 0;
   const quotationAmount = selectedQuotation ? Number(selectedQuotation.total_amount) : 0;
-  const overAmount = totalBudget > 0 ? Math.max(0, quotationAmount - totalBudget * 0.1) : quotationAmount;
 
   return (
     <>

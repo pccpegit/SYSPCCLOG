@@ -30,3 +30,19 @@ class WarehouseDeliveryThrottle(ThrottleCacheMixin, UserRateThrottle):
 
     def get_rate(self):
         return self.THROTTLE_RATES.get(self.scope) or self.DEFAULT_RATE
+
+
+class WarehouseExitThrottle(ThrottleCacheMixin, UserRateThrottle):
+    """
+    Free exits (``batch-exit``, ``exit``, ``epp-delivery``; SYSPCC-041, scope ``warehouse_exit``).
+
+    Every exit holds the row of the yearly guide counter until it commits, so one user flooding
+    this endpoint would queue the whole company's exits. A tighter bucket than the global per-user
+    limit. Falls back to ``DEFAULT_RATE`` when a deployment (or a test) does not define the scope.
+    """
+
+    scope = 'warehouse_exit'
+    DEFAULT_RATE = '30/min'
+
+    def get_rate(self):
+        return self.THROTTLE_RATES.get(self.scope) or self.DEFAULT_RATE

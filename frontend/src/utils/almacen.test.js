@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  describeExitError,
   addDaysISO, availableStock, checkLocationCode, compact, countErrors, formatISODate, isIntegerUnit, localISODate,
   isLocationPrefix, locationInfo, splitLocation, stockShortageMessage, stockStatus, validateMovementDate, validateQuantity,
 } from './almacen';
@@ -202,5 +203,32 @@ describe('isLocationPrefix', () => {
   it('acepta undefined y null sin fallar', () => {
     expect(isLocationPrefix(undefined)).toBe(false);
     expect(isLocationPrefix(null)).toBe(false);
+  });
+});
+
+describe('describeExitError (SYSPCC-041)', () => {
+  const err = (status, data) => ({ response: { status, data } });
+
+  it('409 DUPLICATE_EXIT: salida duplicada, sin importar mayúsculas del código', () => {
+    for (const code of ['DUPLICATE_EXIT', 'duplicate_exit']) {
+      const d = describeExitError(err(409, { code, detail: 'x' }));
+      expect(d.duplicate).toBe(true);
+      expect(d.message).toMatch(/^Esta salida ya se registró hace unos segundos\./);
+      expect(d.message).toMatch(/movimientos recientes/);
+    }
+  });
+
+  it('429: límite propio de salidas, nunca el texto en inglés del servidor', () => {
+    const d = describeExitError(err(429, { detail: 'Request was throttled. Expected available in 30 seconds.' }));
+    expect(d).toEqual({
+      code: 'THROTTLED', duplicate: false, message: 'Se registraron demasiadas salidas seguidas. Espere un minuto e intente de nuevo.',
+    });
+  });
+
+  it('otros errores usan el mensaje del servidor o el texto genérico', () => {
+    expect(describeExitError(err(409, { detail: 'Stock insuficiente.' })).message).toBe('Stock insuficiente.');
+    expect(describeExitError(err(409, { code: 'OTHER', detail: 'Otro.' })).duplicate).toBe(false);
+    expect(describeExitError(new Error('red')).message).toBe('No se pudo registrar el egreso. Intente nuevamente.');
+    expect(describeExitError(err(502, '<html>')).message).toBe('No se pudo registrar el egreso. Intente nuevamente.');
   });
 });

@@ -174,6 +174,10 @@ def generate_movement_pdf(movement) -> bytes:
                 _field('Solicitado por', movement.requested_by.get_full_name() if movement.requested_by else '-', styles),
             ])
 
+    guide = movement.group.internal_guide_number if movement.group_id else None
+    if not is_entry and guide:
+        info_rows.append([_field('N° de guía', guide, styles), ''])
+
     if movement.voucher_number:
         info_rows.append([_field('N° de vale (físico)', movement.voucher_number, styles), ''])
 
@@ -446,16 +450,24 @@ def generate_group_pdf(group) -> bytes:
     elements.append(Spacer(1, 6 * mm))
 
     # ── Document title & number ───────────────────────────────────────────
+    title_right_style = ParagraphStyle(
+        'GTitleRight', parent=styles['Normal'], fontSize=12, alignment=TA_RIGHT,
+        textColor=colors.Color(0.2, 0.2, 0.2),
+    )
+    if not is_entry and group.internal_guide_number:
+        # SYSPCC-041: the automatic guide leads; the internal vale number goes below it.
+        title_right = Paragraph(
+            f'N° de guía <b>{_esc(group.internal_guide_number)}</b><br/>'
+            f'<font size="9">Vale interno {_esc(group.group_number)}</font>',
+            ParagraphStyle('GTitleRightGuide', parent=title_right_style, leading=15),
+        )
+    else:
+        title_right = Paragraph(f'<b>{_esc(group.group_number)}</b>', title_right_style)
     title_data = [[
         Paragraph(f'<b>{doc_type}</b>', ParagraphStyle(
             'GTitleLeft', parent=styles['Normal'], fontSize=14,
         )),
-        Paragraph(
-            f'<b>{_esc(group.group_number)}</b>',
-            ParagraphStyle('GTitleRight', parent=styles['Normal'],
-                           fontSize=12, alignment=TA_RIGHT,
-                           textColor=colors.Color(0.2, 0.2, 0.2)),
-        ),
+        title_right,
     ]]
     title_table = Table(title_data, colWidths=[doc.width * 0.6, doc.width * 0.4])
     title_table.setStyle(TableStyle([
@@ -593,8 +605,11 @@ def generate_group_pdf(group) -> bytes:
 
     # ── Footer ────────────────────────────────────────────────────────────
     elements.append(Spacer(1, 10 * mm))
+    footer = f'Documento generado automáticamente por SYSPCC - {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+    if not is_entry and group.internal_guide_number:
+        footer += '<br/>Documento interno; no reemplaza la guía de remisión electrónica.'
     elements.append(Paragraph(
-        f'Documento generado automáticamente por SYSPCC - {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+        footer,
         ParagraphStyle('GFooter', parent=styles['Normal'], fontSize=7,
                        alignment=TA_CENTER, textColor=colors.Color(0.6, 0.6, 0.6)),
     ))
@@ -610,7 +625,9 @@ def get_group_filename(group) -> str:
     """
     date_str = group.created_at.strftime('%Y-%m-%d')
     item_count = group.movements.count()
-    return f'{group.group_number}_{date_str}_{item_count}-items.pdf'
+    # SYSPCC-041: the automatic guide leads the name of the file.
+    prefix = f'{group.internal_guide_number}_' if group.internal_guide_number else ''
+    return f'{prefix}{group.group_number}_{date_str}_{item_count}-items.pdf'
 
 
 def get_group_month_folder(group) -> str:

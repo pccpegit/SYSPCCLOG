@@ -41,7 +41,7 @@ Reglas
 
 SYSPCC-029 (entregas parciales y reversas)
 ------------------------------------------
-* `deliver_request_items`: el almacén entrega por tandas (cantidad real, guía y fecha operativa)
+* `deliver_request_items`: el almacén entrega por tandas (cantidad real y fecha operativa; la guía GR-AAAA-NNNNNN es automática, SYSPCC-041)
   contra el MISMO pool y el MISMO remanente. No cambia el estado del RQ: el rol que puede hacerlo
   se LEE de `TRANSITIONS` para la acción DISPATCHED en el (flujo, estado) del RQ y solo en
   IN_STOCK / QUALITY_APPROVED. Bloqueos en orden fijo: Request → ítems → stock.
@@ -52,6 +52,7 @@ SYSPCC-029 (entregas parciales y reversas)
 """
 import logging
 from dataclasses import dataclass, field
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db import transaction
@@ -224,11 +225,13 @@ def _plan_lines(request):
     return result
 
 
-def _write_documents(request, user, dispatched, *, guide_number, group_notes, dispatch_notes,
-                     movement_date=None):
+def _write_documents(request, user, dispatched, *, group_notes, dispatch_notes, movement_date=None):
     """
     Vale de salida + WarehouseDispatch + líneas. `dispatched` es [(RequestItem, Decimal)].
     Debe correr dentro de una transacción (el llamador decide el savepoint).
+
+    SYSPCC-041: el N° de guía (GR-AAAA-NNNNNN) lo genera `register_exit_batch` en esta misma
+    transacción; aquí solo se copia al `WarehouseDispatch`.
     """
     from apps.warehouse.models import WarehouseDispatch, WarehouseDispatchItem
 
@@ -253,7 +256,6 @@ def _write_documents(request, user, dispatched, *, guide_number, group_notes, di
         authorized_by_id=None,
         notes=group_notes,
         registered_by=user,
-        guide_number=guide_number,
         movement_date=movement_date,
     )
 
@@ -266,7 +268,7 @@ def _write_documents(request, user, dispatched, *, guide_number, group_notes, di
         origin=WarehouseOriginChoices.CENTRAL,
         destination_project=request.project,
         destination_department=request.department,
-        dispatch_guide_number=guide_number or '',
+        dispatch_guide_number=group.internal_guide_number or '',
         movement_group=group,
         notes=dispatch_notes,
     )
@@ -352,13 +354,13 @@ def _record_shortages(request, user, shortages):
         )
 
 
-def dispatch_request_items(request, user, *, guide_number: str = '') -> DispatchResult:
+def dispatch_request_items(request, user) -> DispatchResult:
     """
     Despacha el REMANENTE de cada línea del RQ desde el pool del almacén central.
 
     No lanza por falta de stock ni por vínculos sin confirmar: devuelve el detalle en
-    `DispatchResult` y deja los faltantes registrados. ``guide_number`` es opcional y solo se
-    guarda si quien llama lo conoce (el motor no lo recibe: no se inventa).
+    `DispatchResult` y deja los faltantes registrados. El N° de guía del vale lo asigna el almacén
+    automáticamente (SYSPCC-041), también en este despacho automático.
     """
     with transaction.atomic():
         # Request primero (orden fijo Request → ítems → stock). Dentro de `execute()` la fila ya
@@ -374,7 +376,6 @@ def dispatch_request_items(request, user, *, guide_number: str = '') -> Dispatch
                         notes += '. Faltantes: ' + '; '.join(s.describe() for s in result.shortages)
                     result.group, result.dispatch = _write_documents(
                         request, user, result.dispatched,
-                        guide_number=guide_number or '',
                         group_notes=f'{AUTO_DISPATCH_NOTES_PREFIX}{request.rq_number}',
                         dispatch_notes=notes,
                     )
@@ -558,23 +559,37 @@ class DeliveryResult:
     lines: list          # [(RequestItem, Decimal)]
 
 
-def _duplicate_guide_exists(request, guide_number: str) -> bool:
+# SYSPCC-041: ventana de la defensa contra el doble envío (la guía ya no se escribe a mano, así que
+# ya no sirve de huella de la entrega).
+DUPLICATE_DELIVERY_WINDOW = timedelta(seconds=15)
+
+
+def _duplicate_delivery_exists(request, user, lines) -> bool:
     """
-    ¿Ya hay una entrega VIGENTE de este RQ con la misma guía? Es la defensa contra el doble clic
-    (la segunda petición espera el bloqueo del RQ y aquí ve la entrega de la primera). Una entrega
-    anulada o una reversa no cuenta: se puede volver a registrar con la guía corregida.
+    ¿El MISMO usuario registró hace menos de 15 s una entrega VIGENTE de este RQ con exactamente las
+    mismas líneas y cantidades? Es la defensa contra el doble clic: la segunda petición espera el
+    bloqueo del RQ y aquí ve la entrega de la primera. Una entrega anulada o una reversa no cuenta.
+    Es una heurística; una entrega distinta (otras líneas o cantidades) u otro usuario pasan.
     """
     from apps.warehouse.models import WarehouseDispatch
 
-    return (
+    wanted = {line['request_item_id']: line['quantity'] for line in lines}
+    recent = (
         WarehouseDispatch.objects
-        .filter(request=request, reverses__isnull=True, dispatch_guide_number__iexact=guide_number)
+        .filter(
+            request=request, reverses__isnull=True, dispatched_by=user,
+            dispatched_at__gte=timezone.now() - DUPLICATE_DELIVERY_WINDOW,
+        )
         .exclude(reversals__isnull=False)
-        .exists()
+        .prefetch_related('items')
+    )
+    return any(
+        {item.request_item_id: item.quantity_dispatched for item in dispatch.items.all()} == wanted
+        for dispatch in recent
     )
 
 
-def deliver_request_items(request_id, user, lines, *, guide_number: str, movement_date=None,
+def deliver_request_items(request_id, user, lines, *, movement_date=None,
                           notes: str = '') -> DeliveryResult:
     """
     Registra UNA tanda de entrega (paso 5 de la Fase 04 del almacén) contra el RQ `request_id`.
@@ -584,11 +599,11 @@ def deliver_request_items(request_id, user, lines, *, guide_number: str, movemen
     líneas con problema (`DELIVERY_LINES_INVALID`). No cambia el estado del RQ.
 
     Orden de bloqueos: Request → ítems → filas de stock. El remanente (cantidad − entregado
-    neto) se calcula DENTRO de la transacción, con el RQ bloqueado.
+    neto) se calcula DENTRO de la transacción, con el RQ bloqueado. El N° de guía
+    (GR-AAAA-NNNNNN) se asigna al escribir el vale, al final de los bloqueos (SYSPCC-041).
     """
     from apps.rq.models import ActivityLog
 
-    guide_number = (guide_number or '').strip()
     with transaction.atomic():
         request = _lock_request(request_id)
         assert_can_deliver(request, user)
@@ -602,12 +617,11 @@ def deliver_request_items(request_id, user, lines, *, guide_number: str, movemen
                 status=400, extra={'min_date': created_on.isoformat()},
             )
 
-        if _duplicate_guide_exists(request, guide_number):
+        if _duplicate_delivery_exists(request, user, lines):
             raise DeliveryError(
-                'DUPLICATE_GUIDE',
-                f'Ya hay una entrega vigente de este requerimiento con la guía «{guide_number}». '
-                'Si fue un error, anúlela antes de registrarla de nuevo.',
-                extra={'dispatch_guide_number': guide_number},
+                'DUPLICATE_DELIVERY',
+                'Esta entrega ya se registró hace unos segundos. Revise el historial del requerimiento. '
+                'Si es una segunda entrega distinta, espere unos segundos y vuelva a registrarla.',
             )
 
         items = {item.pk: item for item in _lock_items(request)}
@@ -680,7 +694,6 @@ def deliver_request_items(request_id, user, lines, *, guide_number: str, movemen
         suffix = f' — {user_notes}' if user_notes else ''
         group, dispatch = _write_documents(
             request, user, shipped,
-            guide_number=guide_number,
             group_notes=f'Entrega RQ {request.rq_number}{suffix}',
             dispatch_notes=f'Entrega por tandas RQ {request.rq_number}{suffix}',
             movement_date=movement_date,
@@ -690,7 +703,7 @@ def deliver_request_items(request_id, user, lines, *, guide_number: str, movemen
         )
         ActivityLog.objects.create(
             request=request, user=user, action=DELIVERY_REGISTERED_ACTION,
-            detail=f'Entrega {dispatch.dispatch_number} (guía {guide_number}): {detail}.',
+            detail=f'Entrega {dispatch.dispatch_number} (guía {group.internal_guide_number}): {detail}.',
         )
 
     logger.info(
@@ -698,7 +711,8 @@ def deliver_request_items(request_id, user, lines, *, guide_number: str, movemen
         extra={
             'rq_number': request.rq_number, 'request_id': request.pk,
             'dispatch_id': dispatch.pk, 'group_number': group.group_number,
-            'lines': len(shipped), 'user_id': getattr(user, 'pk', None),
+            'guide_number': group.internal_guide_number, 'lines': len(shipped),
+            'user_id': getattr(user, 'pk', None),
         },
     )
     return DeliveryResult(dispatch=dispatch, group=group, lines=shipped)

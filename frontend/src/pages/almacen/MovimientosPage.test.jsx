@@ -41,6 +41,18 @@ describe('MovimientosPage', () => {
     expect(within(rows[3]).queryByText('Sin vale')).not.toBeInTheDocument(); // un ingreso no lleva vale
   });
 
+  it('un egreso nuevo muestra su guía automática en la columna «N° de vale / guía» y no «Sin vale» (SYSPCC-041)', async () => {
+    api.getMovements.mockResolvedValue({
+      data: { count: 1, results: [mov({ id: 9, movement_number: 'EXIT-2026-0009', internal_guide_number: 'GR-2026-000009' })] },
+    });
+    renderWithProviders(<MovimientosPage />);
+    const table = await screen.findByRole('table', { name: /movimientos del almacén/i });
+    expect(within(table).getByRole('columnheader', { name: 'N° de vale / guía' })).toBeInTheDocument();
+    const rows = within(table).getAllByRole('row');
+    expect(within(rows[1]).getByText('GR-2026-000009')).toBeInTheDocument();
+    expect(within(rows[1]).queryByText('Sin vale')).not.toBeInTheDocument();
+  });
+
   it('filtra por sin vale, sin fecha, vale, destino y rango de fechas', async () => {
     const user = userEvent.setup();
     renderWithProviders(<MovimientosPage />);

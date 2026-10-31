@@ -161,12 +161,15 @@ class TestDiscountsFromThePool:
         shortage = _discrepancies(ops_rq)
         assert len(shortage) == 1 and 'línea 2' in shortage[0].detail
 
-    def test_no_guide_number_is_invented(self, ops_rq, central_warehouse, helmet):
+    def test_the_automatic_dispatch_gets_the_automatic_guide(self, ops_rq, central_warehouse, helmet):
         make_item(ops_rq, 1, quantity=3, inventory_item=helmet, confirmed=True)
 
         _dispatch(ops_rq, central_warehouse)
 
-        assert WarehouseDispatch.objects.get().dispatch_guide_number == ''
+        # SYSPCC-041: nobody types it, but the vale of the automatic dispatch is numbered like any exit.
+        dispatch = WarehouseDispatch.objects.get()
+        assert dispatch.dispatch_guide_number.startswith('GR-')
+        assert dispatch.dispatch_guide_number == dispatch.movement_group.internal_guide_number
 
 
 # ──────────────────── remanente e idempotencia ────────────────────

@@ -10,7 +10,8 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.warehouse.models import (
-    Inventory, InventoryImport, InventoryImportStatus, InventoryMovement, InventoryStock, MovementGroup,
+    GuideSequence, Inventory, InventoryImport, InventoryImportStatus, InventoryMovement, InventoryStock,
+    MovementGroup,
 )
 from apps.warehouse.services import movements as movement_svc
 from apps.warehouse.services.imports import applier, parser, service
@@ -622,6 +623,13 @@ def _apply_with_the_manual_movement_services(plan, import_obj, user):
             voucher_number=g.voucher, internal_transfer=g.transfer,
             destination_personal_id=None if g.internal else g.personal_id, import_batch_id=import_obj.pk,
         )
+    # SYSPCC-041: the services now stamp every NEW exit with an automatic guide (GR-AAAA-NNNNNN); the
+    # imported history never gets one (it keeps what the workbook says). Take it out of the oracle.
+    assert MovementGroup.objects.filter(movement_type='EXIT', internal_guide_number__isnull=False).count() == len(
+        plan.exit_groups
+    )
+    MovementGroup.objects.filter(movement_type='EXIT').update(internal_guide_number=None, guide_number='')
+    InventoryMovement.objects.filter(movement_type='EXIT').update(guide_number='')
 
 
 class TestBulkWriterMatchesTheMovementServices:
@@ -664,6 +672,9 @@ class TestBulkWriterMatchesTheMovementServices:
         confirm(imp, central_warehouse)
         bulk = _snapshot()
         assert len(bulk[1]) == 13 and len(bulk[0]) == 9                       # initial + 4 entry + 4 exit vales
+        # SYSPCC-041: the imported history is never numbered and does not consume the counter.
+        assert not MovementGroup.objects.filter(internal_guide_number__isnull=False).exists()
+        assert not GuideSequence.objects.exists()
 
         # wipe everything and replay the SAME plan through the manual-movement services
         InventoryMovement.objects.all().delete()

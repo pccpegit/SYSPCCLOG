@@ -272,11 +272,11 @@ describe('Entrega / Egreso', () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await screen.findByRole('combobox', { name: /ítem 1/i });
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
+    await user.type(screen.getByLabelText(/^observación/i), 'Entrega urgente');
     await user.click(screen.getByRole('button', { name: /limpiar formulario/i }));
     const dialog = await screen.findByRole('dialog', { name: '¿Limpiar el formulario?' });
     await user.click(within(dialog).getByRole('button', { name: 'Limpiar formulario' }));
-    expect(screen.getByLabelText(/n° de vale \(físico\)/i)).toHaveValue('');
+    expect(screen.getByLabelText(/^observación/i)).toHaveValue('');
   });
 
   it('Ctrl+Enter agrega ítem y Enter a secas envía el formulario', async () => {

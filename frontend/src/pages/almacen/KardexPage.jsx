@@ -9,7 +9,7 @@ import { MOVEMENT_CONFIG, WAREHOUSE_LABELS_FULL, ITEM_TYPE_LABELS } from '../../
 import { ASSIGN_LOCATION_ROLES } from '../../data/almacenRoles';
 import { formatISODate, formatQty, hasAnyRole } from '../../utils/almacen';
 import ItemFormModal from '../../components/almacen/ItemFormModal';
-import { LocationChip } from '../../components/almacen/chips';
+import { LocationChip, VoucherCell } from '../../components/almacen/chips';
 import {
   Banner, Card, Chip, EmptyBlock, ErrorBlock, LoadingBlock,
 } from '../../components/almacen/ui';
@@ -233,7 +233,7 @@ export default function KardexPage() {
                       <th scope="col" className={thCls}>Tipo</th>
                       <th scope="col" className={`${thCls} text-right`}>Cantidad</th>
                       <th scope="col" className={`${thCls} text-right`}>Saldo</th>
-                      <th scope="col" className={thCls}>N° de vale</th>
+                      <th scope="col" className={thCls}>N° de vale / guía</th>
                       <th scope="col" className={`${thCls} hidden lg:table-cell`}>Origen / Destino</th>
                       <th scope="col" className={`${thCls} hidden xl:table-cell`}>Observación</th>
                       <th scope="col" className="px-3 py-3"><span className="sr-only">Vale</span></th>
@@ -270,9 +270,7 @@ export default function KardexPage() {
                             {formatQty(mov.balance_after)}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            {mov.voucher_number
-                              ? <span className="font-mono text-xs text-gray-700">{mov.voucher_number}</span>
-                              : mov.movement_type === 'EXIT' ? <Chip tone="amber">Sin vale</Chip> : <span className="text-gray-400">—</span>}
+                            <VoucherCell movement={mov} />
                           </td>
                           <td className="px-4 py-3 hidden lg:table-cell text-xs text-gray-600">{origin || '—'}</td>
                           <td className="px-4 py-3 hidden xl:table-cell text-xs text-gray-600 max-w-[16rem] break-words">{mov.notes || '—'}</td>

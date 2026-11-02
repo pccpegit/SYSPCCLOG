@@ -27,3 +27,31 @@ export function LocationChip({ item }) {
     </Chip>
   );
 }
+
+/**
+ * Celda «N° de vale / guía» de un movimiento (SYSPCC-041). La guía automática (`internal_guide_number`)
+ * es el identificador real y va SIEMPRE primero; el N° de vale físico es un texto libre (histórico o
+ * escrito por un cliente) y solo se muestra como dato secundario, para que no pueda hacerse pasar por
+ * una guía. «Sin vale» solo se alerta en egresos que no tienen ni guía ni vale.
+ */
+export function VoucherCell({ movement }) {
+  const guide = movement.internal_guide_number;
+  const voucher = movement.voucher_number;
+  if (guide) {
+    return (
+      <span className="block">
+        <span className="block font-mono text-xs font-semibold text-gray-800">
+          <span className="sr-only">Guía </span>{guide}
+        </span>
+        {voucher && (
+          <span className="block text-xs text-gray-500">
+            Vale físico: <span className="font-mono">{voucher}</span>
+          </span>
+        )}
+      </span>
+    );
+  }
+  if (voucher) return <span className="font-mono text-xs text-gray-700">{voucher}</span>;
+  if (movement.movement_type !== 'EXIT') return <span className="text-gray-400">—</span>;
+  return <Chip tone="amber">Sin vale</Chip>;
+}

@@ -2,7 +2,9 @@
 Entrega guiada de un RQ desde el almacén (SYSPCC-029) · Fase 04 del ciclo operativo.
 
     GET  /warehouse/pending-requests/{rq_id}/picking/                      pasos 1-2 (lista de picking)
-    POST /warehouse/pending-requests/{rq_id}/deliver/                      paso 5 (entrega por tandas)
+    POST /warehouse/pending-requests/{rq_id}/deliver/                      paso 5 (entrega por tandas;
+                                                                           la guía GR-AAAA-NNNNNN la
+                                                                           genera el servidor, SYSPCC-041)
     POST /warehouse/pending-requests/{rq_id}/deliveries/{id}/reverse/      anula una entrega
 
 Nada de esto cambia el estado del RQ ni toca el WorkflowEngine: son operaciones de almacén. La
@@ -38,6 +40,7 @@ from apps.warehouse.serializers_rq import (
     ReverseInputSerializer,
 )
 from apps.warehouse.services import rq_fulfillment as fulfillment
+from apps.warehouse.services.guides import GuideNumberBusyError
 from apps.warehouse.services.rq_picking import build_picking, picking_statuses
 from apps.warehouse.throttling import WarehouseDeliveryThrottle
 
@@ -77,7 +80,7 @@ def _unexpected(request, rq_id, event):
 
 
 # Constraint / column names that identify each IntegrityError we know how to explain.
-_VOUCHER_NUMBER_MARKERS = ('group_number', 'movement_number')
+_VOUCHER_NUMBER_MARKERS = ('group_number', 'movement_number', 'internal_guide_number')
 _SINGLE_REVERSAL_MARKERS = ('uniq_dispatch_single_reversal', 'reverses')
 
 
@@ -187,12 +190,14 @@ class PendingRequestDeliveryViewSet(RejectNulQueryParamsMixin, viewsets.ViewSet)
             result = fulfillment.deliver_request_items(
                 rq.pk, request.user,
                 [dict(line) for line in data['lines']],
-                guide_number=data['dispatch_guide_number'],
                 movement_date=data.get('movement_date'),
                 notes=data.get('notes', ''),
             )
         except fulfillment.DeliveryError as exc:
             return _error(exc, request, rq_id)
+        except GuideNumberBusyError as exc:
+            logger.warning('warehouse.rq_delivery.guide_busy', extra={'request_id': rq_id})
+            return _error_response(status.HTTP_409_CONFLICT, exc.message, exc.code)
         except IntegrityError as exc:
             return _integrity_error(exc, request, rq_id, 'warehouse.rq_delivery')
         except Exception:

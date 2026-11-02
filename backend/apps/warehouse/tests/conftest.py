@@ -32,6 +32,42 @@ def isolated_throttle_counters(monkeypatch):
     monkeypatch.setattr(ThrottleCacheMixin, 'cache', property(lambda self: local))
 
 
+@pytest.fixture(autouse=True)
+def relaxed_exit_guards(monkeypatch):
+    """
+    SYSPCC-041 added two guards to the free exits (batch-exit, exit, epp-delivery): the
+    ``warehouse_exit`` throttle (30/min) and the double-submit window (identical exit by the same
+    user in 15 s -> 409 DUPLICATE_EXIT). Most tests of this suite register the same exit over and
+    over on purpose, and the fuzz tests post hundreds of payloads, so both guards are off by default.
+    A test that exercises them asks for ``real_exit_guards``.
+    """
+    from datetime import timedelta
+
+    from apps.warehouse.services import movements
+    from apps.warehouse.throttling import WarehouseExitThrottle
+
+    monkeypatch.setattr(movements, 'DUPLICATE_EXIT_WINDOW', timedelta(0))
+    monkeypatch.setattr(
+        WarehouseExitThrottle, 'THROTTLE_RATES',
+        {**WarehouseExitThrottle.THROTTLE_RATES, 'warehouse_exit': '1000000/min'},
+    )
+
+
+@pytest.fixture
+def real_exit_guards(monkeypatch, relaxed_exit_guards):
+    """Put the production values of the exit guards back (15 s window, 30 requests/min)."""
+    from datetime import timedelta
+
+    from apps.warehouse.services import movements
+    from apps.warehouse.throttling import WarehouseExitThrottle
+
+    monkeypatch.setattr(movements, 'DUPLICATE_EXIT_WINDOW', timedelta(seconds=15))
+    monkeypatch.setattr(
+        WarehouseExitThrottle, 'THROTTLE_RATES',
+        {**WarehouseExitThrottle.THROTTLE_RATES, 'warehouse_exit': '30/min'},
+    )
+
+
 def make_user(username: str, role: str, project=None):
     u = User.objects.create_user(
         username=username,

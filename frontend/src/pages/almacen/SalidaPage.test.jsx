@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../../test/renderWithProviders';
 import { exactItem, makeItem } from '../../test/almacenFixtures';
@@ -7,8 +7,10 @@ import { localISODate } from '../../utils/almacen';
 import SalidaPage from './SalidaPage';
 import { useAuth } from '../../context/useAuth';
 import * as api from '../../api/almacen';
+import { downloadResponse } from '../../utils/download';
 
 vi.mock('../../api/almacen');
+vi.mock('../../utils/download', async (importOriginal) => ({ ...(await importOriginal()), downloadResponse: vi.fn() }));
 vi.mock('../../context/useAuth', () => ({ useAuth: vi.fn() }));
 
 const ITEMS = [
@@ -16,7 +18,7 @@ const ITEMS = [
   exactItem({ id: 2, product_code: 'EPP000002', description: 'Guantes de cuero', unit: 'PAR', total_stock: 20 }),
 ];
 
-const GROUP = { id: 9, group_number: 'SAL-2026-G0004', movements: [{ id: 90 }] };
+const GROUP = { id: 9, group_number: 'SAL-2026-G0004', internal_guide_number: 'GR-2026-000001', movements: [{ id: 90 }] };
 const WORKER = { id: 7, full_name: 'Apellido Prueba Siete', position: 'Operario', project_code: 'OP' };
 
 const lineCombo = (n = 1) => screen.getByRole('combobox', { name: new RegExp(`ítem ${n}`, 'i') });
@@ -48,21 +50,22 @@ beforeEach(() => {
 });
 
 describe('SalidaPage — entrega de EPP', () => {
-  it('abre en "Entrega a trabajador" con fecha de hoy y aviso de vale faltante', async () => {
+  it('abre en "Entrega a trabajador" con fecha de hoy, sin pedir N° de vale ni avisar «Sin vale»', async () => {
     renderWithProviders(<SalidaPage />);
     await ready();
     expect(screen.getByRole('radio', { name: /entrega a trabajador/i })).toBeChecked();
     expect(screen.getByLabelText(/^fecha/i)).toHaveValue(localISODate());
-    expect(screen.getByLabelText(/n° de vale \(físico\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/el número impreso en el vale firmado/i)).toBeInTheDocument();
-    expect(screen.getByText(/no indicó n° de vale\. la entrega se guardará como «sin vale»/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/n° de vale/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sin vale/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/registrar de todos modos/i)).not.toBeInTheDocument();
+    // En su lugar hay un selector opcional de RQ pendientes por entregar.
+    expect(screen.getByRole('combobox', { name: /rq pendiente por entregar \(opcional\)/i })).toBeInTheDocument();
   });
 
-  it('con vale y trabajador de Personal usa la entrega de EPP del backend', async () => {
+  it('trabajador de Personal: usa la entrega de EPP (sin vale) y muestra la guía generada con su PDF', async () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await ready();
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
     await pickWorker(user);
     await pickItem(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '2');
@@ -74,38 +77,36 @@ describe('SalidaPage — entrega de EPP', () => {
       warehouse: 'CENTRAL',
       movement_date: localISODate(),
       items: [{ inventory: 1, quantity: 2 }],
-      voucher_number: '0123',
       recipient: { personal: 7 },
       notes: 'Entrega de mostrador',
     });
     expect(api.registerExitBatch).not.toHaveBeenCalled();
+    expect(api.deliverRqItems).not.toHaveBeenCalled();
 
     expect(await screen.findByRole('heading', { name: 'Entrega registrada' })).toBeInTheDocument();
+    const guide = screen.getByRole('group', { name: 'Guía generada' });
+    expect(within(guide).getByText('N° de guía')).toBeInTheDocument();
+    expect(within(guide).getByText('GR-2026-000001')).toBeInTheDocument();
     expect(screen.getByText('SAL-2026-G0004')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /imprimir vale/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /descargar pdf/i })).toBeInTheDocument();
     expect(screen.queryByText(/sin vale/i)).not.toBeInTheDocument();
   });
 
-  it('sin vale se guarda como «Sin vale» (salida por lotes al empleado) y lo informa', async () => {
+  it('«Descargar PDF» baja el PDF del grupo con el N° de guía como nombre', async () => {
     const user = userEvent.setup();
+    api.downloadGroupPdf.mockResolvedValue({ data: new Blob(['x']), headers: {} });
+    downloadResponse.mockResolvedValue('GR-2026-000001.pdf');
     renderWithProviders(<SalidaPage />);
     await ready();
     await pickWorker(user);
     await pickItem(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '1');
     await user.click(submitBtn());
-
-    await waitFor(() => expect(api.registerExitBatch).toHaveBeenCalledTimes(1));
-    expect(api.registerExitBatch).toHaveBeenCalledWith({
-      warehouse: 'CENTRAL',
-      movement_date: localISODate(),
-      items: [{ inventory: 1, quantity: 1 }],
-      destination_type: 'EMPLOYEE',
-      destination_detail: 'Apellido Prueba Siete',
-      destination_personal: 7,
-    });
-    expect(api.registerEppDelivery).not.toHaveBeenCalled();
-    expect(await screen.findByText(/se guardó como «sin vale»/i)).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /descargar pdf/i }));
+    await waitFor(() => expect(downloadResponse).toHaveBeenCalledTimes(1));
+    expect(api.downloadGroupPdf).toHaveBeenCalledWith(9);
+    expect(downloadResponse.mock.calls[0][1]).toBe('GR-2026-000001.pdf');
   });
 
   it('un trabajador escrito a mano se guarda como texto (sin vínculo a Personal)', async () => {
@@ -113,7 +114,6 @@ describe('SalidaPage — entrega de EPP', () => {
     api.lookupPersonal.mockResolvedValue({ data: [] });
     renderWithProviders(<SalidaPage />);
     await ready();
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '55');
     await user.type(screen.getByRole('combobox', { name: /trabajador/i }), 'Nombre Manual');
     await user.click(await screen.findByRole('option', { name: /escribir manualmente/i }));
     await pickItem(user, 1, /casco blanco/i);
@@ -205,43 +205,20 @@ describe('SalidaPage — stock y validaciones', () => {
   });
 });
 
-describe('SalidaPage — vale duplicado', () => {
-  it('ofrece corregir o registrar de todos modos y reenvía con allow_duplicate_voucher', async () => {
-    const user = userEvent.setup();
-    api.registerEppDelivery
-      .mockRejectedValueOnce({ response: { status: 409, data: { detail: 'Ya existe un egreso con ese N° de vale en este almacén.', code: 'voucher_number_exists' } } })
-      .mockResolvedValueOnce({ data: GROUP });
-    renderWithProviders(<SalidaPage />);
-    await ready();
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
-    await pickWorker(user);
-    await pickItem(user, 1, /casco blanco/i);
-    await user.type(screen.getByLabelText(/^cantidad/i), '1');
-    await user.click(submitBtn());
-
-    expect(await screen.findByText('Ya existe un egreso con ese N° de vale en este almacén.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /registrar de todos modos/i }));
-
-    await waitFor(() => expect(api.registerEppDelivery).toHaveBeenCalledTimes(2));
-    expect(api.registerEppDelivery.mock.calls[1][0]).toMatchObject({ voucher_number: '0123', allow_duplicate_voucher: true });
-    expect(await screen.findByRole('heading', { name: 'Entrega registrada' })).toBeInTheDocument();
-  });
-});
-
 describe('SalidaPage — flujo de mostrador y otros tipos', () => {
-  it('"Registrar y agregar otra entrega" conserva la fecha y limpia vale, trabajador y líneas', async () => {
+  it('"Registrar y agregar otra entrega" conserva la fecha y limpia trabajador y líneas', async () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await ready();
     fireEvent.change(screen.getByLabelText(/^fecha/i), { target: { value: localISODate() } });
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
     await pickWorker(user);
     await pickItem(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '1');
     await user.click(screen.getByRole('button', { name: /registrar y agregar otra entrega/i }));
 
     await waitFor(() => expect(api.registerEppDelivery).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByLabelText(/n° de vale \(físico\)/i)).toHaveValue(''));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /trabajador/i })).toHaveValue(''));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /trabajador/i })).toHaveFocus());
     expect(screen.getByLabelText(/^fecha/i)).toHaveValue(localISODate());
     expect(screen.getByRole('combobox', { name: /trabajador/i })).toHaveValue('');
     expect(screen.queryByRole('heading', { name: 'Entrega registrada' })).not.toBeInTheDocument();
@@ -272,7 +249,6 @@ describe('SalidaPage — flujo de mostrador y otros tipos', () => {
     api.registerEppDelivery.mockReturnValue(new Promise((resolve) => { release = resolve; }));
     renderWithProviders(<SalidaPage />);
     await ready();
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '1');
     await pickWorker(user);
     await pickItem(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '1');
@@ -296,7 +272,6 @@ describe('SalidaPage — roles', () => {
     expect(screen.getByLabelText(/^almacén/i)).toHaveValue('SITE');
     expect(screen.getByLabelText(/^almacén/i)).toBeDisabled();
 
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '8');
     await pickWorker(user);
     await pickItem(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '2');
@@ -314,7 +289,7 @@ describe('SalidaPage — roles', () => {
   });
 });
 
-describe('SalidaPage — aviso de registro (concordancia y N° de vale interno)', () => {
+describe('SalidaPage — aviso de registro (concordancia y guía automática)', () => {
   async function deliver(user) {
     await ready();
     await pickWorker(user);
@@ -323,35 +298,95 @@ describe('SalidaPage — aviso de registro (concordancia y N° de vale interno)'
     await user.click(submitBtn());
   }
 
-  it('la entrega dice «Entrega registrada» (femenino) con el vale interno, nunca «Entrega registrado»', async () => {
+  it('la entrega dice «Entrega registrada» (femenino) con la guía generada, nunca «Entrega registrado»', async () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await deliver(user);
-    expect(await screen.findByText('Entrega registrada. Vale interno SAL-2026-G0004')).toBeInTheDocument();
+    expect(await screen.findByText('Entrega registrada. Guía GR-2026-000001')).toBeInTheDocument();
     expect(screen.queryByText(/entrega registrado/i)).not.toBeInTheDocument();
   });
 
-  it('sin número de vale interno el aviso termina en punto, sin la etiqueta colgando', async () => {
+  it('un servidor antiguo sin guía: el aviso cae al vale interno', async () => {
     const user = userEvent.setup();
-    api.registerExitBatch.mockResolvedValue({ data: {} });
+    api.registerEppDelivery.mockResolvedValue({ data: { id: 9, group_number: 'SAL-2026-G0004', movements: [{ id: 90 }] } });
+    renderWithProviders(<SalidaPage />);
+    await deliver(user);
+    expect(await screen.findByText('Entrega registrada. Vale interno SAL-2026-G0004')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Guía generada' })).not.toBeInTheDocument();
+  });
+
+  it('sin guía ni vale interno el aviso termina en punto, sin etiquetas colgando', async () => {
+    const user = userEvent.setup();
+    api.registerEppDelivery.mockResolvedValue({ data: {} });
     renderWithProviders(<SalidaPage />);
     await deliver(user);
     expect(await screen.findByText('Entrega registrada.')).toBeInTheDocument();
   });
 
-  it('el 409 de vale repetido habla de «egreso», igual que el resto de la pantalla', async () => {
+  it('si el servidor rechaza el registro muestra el mensaje y deja reintentar', async () => {
     const user = userEvent.setup();
     api.registerEppDelivery.mockRejectedValueOnce({
-      response: { status: 409, data: { detail: 'texto del servidor', code: 'voucher_number_exists' } },
+      response: { status: 409, data: { detail: 'Stock insuficiente para EPP000001.' } },
     });
     renderWithProviders(<SalidaPage />);
+    await deliver(user);
+    expect((await screen.findAllByText('Stock insuficiente para EPP000001.')).length).toBeGreaterThan(0);
+    expect(screen.getByText('No se registró la entrega.')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /tipo de egreso/i })).toBeInTheDocument();
+    expect(submitBtn()).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  it('DUPLICATE_EXIT: avisa que la salida ya se registró, ofrece ver los movimientos y NO reintenta solo', async () => {
+    const user = userEvent.setup();
+    api.registerEppDelivery.mockRejectedValue({
+      response: { status: 409, data: { code: 'DUPLICATE_EXIT', detail: 'texto del servidor' } },
+    });
+    renderWithProviders(<SalidaPage />);
+    await deliver(user);
+
+    expect((await screen.findAllByText(/esta salida ya se registró hace unos segundos/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText('No se registró la entrega.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ver movimientos recientes' })).toHaveAttribute('href', '/almacen/movimientos');
+    expect(screen.queryByRole('heading', { name: 'Entrega registrada' })).not.toBeInTheDocument();
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+    expect(api.registerEppDelivery).toHaveBeenCalledTimes(1);          // sin reintento automático
+    expect(submitBtn()).toHaveAttribute('aria-disabled', 'false');     // el usuario decide
+  });
+
+  it('DUPLICATE_EXIT también aplica a una salida a proyecto', async () => {
+    const user = userEvent.setup();
+    api.registerExitBatch.mockRejectedValue({ response: { status: 409, data: { code: 'DUPLICATE_EXIT' } } });
+    renderWithProviders(<SalidaPage />);
     await ready();
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0123');
-    await pickWorker(user);
+    await user.click(screen.getByRole('radio', { name: /proyecto \/ obra/i }));
+    await user.type(screen.getByLabelText(/^destino/i), 'Proyecto Arequipa');
     await pickItem(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '1');
+    await user.click(screen.getByRole('button', { name: /registrar egreso/i }));
+    expect(await screen.findByRole('link', { name: 'Ver movimientos recientes' })).toBeInTheDocument();
+    expect(screen.getByText('No se registró el egreso.')).toBeInTheDocument();
+  });
+
+  it('el aviso de duplicado desaparece al volver a intentar con éxito', async () => {
+    const user = userEvent.setup();
+    api.registerEppDelivery
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'DUPLICATE_EXIT' } } })
+      .mockResolvedValueOnce({ data: GROUP });
+    renderWithProviders(<SalidaPage />);
+    await deliver(user);
+    await screen.findByRole('link', { name: 'Ver movimientos recientes' });
     await user.click(submitBtn());
-    expect(await screen.findByText('Ya existe un egreso con ese N° de vale en este almacén.')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /tipo de egreso/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Entrega registrada' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Ver movimientos recientes' })).not.toBeInTheDocument();
+  });
+
+  it('429 (límite de salidas): pide esperar un minuto, sin enlace de duplicado', async () => {
+    const user = userEvent.setup();
+    api.registerEppDelivery.mockRejectedValue({ response: { status: 429, data: { detail: 'Request was throttled.' } } });
+    renderWithProviders(<SalidaPage />);
+    await deliver(user);
+    expect((await screen.findAllByText('Se registraron demasiadas salidas seguidas. Espere un minuto e intente de nuevo.')).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/request was throttled/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Ver movimientos recientes' })).not.toBeInTheDocument();
   });
 });

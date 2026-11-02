@@ -61,6 +61,8 @@ REST_FRAMEWORK_THROTTLE_RATES = {
     'warehouse_import': '10/hour',
     # SYSPCC-029 (entregas parciales y reversas de RQ)
     'warehouse_delivery': '60/min',
+    # SYSPCC-041 (salidas libres del almacén: batch-exit, exit, epp-delivery)
+    'warehouse_exit': '30/min',
     # SYSPCC-030 (Master de RQ: descarga en Excel)
     'rq_master_export': '10/min',
 }

@@ -19,7 +19,7 @@ const ITEMS = [
   exactItem({ id: 2, product_code: 'EPP000002', description: 'Guantes de cuero', unit: 'PAR', total_stock: 0, stocks: [] }),
   exactItem({ id: 3, product_code: 'EPP000003', description: 'Lentes claros', unit: 'EA', total_stock: 9 }),
 ];
-const GROUP = { id: 9, group_number: 'SAL-2026-G0007', movements: [{ id: 90 }] };
+const GROUP = { id: 9, group_number: 'SAL-2026-G0007', internal_guide_number: 'GR-2026-000007', movements: [{ id: 90 }] };
 
 const pick = async (user, n, name) => {
   await user.click(screen.getByRole('combobox', { name: new RegExp(`ítem ${n}`, 'i') }));
@@ -72,25 +72,24 @@ describe('SalidaPage — ajuste', () => {
   });
 });
 
-describe('SalidaPage — vale repetido en un egreso a proyecto', () => {
-  it('«Registrar de todos modos» reenvía por la salida por lotes con allow_duplicate_voucher', async () => {
+describe('SalidaPage — egreso a proyecto o departamento (sin vale físico)', () => {
+  it('registra la salida por lotes sin N° de vale ni opción de «registrar de todos modos»', async () => {
     const user = userEvent.setup();
-    api.registerExitBatch
-      .mockRejectedValueOnce({ response: { status: 409, data: { detail: 'Ya existe un egreso con ese N° de vale en este almacén.', code: 'voucher_number_exists' } } })
-      .mockResolvedValueOnce({ data: GROUP });
     renderWithProviders(<SalidaPage />);
     await chooseMode(user, /proyecto \/ obra/i);
     await user.type(screen.getByLabelText(/^destino/i), 'Proyecto Arequipa');
-    await user.type(screen.getByLabelText(/n° de vale \(físico\)/i), '0456');
+    expect(screen.queryByLabelText(/n° de vale/i)).not.toBeInTheDocument();
     await pick(user, 1, /casco blanco/i);
     await user.type(screen.getByLabelText(/^cantidad/i), '1');
     await user.click(screen.getByRole('button', { name: /registrar egreso/i }));
 
-    await user.click(await screen.findByRole('button', { name: /registrar de todos modos/i }));
-    await waitFor(() => expect(api.registerExitBatch).toHaveBeenCalledTimes(2));
-    expect(api.registerExitBatch.mock.calls[0][0]).not.toHaveProperty('allow_duplicate_voucher');
-    expect(api.registerExitBatch.mock.calls[1][0]).toMatchObject({ voucher_number: '0456', allow_duplicate_voucher: true });
+    await waitFor(() => expect(api.registerExitBatch).toHaveBeenCalledTimes(1));
+    const payload = api.registerExitBatch.mock.calls[0][0];
+    expect(payload).not.toHaveProperty('voucher_number');
+    expect(payload).not.toHaveProperty('allow_duplicate_voucher');
+    expect(payload).not.toHaveProperty('guide_number');
     expect(await screen.findByRole('heading', { name: 'Egreso registrado' })).toBeInTheDocument();
+    expect(screen.queryByText(/sin vale/i)).not.toBeInTheDocument();
   });
 
   it('«Solicitado por» y la observación se juntan en las notas del egreso', async () => {
@@ -201,11 +200,13 @@ describe('SalidaPage — resultado', () => {
     expect(toast.some((node) => /vale interno\s*$/i.test(node.textContent))).toBe(false);
   });
 
-  it('el aviso del egreso incluye el vale interno cuando el servidor lo envía', async () => {
+  it('el aviso del egreso incluye la guía generada y la pantalla la muestra destacada', async () => {
     const user = userEvent.setup();
     renderWithProviders(<SalidaPage />);
     await registerLines(user, 1);
-    expect(await screen.findByText('Egreso registrado. Vale interno SAL-2026-G0007')).toBeInTheDocument();
+    expect(await screen.findByText('Egreso registrado. Guía GR-2026-000007')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Guía generada' })).toHaveTextContent('GR-2026-000007');
+    expect(screen.getByText(/no reemplaza la guía de remisión electrónica/i)).toBeInTheDocument();
   });
 
   it('«Registrar otro egreso» vuelve al formulario vacío', async () => {

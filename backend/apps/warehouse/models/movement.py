@@ -81,6 +81,17 @@ class MovementGroup(models.Model):
     )
     po_number = models.CharField(_('PO / OC'), max_length=50, blank=True)
     guide_number = models.CharField(_('guía de remisión'), max_length=50, blank=True)
+    # SYSPCC-041 — N° de guía interno automático (GR-AAAA-NNNNNN) de las SALIDAS nuevas. Fuente de
+    # verdad del correlativo; ``guide_number`` queda como espejo para los lectores existentes. NULL
+    # en ingresos, reversas e historial (no se renumera).
+    internal_guide_number = models.CharField(
+        _('N° de guía interno'),
+        max_length=20,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_('GR-AAAA-NNNNNN, asignado al registrar la salida. Correlativo único por año.'),
+    )
     internal_transfer = models.CharField(_('transferencia interna'), max_length=100, blank=True)
     destination_personal = models.ForeignKey(
         'core.Personal',
@@ -107,9 +118,42 @@ class MovementGroup(models.Model):
         verbose_name = _('vale de movimiento')
         verbose_name_plural = _('vales de movimiento')
         ordering = ['-created_at']
+        constraints = [
+            # Los NULL históricos no chocan entre sí (PostgreSQL y SQLite).
+            models.UniqueConstraint(fields=['internal_guide_number'], name='uniq_movgroup_internal_guide'),
+            models.CheckConstraint(
+                condition=models.Q(internal_guide_number__isnull=True) | models.Q(movement_type='EXIT'),
+                name='chk_movgroup_guide_only_exit',
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.group_number
+
+
+class GuideSequence(models.Model):
+    """
+    Contador del N° de guía interno (SYSPCC-041): una fila por año (America/Lima).
+
+    Se incrementa dentro de la MISMA transacción que descuenta el stock, con la fila bloqueada
+    (``select_for_update``): si la transacción revierte, el contador revierte (sin saltos) y la fila
+    bloqueada serializa a los concurrentes (sin duplicados). No es una SEQUENCE de PostgreSQL
+    porque esa no es transaccional. Ver ``services/guides.py``.
+    """
+
+    year = models.PositiveSmallIntegerField(_('año'), primary_key=True)
+    last_value = models.PositiveIntegerField(_('último número emitido'), default=0)
+
+    class Meta:
+        db_table = 'warehouse_guide_sequences'
+        verbose_name = _('correlativo de guías')
+        verbose_name_plural = _('correlativos de guías')
+        constraints = [
+            models.CheckConstraint(condition=models.Q(last_value__gte=0), name='chk_guide_sequence_nonneg'),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.year}: {self.last_value}'
 
 
 class InventoryMovement(models.Model):

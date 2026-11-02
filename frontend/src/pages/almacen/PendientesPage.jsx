@@ -196,7 +196,7 @@ function ActionPanel({ rq: card, actingRole, onClose, onSuccess }) {
 
           {showDeliverLink && (
             <Banner tone="blue">
-              Para entregar por tandas (entregas parciales con guía de remisión) use{' '}
+              Para entregar por tandas (entregas parciales, con N° de guía automático) use{' '}
               <Link to={`/almacen/pendientes/${rqId}/picking`} className="font-semibold underline">Picking y entrega</Link>.
             </Banner>
           )}

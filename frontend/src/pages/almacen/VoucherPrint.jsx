@@ -136,7 +136,8 @@ export default function VoucherPrint() {
               label="Fecha"
               value={voucherDateText(voucher)}
             />
-            <InfoLine label="N° de vale" value={voucher?.voucher_number || 'Sin vale'} />
+            {voucher?.internal_guide_number && <InfoLine label="N° de guía" value={voucher.internal_guide_number} />}
+            <InfoLine label="N° de vale" value={voucher?.voucher_number || (voucher?.internal_guide_number ? '—' : 'Sin vale')} />
             <InfoLine label="Tipo de destino" value={DESTINATION_LABELS[voucher?.destination_type] ?? voucher?.destination_type} />
             <InfoLine label="Almacén" value={WAREHOUSE_LABELS[voucher?.warehouse] ?? voucher?.warehouse} />
             <InfoLine label="Destino" value={voucher?.destination_detail} />

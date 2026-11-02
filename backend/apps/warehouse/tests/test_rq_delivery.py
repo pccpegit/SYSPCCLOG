@@ -10,6 +10,7 @@ remanente, todo-o-nada, doble clic, parcial + DISPATCHED final, reversa y stock,
 visibilidad, listado de Pendientes con QUALITY_APPROVED y el contrato de errores.
 """
 import datetime
+import re
 from decimal import Decimal
 
 import pytest
@@ -42,6 +43,7 @@ from apps.warehouse.models import (
     WarehouseDispatchItem,
 )
 from apps.warehouse.services.dispatch_totals import net_dispatched_by_item
+from apps.warehouse.services.rq_fulfillment import DUPLICATE_DELIVERY_WINDOW
 
 pytestmark = pytest.mark.django_db
 
@@ -61,10 +63,13 @@ def reverse_url(rq, dispatch_id):
     return f'{BASE}/{rq.pk}/deliveries/{dispatch_id}/reverse/'
 
 
-def payload(*lines, guide='GR-001-0001', **extra):
+GUIDE_RE = re.compile(r'^GR-\d{4}-\d{6}$')
+
+
+def payload(*lines, **extra):
+    # SYSPCC-041: no guide in the body, the server generates GR-AAAA-NNNNNN.
     return {
         'lines': [{'request_item_id': item.pk, 'quantity': str(qty)} for item, qty in lines],
-        'dispatch_guide_number': guide,
         **extra,
     }
 
@@ -175,8 +180,8 @@ class TestPicking:
     ):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
-        first = client.post(deliver_url(rq), payload((item, 4), guide='G-1'), format='json').json()
-        client.post(deliver_url(rq), payload((item, 3), guide='G-2'), format='json')
+        first = client.post(deliver_url(rq), payload((item, 4)), format='json').json()
+        client.post(deliver_url(rq), payload((item, 3)), format='json')
         client.post(reverse_url(rq, first['delivery']['id']), {'reason': 'Cantidad mal digitada'},
                     format='json')
 
@@ -185,7 +190,9 @@ class TestPicking:
         row = body['items'][0]
         assert (row['delivered'], row['remaining'], row['status']) == ('3.000', '7.000', 'PARTIAL')
         history = body['deliveries']
-        assert [d['dispatch_guide_number'] for d in history] == ['G-1', 'G-2', 'G-1']
+        guides = [d['dispatch_guide_number'] for d in history]
+        assert all(GUIDE_RE.match(g) for g in guides)
+        assert guides[0] == guides[2] and guides[0] != guides[1]      # the reversal quotes the original
         original, second, reversal = history
         assert original['reversed_by'] == reversal['id'] and original['can_reverse'] is False
         assert reversal['is_reversal'] and reversal['reverses'] == original['id']
@@ -276,13 +283,13 @@ class TestPicking:
 # ════════════════════════════════ deliver ════════════════════════════════
 
 class TestDeliverHappyPath:
-    def test_registers_a_partial_tanda_with_guide_date_and_discounts_the_pool(
+    def test_registers_a_partial_tanda_with_an_automatic_guide_and_discounts_the_pool(
         self, ops_in_stock, central_warehouse, project,
     ):
         rq, item = ops_in_stock
 
         response = client_for(central_warehouse).post(
-            deliver_url(rq), payload((item, 4), guide='GR-777', movement_date=TODAY.isoformat(),
+            deliver_url(rq), payload((item, 4), movement_date=TODAY.isoformat(),
                                      notes='Primera tanda'),
             format='json')
 
@@ -291,19 +298,25 @@ class TestDeliverHappyPath:
         assert pool(item.inventory_item) == Decimal('6.000')
         dispatch = WarehouseDispatch.objects.get(pk=body['delivery']['id'])
         assert dispatch.request == rq and dispatch.reverses is None
-        assert dispatch.dispatch_guide_number == 'GR-777'
+        guide = dispatch.dispatch_guide_number
+        assert GUIDE_RE.match(guide) and guide == body['delivery']['dispatch_guide_number']
         assert dispatch.dispatched_by.username == 'central_warehouse'
         assert dispatch.destination_project == project
         assert dispatch.dispatch_number == dispatch.movement_group.group_number
         assert dispatch.items.get().quantity_dispatched == Decimal('4.000')
         group = dispatch.movement_group
         assert group.movement_type == 'EXIT' and group.project_id is None
-        assert group.guide_number == 'GR-777' and group.movement_date == TODAY
+        assert group.internal_guide_number == guide and group.guide_number == guide      # source + mirror
+        assert group.movement_date == TODAY
+        assert InventoryMovement.objects.get().guide_number == guide
         assert (group.destination_type, group.destination_detail) == ('PROJECT', project.name)
         assert group.notes == f'Entrega RQ {rq.rq_number} — Primera tanda'
         assert InventoryMovement.objects.get().quantity == Decimal('4.000')
         # Response: the written document plus the refreshed picking list.
         assert body['delivery']['movement_date'] == TODAY.isoformat()
+        assert body['delivery']['dispatch_number'] == group.group_number
+        assert body['delivery']['movement_group_id'] == group.pk
+        assert body['delivery']['first_movement_id'] == InventoryMovement.objects.get().pk
         assert body['picking']['items'][0]['delivered'] == '4.000'
         assert body['picking']['items'][0]['status'] == 'PARTIAL'
         assert response['Cache-Control'] == 'no-store'
@@ -325,18 +338,18 @@ class TestDeliverHappyPath:
 
     def test_it_leaves_an_audit_trail(self, ops_in_stock, central_warehouse):
         rq, item = ops_in_stock
-        client_for(central_warehouse).post(deliver_url(rq), payload((item, 4), guide='GR-9'), format='json')
+        client_for(central_warehouse).post(deliver_url(rq), payload((item, 4)), format='json')
 
         entry = ActivityLog.objects.get(request=rq, action='DELIVERY_REGISTERED')
-        assert 'GR-9' in entry.detail and 'línea 1 × 4' in entry.detail
+        assert MovementGroup.objects.get().internal_guide_number in entry.detail and 'línea 1 × 4' in entry.detail
         assert entry.user.username == 'central_warehouse'
 
     def test_successive_tandas_up_to_the_remainder(self, ops_in_stock, central_warehouse):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
 
-        assert client.post(deliver_url(rq), payload((item, 4), guide='G-1'), format='json').status_code == 201
-        assert client.post(deliver_url(rq), payload((item, 6), guide='G-2'), format='json').status_code == 201
+        assert client.post(deliver_url(rq), payload((item, 4)), format='json').status_code == 201
+        assert client.post(deliver_url(rq), payload((item, 6)), format='json').status_code == 201
 
         assert pool(item.inventory_item) == Decimal('0.000')
         assert net_dispatched_by_item([item.pk]) == {item.pk: Decimal('10.000')}
@@ -388,7 +401,7 @@ class TestDeliverValidation:
     @pytest.mark.parametrize('lines', [[], None, 'x'])
     def test_lines_are_required_and_non_empty(self, ops_in_stock, central_warehouse, lines):
         rq, _ = ops_in_stock
-        body = {'dispatch_guide_number': 'G-1'}
+        body = {}
         if lines is not None:
             body['lines'] = lines
         assert client_for(central_warehouse).post(deliver_url(rq), body, format='json').status_code == 400
@@ -398,25 +411,24 @@ class TestDeliverValidation:
         self, ops_in_stock, central_warehouse, quantity,
     ):
         rq, item = ops_in_stock
-        body = {'lines': [{'request_item_id': item.pk, 'quantity': quantity}], 'dispatch_guide_number': 'G-1'}
+        body = {'lines': [{'request_item_id': item.pk, 'quantity': quantity}]}
 
         response = client_for(central_warehouse).post(deliver_url(rq), body, format='json')
 
         assert response.status_code == 400
         assert WarehouseDispatch.objects.count() == 0
 
-    @pytest.mark.parametrize('guide', ['', '   ', 'x' * 51, 'GR\x00001'])
-    def test_the_guide_is_required_trimmed_and_bounded(self, ops_in_stock, central_warehouse, guide):
+    @pytest.mark.parametrize('sent', ['', '   ', 'x' * 51, 'G-1', 'GR\x00001'])
+    def test_the_guide_is_not_an_input_a_client_that_sends_it_is_ignored(
+        self, ops_in_stock, central_warehouse, sent,
+    ):
         rq, item = ops_in_stock
-        response = client_for(central_warehouse).post(
-            deliver_url(rq), payload((item, 1), guide=guide), format='json')
-        assert response.status_code == 400
-        assert pool(item.inventory_item) == Decimal('10.000')
-
-    def test_the_guide_is_mandatory(self, ops_in_stock, central_warehouse):
-        rq, item = ops_in_stock
-        body = {'lines': [{'request_item_id': item.pk, 'quantity': '1'}]}
-        assert client_for(central_warehouse).post(deliver_url(rq), body, format='json').status_code == 400
+        body = payload((item, 1)) | {'dispatch_guide_number': sent}
+        response = client_for(central_warehouse).post(deliver_url(rq), body, format='json')
+        assert response.status_code == 201, response.content
+        guide = response.json()['delivery']['dispatch_guide_number']
+        assert GUIDE_RE.match(guide) and guide != sent
+        assert MovementGroup.objects.get().internal_guide_number == guide
 
     def test_a_future_date_is_rejected(self, ops_in_stock, central_warehouse):
         rq, item = ops_in_stock
@@ -477,9 +489,9 @@ class TestDeliverBusinessRules:
     def test_more_than_the_remainder_is_refused_and_writes_nothing(self, ops_in_stock, central_warehouse):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
-        client.post(deliver_url(rq), payload((item, 7), guide='G-1'), format='json')
+        client.post(deliver_url(rq), payload((item, 7)), format='json')
 
-        response = client.post(deliver_url(rq), payload((item, 4), guide='G-2'), format='json')
+        response = client.post(deliver_url(rq), payload((item, 4)), format='json')
 
         assert response.status_code == 409
         body = response.json()
@@ -537,46 +549,64 @@ class TestDeliverBusinessRules:
         assert response.status_code == 409
         assert response.json()['lines'][0]['code'] == 'INSUFFICIENT_STOCK'
 
-    def test_double_click_with_the_same_guide_is_refused(self, ops_in_stock, central_warehouse):
+    def test_double_click_with_the_same_lines_is_refused(self, ops_in_stock, central_warehouse):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
-        first = client.post(deliver_url(rq), payload((item, 4), guide='GR-5'), format='json')
+        first = client.post(deliver_url(rq), payload((item, 4)), format='json')
 
-        again = client.post(deliver_url(rq), payload((item, 4), guide=' gr-5 '), format='json')
+        again = client.post(deliver_url(rq), payload((item, 4)), format='json')
 
         assert first.status_code == 201
-        assert again.status_code == 409 and again.json()['code'] == 'DUPLICATE_GUIDE'
+        assert again.status_code == 409 and again.json()['code'] == 'DUPLICATE_DELIVERY'
         assert pool(item.inventory_item) == Decimal('6.000')
+        assert MovementGroup.objects.count() == 1 and WarehouseDispatch.objects.count() == 1
 
-    def test_the_same_guide_may_be_used_again_after_the_delivery_was_reversed(
+    def test_a_different_quantity_right_after_is_a_new_delivery(self, ops_in_stock, central_warehouse):
+        rq, item = ops_in_stock
+        client = client_for(central_warehouse)
+        client.post(deliver_url(rq), payload((item, 4)), format='json')
+
+        second = client.post(deliver_url(rq), payload((item, 3)), format='json')
+
+        assert second.status_code == 201
+        guides = list(MovementGroup.objects.order_by('pk').values_list('internal_guide_number', flat=True))
+        assert guides == ['GR-%d-000001' % timezone.localdate().year, 'GR-%d-000002' % timezone.localdate().year]
+
+    def test_the_same_lines_by_another_user_are_not_a_double_click(
+        self, ops_in_stock, central_warehouse,
+    ):
+        rq, item = ops_in_stock
+        client_for(central_warehouse).post(deliver_url(rq), payload((item, 2)), format='json')
+        other = make_user('otro_almacenero', RoleChoices.CENTRAL_WAREHOUSE)
+
+        assert client_for(other).post(deliver_url(rq), payload((item, 2)), format='json').status_code == 201
+
+    def test_the_same_lines_after_the_window_are_a_new_delivery(self, ops_in_stock, central_warehouse):
+        rq, item = ops_in_stock
+        client = client_for(central_warehouse)
+        client.post(deliver_url(rq), payload((item, 2)), format='json')
+        WarehouseDispatch.objects.update(
+            dispatched_at=timezone.now() - DUPLICATE_DELIVERY_WINDOW - datetime.timedelta(seconds=1))
+
+        assert client.post(deliver_url(rq), payload((item, 2)), format='json').status_code == 201
+
+    def test_the_same_lines_may_be_delivered_again_after_the_delivery_was_reversed(
         self, ops_in_stock, central_warehouse,
     ):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
-        first = client.post(deliver_url(rq), payload((item, 9), guide='GR-5'), format='json').json()
+        first = client.post(deliver_url(rq), payload((item, 9)), format='json').json()
         client.post(reverse_url(rq, first['delivery']['id']), {'reason': 'Cantidad mal digitada'},
                     format='json')
 
-        corrected = client.post(deliver_url(rq), payload((item, 4), guide='GR-5'), format='json')
+        corrected = client.post(deliver_url(rq), payload((item, 9)), format='json')
 
         assert corrected.status_code == 201
-        assert pool(item.inventory_item) == Decimal('6.000')
-
-    def test_the_same_guide_in_another_request_is_fine(self, ops_in_stock, central_warehouse, helmet,
-                                                         requester, project):
-        rq, item = ops_in_stock
-        other = set_status(make_request(number='RQ-2026-0778', requester=requester, project=project),
-                           'IN_STOCK')
-        other_item = make_item(other, 1, quantity=2, inventory_item=helmet, confirmed=True)
-        client = client_for(central_warehouse)
-        client.post(deliver_url(rq), payload((item, 1), guide='GR-1'), format='json')
-
-        assert client.post(deliver_url(other), payload((other_item, 1), guide='GR-1'),
-                           format='json').status_code == 201
+        assert pool(item.inventory_item) == Decimal('1.000')
 
     def test_a_missing_request_is_404(self, central_warehouse):
         response = client_for(central_warehouse).post(
-            f'{BASE}/999999/deliver/', {'lines': [], 'dispatch_guide_number': 'G'}, format='json')
+            f'{BASE}/999999/deliver/', {'lines': []}, format='json')
         assert response.status_code == 404
 
 
@@ -723,7 +753,7 @@ class TestPartialThenDispatched:
         self, ops_in_stock, central_warehouse,
     ):
         rq, item = ops_in_stock
-        client_for(central_warehouse).post(deliver_url(rq), payload((item, 4), guide='G-1'), format='json')
+        client_for(central_warehouse).post(deliver_url(rq), payload((item, 4)), format='json')
 
         self._dispatch(Request_of(rq), central_warehouse)
 
@@ -749,7 +779,7 @@ class TestPartialThenDispatched:
     def test_a_reversal_gives_the_remainder_back_to_the_final_dispatch(self, ops_in_stock, central_warehouse):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
-        tanda = client.post(deliver_url(rq), payload((item, 4), guide='G-1'), format='json').json()
+        tanda = client.post(deliver_url(rq), payload((item, 4)), format='json').json()
         client.post(reverse_url(rq, tanda['delivery']['id']), {'reason': 'Entrega mal registrada'},
                     format='json')
 
@@ -805,8 +835,8 @@ def Request_of(rq):  # noqa: N802 - a fresh instance, as the view would load it
 
 # ════════════════════════════════ reverse ════════════════════════════════
 
-def deliver(client, rq, item, qty, guide='G-1'):
-    response = client.post(deliver_url(rq), payload((item, qty), guide=guide), format='json')
+def deliver(client, rq, item, qty):
+    response = client.post(deliver_url(rq), payload((item, qty)), format='json')
     assert response.status_code == 201, response.content
     return response.json()['delivery']['id']
 
@@ -817,7 +847,7 @@ class TestReverse:
     ):
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
-        dispatch_id = deliver(client, rq, item, 4, guide='GR-3')
+        dispatch_id = deliver(client, rq, item, 4)
 
         response = client.post(reverse_url(rq, dispatch_id),
                                {'reason': 'La cantidad correcta era otra', 'movement_date': TODAY.isoformat()},
@@ -829,7 +859,8 @@ class TestReverse:
         reversal = WarehouseDispatch.objects.get(reverses=original)
         assert response.json()['delivery']['id'] == reversal.pk
         assert reversal.request == rq and reversal.dispatched_by.username == 'central_warehouse'
-        assert reversal.dispatch_guide_number == 'GR-3'
+        assert reversal.dispatch_guide_number == original.dispatch_guide_number      # quotes, takes no number
+        assert reversal.movement_group.internal_guide_number is None
         assert 'La cantidad correcta era otra' in reversal.notes
         assert reversal.items.get().quantity_dispatched == Decimal('4.000')
         entry = reversal.movement_group
@@ -1231,8 +1262,8 @@ class TestThrottle:
         rq, item = ops_in_stock
         client = client_for(central_warehouse)
 
-        first = client.post(deliver_url(rq), payload((item, 1), guide='G-1'), format='json')
-        second = client.post(deliver_url(rq), payload((item, 1), guide='G-2'), format='json')
+        first = client.post(deliver_url(rq), payload((item, 1)), format='json')
+        second = client.post(deliver_url(rq), payload((item, 1)), format='json')
 
         assert first.status_code == 201 and second.status_code == 429
         # The reading endpoint is not in that bucket.
@@ -1309,9 +1340,9 @@ class TestUniformErrorEnvelope:
         body = self._assert_envelope(
             client.post(deliver_url(rq), payload((item, 99)), format='json'), 409, 'DELIVERY_LINES_INVALID')
         assert body['lines'][0]['code'] == 'EXCEEDS_REMAINING'                      # extras kept
-        deliver(client, rq, item, 1, guide='G-X')
+        deliver(client, rq, item, 1)
         self._assert_envelope(
-            client.post(deliver_url(rq), payload((item, 1), guide='G-X'), format='json'), 409, 'DUPLICATE_GUIDE')
+            client.post(deliver_url(rq), payload((item, 1)), format='json'), 409, 'DUPLICATE_DELIVERY')
         self._assert_envelope(
             client.post(reverse_url(rq, 999999), {'reason': 'Motivo valido'}, format='json'),
             404, 'DELIVERY_NOT_FOUND')
@@ -1443,8 +1474,8 @@ class TestUpdateItemsUsesTheNetDispatched:
     ):
         rq, item = ops_in_stock
         api = client_for(central_warehouse)
-        first = deliver(api, rq, item, 4, guide='G-1')
-        deliver(api, rq, item, 3, guide='G-2')
+        first = deliver(api, rq, item, 4)
+        deliver(api, rq, item, 3)
         api.post(reverse_url(rq, first), {'reason': 'Motivo valido'}, format='json')    # 3 still out
 
         response = self._patch(logistics_coordinator, rq, [{'item_id': item.pk, 'inventory_item': gloves.pk}])

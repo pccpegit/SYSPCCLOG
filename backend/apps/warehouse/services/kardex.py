@@ -295,8 +295,8 @@ def item_kardex(
         base = base.filter(movement_date__lte=date_to)
 
     ordered = (
-        base.select_related('registered_by', 'requested_by', 'authorized_by', 'project',
-                            'destination_personal')
+        base.select_related('inventory', 'registered_by', 'requested_by', 'authorized_by', 'project',
+                            'destination_personal', 'group')
         .order_by(F('movement_date').asc(nulls_last=True), 'pk')
     )
 

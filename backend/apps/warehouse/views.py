@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError, Q, Sum, DecimalField, Value, F
+from django.db.models import Prefetch, ProtectedError, Q, Sum, DecimalField, Value, F
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -54,6 +54,7 @@ from apps.warehouse.serializers import (
     BatchExitCreateSerializer,
 )
 from apps.warehouse.query_guard import RejectNulQueryParamsMixin
+from apps.warehouse.serializers_rq import DeliverableRequestSerializer
 from apps.warehouse.services import catalog as catalog_svc
 from apps.warehouse.services.dates import operational_date_label
 from apps.warehouse.services import epp as epp_svc
@@ -61,9 +62,11 @@ from apps.warehouse.services import exports as exports_svc
 from apps.warehouse.services import kardex as kardex_svc
 from apps.warehouse.services import locations as locations_svc
 from apps.warehouse.services import movements as warehouse_svc
+from apps.warehouse.services.guides import GuideNumberBusyError
 from apps.warehouse.services.personal_matching import NO_DESTINATION_LABEL, destination_key
 from apps.warehouse.services.onedrive import OneDriveService
 from apps.warehouse.services.pdf_generator import generate_movement_pdf, generate_group_pdf
+from apps.warehouse.throttling import WarehouseExitThrottle, WarehouseLookupThrottle
 from apps.core.enums import WarehouseOriginChoices
 from apps.core.utils.excel import sanitize_excel_value, truncate_for_export
 
@@ -180,6 +183,14 @@ def _voucher_exists_response():
         },
         status=status.HTTP_409_CONFLICT,
     )
+
+
+def _exit_conflict_response(exc):
+    """409 of a free exit: `DuplicateExitError` (double submit) or `GuideNumberBusyError` (retry)."""
+    logger.warning('warehouse.exit.conflict', extra={'code': exc.code})
+    return _no_store(Response(
+        {'detail': exc.message, 'code': exc.code}, status=status.HTTP_409_CONFLICT,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +403,8 @@ class InventoryViewSet(RejectNulQueryParamsMixin, viewsets.ModelViewSet):
         """Return the 5 most recent movements for a specific inventory item."""
         item = self.get_object()
         movements = InventoryMovement.objects.filter(inventory=item).select_related(
-            'registered_by'
+            'inventory', 'registered_by', 'requested_by', 'authorized_by', 'project',
+            'destination_personal', 'group',
         ).order_by(*MOVEMENT_LIST_ORDERING)[:5]
         return Response(MovementListSerializer(movements, many=True).data)
 
@@ -800,11 +812,17 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
     pagination_class = WarehousePagination
     queryset = InventoryMovement.objects.select_related(
         'inventory', 'registered_by', 'requested_by', 'authorized_by', 'project',
-        'destination_personal',
+        'destination_personal', 'group',
     ).all()
 
     def get_queryset(self):
         return super().get_queryset().order_by(*MOVEMENT_LIST_ORDERING)
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if self.action in ('exit', 'batch_exit', 'epp_delivery'):
+            throttles.append(WarehouseExitThrottle())      # SYSPCC-041
+        return throttles
 
     def get_permissions(self):
         if self.action == 'epp_delivery':
@@ -858,7 +876,10 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
         if voucher_number:
             qs = qs.filter(voucher_number__iexact=voucher_number.strip())
         if params.get('no_voucher') == 'true':
-            qs = qs.filter(movement_type='EXIT', voucher_number='')
+            # SYSPCC-041: an exit with an automatic guide (GR-AAAA-NNNNNN) is not "without a
+            # document" even though nobody types a physical vale any more; only the historic
+            # exits (no guide) can be missing their vale.
+            qs = qs.filter(movement_type='EXIT', voucher_number='', group__internal_guide_number__isnull=True)
         if destination_personal is not None:
             qs = qs.filter(destination_personal_id=destination_personal)
         if destination:
@@ -968,12 +989,15 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
                 authorized_by_id=d.get('authorized_by'),
                 notes=d.get('notes', ''),
                 registered_by=request.user,
+                reject_recent_duplicate=True,
                 **document_kwargs(d),
             )
             return Response(
                 MovementListSerializer(movement).data,
                 status=status.HTTP_201_CREATED,
             )
+        except (warehouse_svc.DuplicateExitError, GuideNumberBusyError) as exc:
+            return _exit_conflict_response(exc)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError:
@@ -1083,6 +1107,7 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
                 authorized_by_id=d.get('authorized_by'),
                 notes=d.get('notes', ''),
                 registered_by=request.user,
+                reject_recent_duplicate=True,
                 **document_kwargs(d),
             )
             # SYSPCC-012 FIX 4: PDF generation + OneDrive upload used to run
@@ -1103,6 +1128,8 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
                 MovementGroupSerializer(group).data,
                 status=status.HTTP_201_CREATED,
             )
+        except (warehouse_svc.DuplicateExitError, GuideNumberBusyError) as exc:
+            return _exit_conflict_response(exc)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError:
@@ -1114,7 +1141,7 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
 
     # -- EPP delivery with vale (SYSPCC-025) ----------------------------------
 
-    @extend_schema(tags=['warehouse'], summary='Entrega de EPP con vale', request=EppDeliverySerializer, responses={201: MovementGroupSerializer, 400: dict, 403: dict, 409: dict})
+    @extend_schema(tags=['warehouse'], summary='Entrega de EPP a un trabajador (vale físico opcional)', request=EppDeliverySerializer, responses={201: MovementGroupSerializer, 400: dict, 403: dict, 409: dict})
     @action(detail=False, methods=['post'], url_path='epp-delivery')
     def epp_delivery(self, request):
         """
@@ -1148,9 +1175,12 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
                 notes=d.get('notes', ''),
                 project_id=d.get('project'),
                 allow_duplicate_voucher=d.get('allow_duplicate_voucher', False),
+                reject_recent_duplicate=True,
             )
         except epp_svc.DuplicateVoucherError:
             return _voucher_exists_response()
+        except (warehouse_svc.DuplicateExitError, GuideNumberBusyError) as exc:
+            return _exit_conflict_response(exc)
         except ValueError as exc:  # insufficient stock / invalid recipient
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except IntegrityError:
@@ -1231,6 +1261,8 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
             'date': movement.created_at.strftime('%d/%m/%Y %H:%M'),
             'movement_date': movement.movement_date.isoformat() if movement.movement_date else None,
             'voucher_number': movement.voucher_number,
+            # SYSPCC-041: automatic guide of the vale (null for entries and history)
+            'internal_guide_number': movement.group.internal_guide_number if movement.group_id else None,
             'warehouse': movement.get_warehouse_display(),
             'project': movement.project.name if movement.project else '',
             'project_code': movement.project.code if movement.project else '',
@@ -1293,8 +1325,11 @@ class MovementViewSet(RejectNulQueryParamsMixin, viewsets.ReadOnlyModelViewSet):
         try:
             group = (
                 MovementGroup.objects
-                .select_related('registered_by', 'project')
-                .prefetch_related('movements__inventory')
+                .select_related('registered_by', 'project', 'destination_personal')
+                .prefetch_related(Prefetch('movements', queryset=InventoryMovement.objects.select_related(
+                    'inventory', 'registered_by', 'requested_by', 'authorized_by', 'project',
+                    'destination_personal',
+                )))
                 .get(pk=group_pk)
             )
         except MovementGroup.DoesNotExist:
@@ -1612,9 +1647,16 @@ class PendingRequestsViewSet(RejectNulQueryParamsMixin, viewsets.ViewSet):
 
     GET /warehouse/pending-requests/list/   — paginated list
     GET /warehouse/pending-requests/count/  — badge count by status
+    GET /warehouse/pending-requests/deliverable/ — RQs the user can deliver now (Salida selector)
     """
 
     permission_classes = [IsAuthenticated, IsWarehouseRole]
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if self.action == 'deliverable':
+            throttles.append(WarehouseLookupThrottle())   # typeahead with debounce
+        return throttles
 
     def _get_pending_statuses(self, user):
         roles = list(user.user_roles.values_list('role', flat=True))
@@ -1735,3 +1777,45 @@ class PendingRequestsViewSet(RejectNulQueryParamsMixin, viewsets.ViewSet):
                 for item in breakdown
             ],
         })
+
+    @extend_schema(
+        tags=['warehouse'], summary='RQ pendientes por entregar',
+        parameters=[
+            OpenApiParameter(
+                'search', str,
+                description='N° de RQ, proyecto, departamento o solicitante (máx. 100 caracteres; el resto se ignora).',
+            ),
+            OpenApiParameter('flow', str, description='OPERATIONS o ADMINISTRATIVE.'),
+        ],
+        responses={200: DeliverableRequestSerializer(many=True), 400: dict, 403: dict},
+    )
+    @action(detail=False, methods=['get'], url_path='deliverable')
+    def deliverable(self, request):
+        """
+        SYSPCC-041 · RQs that the user can deliver today and that still have something left to
+        deliver (Master rule: at least one PENDIENTE / PARCIAL item the warehouse can ship).
+        Feeds the optional "Requerimiento pendiente de entrega" selector of the Salida screen.
+        The payload adds ``truncated`` (bool): true when more than 500 candidates matched and the
+        list may be incomplete, so the UI can ask the user to narrow the search.
+        """
+        from apps.core.enums import RQFlowChoices
+        from apps.warehouse.services.rq_deliverable import list_deliverable_requests
+
+        flow = request.query_params.get('flow', '').strip()
+        if flow and flow not in RQFlowChoices.values:
+            raise drf_serializers.ValidationError({'flow': 'Flujo no válido.'})
+
+        result = list_deliverable_requests(
+            request.user, search=request.query_params.get('search', ''), flow=flow,
+        )
+        rows = result.rows
+        for row in rows:
+            row['status_label'] = STATUS_LABELS.get(row['status'], row['status'])
+
+        paginator = WarehousePagination()
+        page = paginator.paginate_queryset(rows, request)
+        response = paginator.get_paginated_response(DeliverableRequestSerializer(page, many=True).data)
+        # True when the candidate cap was reached: the list may omit requests; ask to refine the search.
+        response.data['truncated'] = result.truncated
+        response['Cache-Control'] = 'no-store'
+        return response

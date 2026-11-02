@@ -1,4 +1,5 @@
 // SYSPCC-025 — reglas y formatos puros del módulo de almacén (sin React).
+import { extractErrorMessage } from './apiErrors';
 // Los mensajes de usuario están en español (es-PE); la validación definitiva
 // siempre ocurre en el servidor, esto es solo para dar feedback inmediato.
 
@@ -184,4 +185,31 @@ export function checkLocationCode(text, layout, floor = null) {
     return { code: '', error: `El nivel debe estar entre ${Math.min(...levels)} y ${Math.max(...levels)}.` };
   }
   return { code: `${pavilionCode}${sectionNumber}-${level}`, error: '' };
+}
+
+/**
+ * Traduce el error de registrar una salida SIN requerimiento (SYSPCC-041).
+ * `DUPLICATE_EXIT` (409): el mismo usuario ya registró lo mismo hace unos segundos; no se reintenta solo.
+ * 429: límite propio de salidas. Cualquier otro error usa el mensaje del servidor.
+ * @returns {{ code: string, message: string, duplicate: boolean }}
+ */
+export function describeExitError(err) {
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  const code = data && typeof data === 'object' && typeof data.code === 'string' ? data.code.toUpperCase() : '';
+  if (status === 409 && code === 'DUPLICATE_EXIT') {
+    return {
+      code,
+      duplicate: true,
+      message: 'Esta salida ya se registró hace unos segundos. Revise los movimientos recientes antes de volver a registrarla; si es otra salida distinta, espere unos segundos y repita.',
+    };
+  }
+  if (status === 429) {
+    return {
+      code: 'THROTTLED',
+      duplicate: false,
+      message: 'Se registraron demasiadas salidas seguidas. Espere un minuto e intente de nuevo.',
+    };
+  }
+  return { code, duplicate: false, message: extractErrorMessage(err, 'No se pudo registrar el egreso. Intente nuevamente.') };
 }

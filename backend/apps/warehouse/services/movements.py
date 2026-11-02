@@ -8,20 +8,22 @@ register_entry        — single-item entry (backward compat wrapper)
 register_exit         — single-item exit  (backward compat wrapper)
 register_adjustment   — inventory adjustment (no group)
 register_entry_batch  — multi-item entry, returns MovementGroup
-register_exit_batch   — multi-item exit,  returns MovementGroup
+register_exit_batch   — multi-item exit,  returns MovementGroup (stamps the automatic guide
+                        GR-AAAA-NNNNNN, SYSPCC-041; see services/guides.py)
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
 from django.db.models.functions import Length
 from django.utils import timezone
 
 from apps.core.models import User
 from apps.warehouse.models import Inventory, InventoryStock, InventoryMovement, MovementGroup
 from apps.warehouse.models.inventory import MAX_STOCK_QUANTITY
+from apps.warehouse.services.guides import next_guide_number
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,54 @@ def resolve_movement_date(movement_date, undated: bool = False):
     return movement_date or timezone.localdate()
 
 
+# SYSPCC-041: window of the double-submit defence of the free exits (same one as the RQ deliveries).
+DUPLICATE_EXIT_WINDOW = timedelta(seconds=15)
+DUPLICATE_EXIT_MESSAGE = (
+    'Esta salida ya se registró hace unos segundos con los mismos ítems y destino. Revise el '
+    'historial de movimientos. Si es una segunda salida intencional, espere unos segundos y '
+    'vuelva a registrarla.'
+)
+
+
+class DuplicateExitError(Exception):
+    """The same user just registered an identical free exit (double click / retry). Retryable later."""
+
+    code = 'DUPLICATE_EXIT'
+    message = DUPLICATE_EXIT_MESSAGE
+
+
+def _recent_duplicate_exit_exists(*, registered_by, warehouse, project_id, destination_type,
+                                  destination_detail, destination_personal_id, wanted) -> bool:
+    """
+    ¿El MISMO usuario registró hace menos de 15 s una salida LIBRE (sin RQ) al mismo destino con
+    exactamente los mismos ítems y cantidades (las líneas repetidas de un ítem se suman)? Heurística
+    del doble clic / reintento tras un timeout: la segunda petición espera el bloqueo del stock y aquí
+    ve la salida de la primera. Las entregas de un RQ tienen su propia regla (`DUPLICATE_DELIVERY`).
+    """
+    recent = (
+        MovementGroup.objects
+        .filter(
+            movement_type='EXIT', registered_by=registered_by, warehouse=warehouse, project_id=project_id,
+            destination_type=destination_type, destination_detail=destination_detail or '',
+            destination_personal_id=destination_personal_id,
+            created_at__gte=timezone.now() - DUPLICATE_EXIT_WINDOW,
+            warehouse_dispatch__isnull=True,
+        )
+        .values_list('pk', flat=True)
+    )
+    for group_id in recent:
+        lines = {
+            row['inventory_id']: row['total']
+            for row in (
+                InventoryMovement.objects.filter(group_id=group_id)
+                .values('inventory_id').annotate(total=Sum('quantity'))
+            )
+        }
+        if lines == wanted:
+            return True
+    return False
+
+
 def find_duplicate_voucher(warehouse: str, voucher_number: str) -> bool:
     """True when an EXIT vale with this physical number already exists in the warehouse."""
     if not voucher_number:
@@ -331,6 +381,7 @@ def register_exit_batch(
     internal_transfer: str = '',
     destination_personal_id=None,
     import_batch_id=None,
+    reject_recent_duplicate: bool = False,
 ):
     """
     Register multiple inventory exits as a single vale (MovementGroup).
@@ -344,6 +395,20 @@ def register_exit_batch(
     Raises ValueError if any item has insufficient stock (quantities of the same
     item repeated across lines are added up before checking).
     Returns the created MovementGroup.
+
+    SYSPCC-041 · N° de guía automático. Every EXIT vale gets ``GR-AAAA-NNNNNN`` from the
+    ``GuideSequence`` counter, inside THIS transaction (a rollback does not burn a number). It is
+    stored in ``MovementGroup.internal_guide_number`` (source of truth) and mirrored into
+    ``guide_number`` of the vale and its lines. The ``guide_number`` argument is DEPRECATED: it is
+    accepted for backward compatibility and IGNORED (nobody types the guide); do not pass it.
+
+    ``reject_recent_duplicate`` (the API views set it): raises ``DuplicateExitError`` BEFORE taking a
+    number when the same user registered an identical free exit less than 15 s ago. If the counter
+    row stays locked past ``guides.LOCK_TIMEOUT`` (PostgreSQL) ``GuideNumberBusyError`` is raised.
+    Global lock order, always the same:
+    Request -> RequestItem -> InventoryStock (by inventory id) -> GuideSequence -> MovementGroup
+    (last EXIT number). Taking the counter first serializes the exits, which also makes the EXIT vale
+    number race-free.
     """
     requested_by = (
         User.objects.filter(pk=requested_by_id).first() if requested_by_id else None
@@ -356,7 +421,7 @@ def register_exit_batch(
         'movement_date': movement_date,
         'voucher_number': voucher_number or '',
         'po_number': po_number or '',
-        'guide_number': guide_number or '',
+        'guide_number': '',   # mirror of the automatic guide, filled below (the argument is ignored)
         'internal_transfer': internal_transfer or '',
         'destination_personal_id': destination_personal_id,
     }
@@ -389,8 +454,27 @@ def register_exit_batch(
             )
         locked_stocks[inv_id] = stock
 
+    # Double-submit defence, under the stock locks taken above (a concurrent identical request waits
+    # for them and sees this one committed) and BEFORE a number is taken.
+    if reject_recent_duplicate and _recent_duplicate_exit_exists(
+        registered_by=registered_by, warehouse=warehouse, project_id=project_id,
+        destination_type=destination_type, destination_detail=destination_detail,
+        destination_personal_id=destination_personal_id,
+        wanted={inv_id: qty for inv_id, qty in requested_by_inventory.items()},
+    ):
+        raise DuplicateExitError(DUPLICATE_EXIT_MESSAGE)
+
+    # The counter row is locked BEFORE the vale number is computed (see the docstring): concurrent
+    # exits queue here until the previous one commits, so each of them reads the previous group as
+    # the last one. That also closes the race of `_generate_group_number` for EXIT vales (under
+    # READ COMMITTED a waiter of `FOR UPDATE ... LIMIT 1` re-reads the SAME row, not the new max).
+    internal_guide_number = next_guide_number()
+    group_number = _generate_group_number('EXIT')
+    header['guide_number'] = internal_guide_number
+
     group = MovementGroup.objects.create(
-        group_number=_generate_group_number('EXIT'),
+        group_number=group_number,
+        internal_guide_number=internal_guide_number,
         movement_type='EXIT',
         warehouse=warehouse,
         project_id=project_id,
@@ -433,6 +517,15 @@ def register_exit_batch(
 
     # PDF upload is handled by the view layer after the transaction commits
 
+    # Audit trail of the number (ids and the document numbers only: no worker or destination data).
+    logger.info(
+        'warehouse.exit.guide_assigned',
+        extra={
+            'guide_number': internal_guide_number, 'group_number': group.group_number,
+            'group_id': group.pk, 'lines': len(items_data), 'warehouse': warehouse,
+            'user_id': getattr(registered_by, 'pk', None),
+        },
+    )
     return group
 
 

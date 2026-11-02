@@ -69,6 +69,14 @@ describe('VoucherPrint', () => {
     expect(screen.queryByText(/vale de salida/i)).not.toBeInTheDocument();
   });
 
+  it('un egreso con guía automática la imprime y no dice «Sin vale» (SYSPCC-041)', async () => {
+    api.getVoucher.mockResolvedValue({ data: voucher({ voucher_number: '', internal_guide_number: 'GR-2026-000007' }) });
+    renderVoucher();
+    expect(await screen.findByText('N° de guía:')).toBeInTheDocument();
+    expect(screen.getByText('GR-2026-000007')).toBeInTheDocument();
+    expect(screen.queryByText('Sin vale')).not.toBeInTheDocument();
+  });
+
   it('un vale sin número físico dice «Sin vale»', async () => {
     api.getVoucher.mockResolvedValue({ data: voucher({ voucher_number: '' }) });
     renderVoucher();

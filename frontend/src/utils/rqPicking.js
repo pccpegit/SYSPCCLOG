@@ -5,7 +5,6 @@ import { ROLE_LABELS } from '../data/constants';
 import { extractCodedDetail, extractFieldErrors } from './apiErrors';
 import { formatISODate, formatQty, isIntegerUnit, localISODate, validateQuantity } from './almacen';
 
-export const GUIDE_MAX_LENGTH = 50;
 export const NOTES_MAX_LENGTH = 300;
 export const REASON_MIN_LENGTH = 5;
 export const REASON_MAX_LENGTH = 300;
@@ -98,7 +97,7 @@ export function buildDeliveryLines(items, quantities) {
  * Valida el formulario de entrega completo.
  * @returns {{ lineErrors: object, fieldErrors: object, hasLines: boolean, valid: boolean }}
  */
-export function validateDeliveryForm({ items, quantities, guide, date, notes, minDate = '', today = localISODate() }) {
+export function validateDeliveryForm({ items, quantities, date, notes, minDate = '', today = localISODate() }) {
   const lineErrors = {};
   for (const item of items) {
     if (!item.can_deliver) continue;
@@ -106,11 +105,6 @@ export function validateDeliveryForm({ items, quantities, guide, date, notes, mi
     if (error) lineErrors[item.id] = error;
   }
   const fieldErrors = {};
-  const guideText = String(guide ?? '').trim();
-  if (!guideText) fieldErrors.dispatch_guide_number = 'Indique el número de la guía de remisión.';
-  else if (guideText.length > GUIDE_MAX_LENGTH) {
-    fieldErrors.dispatch_guide_number = `La guía admite hasta ${GUIDE_MAX_LENGTH} caracteres.`;
-  }
   if (date && date > today) fieldErrors.movement_date = 'La fecha no puede ser futura.';
   else if (date && minDate && date < minDate) fieldErrors.movement_date = minDateMessage(minDate);
   if (String(notes ?? '').length > NOTES_MAX_LENGTH) {
@@ -143,7 +137,7 @@ const CODE_FALLBACKS = {
   RQ_NOT_REVERSIBLE_STATE: 'La entrega ya no se puede anular en este estado; corríjalo con el ciclo de reclamo.',
   INTEGRITY_CONFLICT: 'No se pudo guardar porque otro cambio se cruzó con este. Actualice la pantalla e intente de nuevo.',
   INVALID_DATE: 'La fecha indicada no es válida para esta operación.',
-  DUPLICATE_GUIDE: 'Ya hay una entrega vigente de este requerimiento con esa guía de remisión. Verifique el número.',
+  DUPLICATE_DELIVERY: 'Esta entrega ya se registró hace unos segundos. Revise el historial del requerimiento.',
   ALREADY_REVERSED: 'Esta entrega ya fue anulada.',
   NOT_REVERSIBLE: 'Esta entrega no se puede anular.',
   REVERSE_FAILED: 'No se pudo anular la entrega y no se modificó nada. Intente de nuevo.',
@@ -212,9 +206,10 @@ export function describeDeliveryError(err) {
     out.fieldErrors.movement_date = out.message;
     return out;
   }
-  if (code === 'DUPLICATE_GUIDE') {
-    out.message = extractCodedDetail(err, CODE_FALLBACKS.DUPLICATE_GUIDE);
-    out.fieldErrors.dispatch_guide_number = out.message;
+  if (code === 'DUPLICATE_DELIVERY') {
+    // La entrega ya está guardada: hay que recargar para que el usuario la vea en el historial.
+    out.message = extractCodedDetail(err, CODE_FALLBACKS.DUPLICATE_DELIVERY);
+    out.refresh = true;
     return out;
   }
   if (status === 400) {
@@ -237,6 +232,71 @@ export function describeDeliveryError(err) {
       : 'No se pudo completar la operación. Intente nuevamente.';
   out.message = extractCodedDetail(err, fallback);
   return out;
+}
+
+// ── Salida vinculada a un RQ (SYSPCC-041) ────────────────────────────────────
+
+/**
+ * Selección inicial al cargar el picking de un RQ en la pantalla de Salida: cada línea entregable
+ * viene marcada y con la cantidad sugerida = lo máximo que se puede entregar ahora
+ * (`min(pendiente, stock central)`). Las no entregables quedan fuera.
+ * @returns {Record<number, { include: boolean, quantity: string }>}
+ */
+export function initRqSelection(items) {
+  const selection = {};
+  for (const item of items ?? []) {
+    if (!item.can_deliver) continue;
+    const quantity = maxQtyText(item);
+    selection[item.id] = { include: quantity !== '', quantity };
+  }
+  return selection;
+}
+
+/** Tras recargar el picking conserva lo que el usuario ya marcó/tecleó; las líneas nuevas arrancan sugeridas. */
+export function mergeRqSelection(items, previous) {
+  const fresh = initRqSelection(items);
+  const merged = {};
+  for (const id of Object.keys(fresh)) merged[id] = previous?.[id] ?? fresh[id];
+  return merged;
+}
+
+/**
+ * Error de la cantidad de una línea INCLUIDA (vacío si es válida). Distingue lo pendiente del stock
+ * para dar un mensaje accionable; la validación definitiva la hace el servidor.
+ */
+export function validateRqEntryQuantity(raw, item) {
+  const text = normalizeQty(raw);
+  if (text === '') return 'Indique la cantidad a entregar.';
+  const base = validateQuantity(text, item.unit);
+  if (base) return base;
+  if (hasMoreThanThreeDecimals(text)) return 'Use como máximo 3 decimales.';
+  const qty = Number(text);
+  const remaining = Number(item.remaining);
+  if (Number.isFinite(remaining) && qty > remaining) {
+    return `No puede superar lo pendiente: ${qtyWithUnit(item.remaining, item.unit)}.`;
+  }
+  const stock = Number(item.available_central);
+  if (item.available_central != null && Number.isFinite(stock) && qty > stock) {
+    return `Stock insuficiente en Almacén Central. Disponible: ${qtyWithUnit(item.available_central, item.unit)}.`;
+  }
+  return validateLineQuantity(text, item);
+}
+
+/**
+ * Valida la selección de líneas de la Salida con RQ.
+ * @returns {{ lineErrors: Record<number,string>, lines: {request_item_id:number, quantity:string}[], valid: boolean }}
+ */
+export function validateRqSelection(items, selection) {
+  const lineErrors = {};
+  const lines = [];
+  for (const item of items ?? []) {
+    const state = selection[item.id];
+    if (!item.can_deliver || !state?.include) continue;
+    const error = validateRqEntryQuantity(state.quantity, item);
+    if (error) lineErrors[item.id] = error;
+    else lines.push({ request_item_id: item.id, quantity: normalizeQty(state.quantity) });
+  }
+  return { lineErrors, lines, valid: lines.length > 0 && Object.keys(lineErrors).length === 0 };
 }
 
 /** Mensaje al fallar la carga inicial del picking. */

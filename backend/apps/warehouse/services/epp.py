@@ -1,5 +1,5 @@
 """
-EPP delivery with a physical vale (SYSPCC-025).
+EPP delivery to a worker (SYSPCC-025; the physical vale number is optional since SYSPCC-041).
 
 Counter use case of the warehouse: a worker receives EPP items against a signed
 vale. It is a thin layer on top of ``register_exit_batch`` (stock lock, atomicity
@@ -32,7 +32,7 @@ def register_epp_delivery(
     *,
     items: list,
     warehouse: str,
-    voucher_number: str,
+    voucher_number: str = '',
     movement_date,
     registered_by,
     personal=None,
@@ -42,6 +42,7 @@ def register_epp_delivery(
     notes: str = '',
     project_id=None,
     allow_duplicate_voucher: bool = False,
+    reject_recent_duplicate: bool = False,
 ):
     """
     Register an EPP delivery. ``items``: ``[{'inventory_id', 'quantity', 'notes'?}]``.
@@ -52,16 +53,21 @@ def register_epp_delivery(
       * ``internal_destination``-> TRANSFER_OUT (e.g. 'ALM - PRIMER PISO')
 
     Raises ``RecipientError``, ``DuplicateVoucherError`` or ``ValueError``
-    (insufficient stock). Returns the created ``MovementGroup``.
+    (insufficient stock); with ``reject_recent_duplicate`` also ``movements.DuplicateExitError``
+    (same user, same worker and items less than 15 s ago). Returns the created ``MovementGroup``.
     """
     given = [bool(personal), bool((recipient_name or '').strip()), bool((internal_destination or '').strip())]
     if sum(given) != 1:
         raise RecipientError('Indique un solo destinatario: trabajador, texto libre o destino interno.')
 
+    # SYSPCC-041: the physical vale is optional (the system assigns the guide GR-AAAA-NNNNNN). The
+    # duplicate check only applies when one is given.
     voucher_number = (voucher_number or '').strip()
-    if not voucher_number:
-        raise ValueError('Indique el N° de vale.')
-    if not allow_duplicate_voucher and movements_svc.find_duplicate_voucher(warehouse, voucher_number):
+    if (
+        voucher_number
+        and not allow_duplicate_voucher
+        and movements_svc.find_duplicate_voucher(warehouse, voucher_number)
+    ):
         raise DuplicateVoucherError('Ya existe un egreso con ese N° de vale en este almacén.')
 
     if personal is not None:
@@ -99,6 +105,7 @@ def register_epp_delivery(
         voucher_number=voucher_number,
         internal_transfer=internal_transfer,
         destination_personal_id=personal_id,
+        reject_recent_duplicate=reject_recent_duplicate,
     )
     # Never log the recipient: only counts and ids.
     logger.info(

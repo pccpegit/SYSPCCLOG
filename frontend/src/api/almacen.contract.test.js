@@ -161,9 +161,17 @@ describe('api/almacenImport', () => {
 
 describe('api/almacen — entregas parciales de un RQ (SYSPCC-029)', () => {
   it('deliverRqItems hace POST al detalle del RQ con el cuerpo tal cual', () => {
-    const body = { lines: [{ request_item_id: 11, quantity: '3' }], dispatch_guide_number: 'GR-1' };
+    const body = { lines: [{ request_item_id: 11, quantity: '3' }], movement_date: '2026-10-30', notes: 'Tanda 2' };
     almacen.deliverRqItems(7, body);
     expect(client.post).toHaveBeenCalledWith('/warehouse/pending-requests/7/deliver/', body);
+  });
+
+  it('getDeliverableRequests pide los RQ pendientes por entregar con búsqueda y página (SYSPCC-041)', () => {
+    almacen.getDeliverableRequests({ search: 'RQ-2026', page: 2, page_size: 20 });
+    expect(client.get).toHaveBeenCalledWith(
+      '/warehouse/pending-requests/deliverable/',
+      { params: { search: 'RQ-2026', page: 2, page_size: 20 } },
+    );
   });
 
   it('reverseRqDelivery hace POST a la entrega concreta', () => {

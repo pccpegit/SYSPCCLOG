@@ -119,20 +119,20 @@ describe('PickingPage — entrega parcial', () => {
       items: [{ ...ITEM_CASCO, delivered: '7.000', remaining: '3.000', max_deliverable: '3.000' }, ITEM_GUANTES, ITEM_TUBO, ITEM_LENTES],
       deliveries: [DELIVERY_1, { ...DELIVERY_1, id: 3, dispatch_number: 'DSP-0003', dispatch_guide_number: 'GR-200', notes: '', can_reverse: true }],
     });
-    almacen.deliverRqItems.mockResolvedValue({ data: { delivery: { id: 3, dispatch_number: 'DSP-0003' }, picking: after } });
+    almacen.deliverRqItems.mockResolvedValue({
+      data: { delivery: { id: 3, dispatch_number: 'DSP-0003', dispatch_guide_number: 'GR-2026-000200' }, picking: after },
+    });
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('picking-row-11');
 
     await user.type(qtyInput(1), '3');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-200');
     await user.type(screen.getByLabelText('Notas'), 'Segunda tanda');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
 
     await waitFor(() => expect(almacen.deliverRqItems).toHaveBeenCalledTimes(1));
     expect(almacen.deliverRqItems).toHaveBeenCalledWith('7', {
       lines: [{ request_item_id: 11, quantity: '3' }],
-      dispatch_guide_number: 'GR-200',
       movement_date: localISODate(),
       notes: 'Segunda tanda',
     });
@@ -140,8 +140,7 @@ describe('PickingPage — entrega parcial', () => {
     expect(await within(row(11)).findByText('Máximo 3 EA')).toBeInTheDocument();
     expect(almacen.getRqPicking).toHaveBeenCalledTimes(1);
     expect(qtyInput(1)).toHaveValue('');
-    expect(screen.getByLabelText(/Guía de remisión/)).toHaveValue('');
-    expect(screen.getAllByText('Entrega DSP-0003 registrada con la guía GR-200.')).toHaveLength(2); // aviso visible + región viva
+    expect(screen.getAllByText('Entrega DSP-0003 registrada con la guía GR-2026-000200.')).toHaveLength(2); // aviso visible + región viva
     expect(document.body.querySelector('[aria-live="polite"].sr-only')).toHaveTextContent('Entrega DSP-0003 registrada');
     expect(screen.getByText('DSP-0003')).toBeInTheDocument();
   });
@@ -153,7 +152,6 @@ describe('PickingPage — entrega parcial', () => {
     await screen.findByTestId('picking-row-12');
     await user.type(qtyInput(2), '2');
     await user.type(qtyInput(1), '0');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-9');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     await waitFor(() => expect(almacen.deliverRqItems).toHaveBeenCalled());
     expect(almacen.deliverRqItems.mock.calls[0][1].lines).toEqual([{ request_item_id: 12, quantity: '2' }]);
@@ -170,23 +168,31 @@ describe('PickingPage — entrega parcial', () => {
     expect(qtyInput(1)).toHaveValue('');
   });
 
-  it('exige la guía y al menos una línea, y enfoca el primer campo inválido', async () => {
+  it('no pide la guía: la genera el servidor al registrar', async () => {
+    renderPage();
+    await screen.findByTestId('picking-row-11');
+    expect(screen.queryByLabelText(/guía/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /guía de remisión/i })).not.toBeInTheDocument();
+    expect(screen.getByText('El N° de guía se genera automáticamente al registrar la entrega.')).toBeInTheDocument();
+  });
+
+  it('una fecha futura se marca en el campo de fecha y no llama a la API', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('picking-row-11');
-
+    await user.type(qtyInput(1), '1');
+    const date = screen.getByLabelText('Fecha de la entrega');
+    fireDate(date, '2999-01-01');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
-    expect((await screen.findAllByText('Indique la cantidad a entregar en al menos una línea y revise los datos marcados.')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Indique el número de la guía de remisión.')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText(/Guía de remisión/)).toHaveFocus());
+    expect(await screen.findByText('La fecha no puede ser futura.')).toBeInTheDocument();
+    await waitFor(() => expect(date).toHaveFocus());
     expect(almacen.deliverRqItems).not.toHaveBeenCalled();
   });
 
-  it('sin ninguna cantidad pero con guía pide una cantidad y enfoca el primer campo', async () => {
+  it('sin ninguna cantidad pide una cantidad y enfoca el primer campo', async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('picking-row-11');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-1');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect((await screen.findAllByText('Indique la cantidad a entregar en al menos una línea.')).length).toBeGreaterThan(0);
     await waitFor(() => expect(qtyInput(1)).toHaveFocus());
@@ -198,7 +204,6 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '9');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-1');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
 
     expect(await within(row(11)).findByText('No puede superar 6 EA.')).toBeInTheDocument();
@@ -217,7 +222,6 @@ describe('PickingPage — entrega parcial', () => {
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1.5');
     await user.type(qtyInput(2), '1.2345');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-1');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect(await within(row(11)).findByText('La cantidad de EA debe ser un número entero.')).toBeInTheDocument();
     expect(within(row(12)).getByText(/entero|decimales/)).toBeInTheDocument();
@@ -237,7 +241,6 @@ describe('PickingPage — entrega parcial', () => {
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '5');
     await user.type(qtyInput(2), '5');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
 
     expect(await within(row(11)).findByText('Solo quedan 2 EA en Almacén Central.')).toBeInTheDocument();
@@ -250,7 +253,6 @@ describe('PickingPage — entrega parcial', () => {
     // El stock pudo cambiar: se vuelve a pedir el picking, y lo tecleado se conserva.
     await waitFor(() => expect(almacen.getRqPicking).toHaveBeenCalledTimes(2));
     expect(qtyInput(1)).toHaveValue('5');
-    expect(screen.getByLabelText(/Guía de remisión/)).toHaveValue('GR-7');
   });
 
   it('usa un mensaje propio si la línea inválida llega sin texto', async () => {
@@ -261,26 +263,22 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect(await within(row(11)).findByText('La línea está fuera de catálogo y no se entrega desde el almacén.')).toBeInTheDocument();
     expect(screen.getAllByText(/hay 1 línea con problemas/).length).toBeGreaterThan(0);
   });
 
-  it('DUPLICATE_GUIDE se muestra en el campo de la guía', async () => {
+  it('DUPLICATE_DELIVERY avisa que la entrega ya se registró y recarga el historial', async () => {
     almacen.deliverRqItems.mockRejectedValue(apiError(409, {
-      detail: 'Ya existe una entrega vigente con la guía GR-7.', code: 'DUPLICATE_GUIDE',
+      detail: 'Esta entrega ya se registró hace unos segundos. Revise el historial del requerimiento.', code: 'DUPLICATE_DELIVERY',
     }));
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    const guide = screen.getByLabelText(/Guía de remisión/);
-    await user.type(guide, 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
-    await waitFor(() => expect(guide).toHaveAttribute('aria-invalid', 'true'));
-    expect(guide).toHaveAccessibleDescription(/Ya existe una entrega vigente con la guía GR-7/);
-    await waitFor(() => expect(guide).toHaveFocus());
+    expect((await screen.findAllByText(/ya se registró hace unos segundos/)).length).toBeGreaterThan(0);
+    await waitFor(() => expect(almacen.getRqPicking).toHaveBeenCalledTimes(2));
   });
 
   it('un error de validación del servidor se asigna a su campo', async () => {
@@ -291,7 +289,6 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect(await screen.findByText('Asegúrese de que este campo no tenga más de 300 caracteres.')).toBeInTheDocument();
     expect(screen.getByLabelText('Notas')).toHaveAttribute('aria-invalid', 'true');
@@ -311,7 +308,6 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect((await screen.findAllByText(message)).length).toBeGreaterThan(0);
     // Tras el error el botón vuelve a estar disponible.
@@ -324,7 +320,6 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(2), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect(await within(row(12)).findByText('Esta línea no pertenece a este requerimiento.')).toBeInTheDocument();
   });
@@ -335,7 +330,6 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect((await screen.findAllByText(/No se pudo conectar con el servidor/)).length).toBeGreaterThan(0);
   });
@@ -347,7 +341,6 @@ describe('PickingPage — entrega parcial', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.dblClick(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect(almacen.deliverRqItems).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Registrando…' })).toHaveAttribute('aria-disabled', 'true');
@@ -360,7 +353,6 @@ describe('PickingPage — entrega parcial', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId('picking-row-11');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.type(qtyInput(1), '2{Enter}');
     await waitFor(() => expect(almacen.deliverRqItems).toHaveBeenCalledTimes(1));
   });
@@ -523,7 +515,6 @@ describe('PickingPage — fechas y estados (revisión del backend)', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
 
     const date = screen.getByLabelText('Fecha de la entrega');
@@ -548,7 +539,6 @@ describe('PickingPage — fechas y estados (revisión del backend)', () => {
     renderPage();
     await screen.findByTestId('picking-row-11');
     await user.type(qtyInput(1), '1');
-    await user.type(screen.getByLabelText(/Guía de remisión/), 'GR-7');
     await user.click(screen.getByRole('button', { name: 'Registrar entrega' }));
     expect((await screen.findAllByText('La fecha no puede ser anterior al 15/10/2026.')).length).toBeGreaterThan(0);
   });

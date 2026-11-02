@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { apiError, ITEM_CASCO, ITEM_GUANTES, ITEM_TUBO } from '../test/pickingFixtures';
 import {
-  buildDeliveryLines, describeDeliveryError, describePickingLoadError, maxQtyText, pickingLocation,
-  roleList, validateDeliveryForm, validateLineQuantity, validateReason,
+  buildDeliveryLines, describeDeliveryError, describePickingLoadError, initRqSelection, maxQtyText,
+  mergeRqSelection, pickingLocation, roleList, validateDeliveryForm, validateLineQuantity, validateReason,
+  validateRqEntryQuantity, validateRqSelection,
 } from './rqPicking';
+import { ITEM_LENTES } from '../test/pickingFixtures';
 
 describe('pickingLocation', () => {
   it('ubicación exacta', () => {
@@ -44,21 +46,21 @@ describe('buildDeliveryLines / validateDeliveryForm', () => {
     const lines = buildDeliveryLines(items, { 11: '2', 12: '0', 13: '4' });
     expect(lines).toEqual([{ request_item_id: 11, quantity: '2' }]);
   });
-  it('exige guía, fecha no futura y notas ≤ 300', () => {
+  it('exige fecha no futura y notas ≤ 300 (la guía ya no se pide: la genera el servidor)', () => {
     const r = validateDeliveryForm({
-      items, quantities: { 11: '2' }, guide: ' ', date: '2999-01-01', notes: 'x'.repeat(301), today: '2026-10-29',
+      items, quantities: { 11: '2' }, date: '2999-01-01', notes: 'x'.repeat(301), today: '2026-10-29',
     });
     expect(r.valid).toBe(false);
-    expect(r.fieldErrors.dispatch_guide_number).toBe('Indique el número de la guía de remisión.');
+    expect(r.fieldErrors).not.toHaveProperty('dispatch_guide_number');
     expect(r.fieldErrors.movement_date).toBe('La fecha no puede ser futura.');
     expect(r.fieldErrors.notes).toMatch(/300/);
   });
-  it('es válido con guía y al menos una línea', () => {
-    const r = validateDeliveryForm({ items, quantities: { 11: '2' }, guide: 'GR-1', date: '', notes: '', today: '2026-10-29' });
+  it('es válido con al menos una línea', () => {
+    const r = validateDeliveryForm({ items, quantities: { 11: '2' }, date: '', notes: '', today: '2026-10-29' });
     expect(r.valid).toBe(true);
   });
   it('sin líneas no es válido', () => {
-    const r = validateDeliveryForm({ items, quantities: {}, guide: 'GR-1', date: '', notes: '' });
+    const r = validateDeliveryForm({ items, quantities: {}, date: '', notes: '' });
     expect(r.hasLines).toBe(false);
     expect(r.valid).toBe(false);
   });
@@ -150,7 +152,7 @@ describe('describeDeliveryError — revisión del backend (envoltorio {error, st
   });
   it('la validación mínima se aplica en cliente cuando se conoce min_date', () => {
     const items = [ITEM_CASCO];
-    expect(validateDeliveryForm({ items, quantities: { 11: '1' }, guide: 'G', date: '2026-10-10', notes: '', minDate: '2026-10-15', today: '2026-10-29' }).fieldErrors.movement_date)
+    expect(validateDeliveryForm({ items, quantities: { 11: '1' }, date: '2026-10-10', notes: '', minDate: '2026-10-15', today: '2026-10-29' }).fieldErrors.movement_date)
       .toBe('La fecha no puede ser anterior al 15/10/2026.');
     expect(validateReason('motivo ok', '2026-10-10', '2026-10-29', '2026-10-15').movement_date).toMatch(/anterior al 15\/10\/2026/);
     expect(validateReason('motivo ok', '2026-10-15', '2026-10-29', '2026-10-15')).toEqual({});
@@ -174,5 +176,59 @@ describe('otros helpers', () => {
     expect(maxQtyText({ unit: 'EA', max_deliverable: '2.500' })).toBe('2');
     expect(maxQtyText({ unit: 'M', max_deliverable: '2.500' })).toBe('2.5');
     expect(maxQtyText(ITEM_TUBO)).toBe('');
+  });
+});
+
+describe('Salida vinculada a un RQ (SYSPCC-041)', () => {
+  const items = [ITEM_CASCO, ITEM_GUANTES, ITEM_TUBO, ITEM_LENTES];
+
+  it('initRqSelection marca las líneas entregables con la cantidad sugerida = máximo entregable', () => {
+    expect(initRqSelection(items)).toEqual({
+      11: { include: true, quantity: '6' },
+      12: { include: true, quantity: '5' },
+    });
+    expect(initRqSelection(undefined)).toEqual({});
+  });
+
+  it('la sugerida es min(pendiente, stock): el máximo ya viene así del servidor', () => {
+    const limitedByStock = { ...ITEM_CASCO, remaining: '6.000', available_central: '2.000', max_deliverable: '2.000' };
+    expect(initRqSelection([limitedByStock])[11].quantity).toBe('2');
+  });
+
+  it('validateRqEntryQuantity distingue lo pendiente del stock y de los decimales', () => {
+    expect(validateRqEntryQuantity('', ITEM_CASCO)).toBe('Indique la cantidad a entregar.');
+    expect(validateRqEntryQuantity('0', ITEM_CASCO)).toMatch(/mayor que 0/);
+    expect(validateRqEntryQuantity('1.5', ITEM_CASCO)).toMatch(/número entero/);
+    expect(validateRqEntryQuantity('7', ITEM_CASCO)).toBe('No puede superar lo pendiente: 6 EA.');
+    const lowStock = { ...ITEM_CASCO, available_central: '2.000', max_deliverable: '2.000' };
+    expect(validateRqEntryQuantity('3', lowStock)).toBe('Stock insuficiente en Almacén Central. Disponible: 2 EA.');
+    expect(validateRqEntryQuantity('6', ITEM_CASCO)).toBe('');
+    expect(validateRqEntryQuantity('1,5', { ...ITEM_GUANTES, unit: 'M' })).toBe('');
+    expect(validateRqEntryQuantity('1.2345', { ...ITEM_GUANTES, unit: 'M' })).toBe('Use como máximo 3 decimales.');
+  });
+
+  it('validateRqSelection arma solo las líneas incluidas y válidas', () => {
+    const ok = validateRqSelection(items, { 11: { include: true, quantity: '3' }, 12: { include: false, quantity: '5' } });
+    expect(ok).toEqual({ lineErrors: {}, lines: [{ request_item_id: 11, quantity: '3' }], valid: true });
+
+    const bad = validateRqSelection(items, { 11: { include: true, quantity: '9' } });
+    expect(bad.valid).toBe(false);
+    expect(bad.lineErrors[11]).toMatch(/lo pendiente/);
+
+    expect(validateRqSelection(items, {}).valid).toBe(false); // nada incluido
+    // Una línea no entregable nunca se envía, aunque llegue marcada.
+    expect(validateRqSelection(items, { 13: { include: true, quantity: '1' } }).lines).toEqual([]);
+  });
+
+  it('mergeRqSelection conserva lo tecleado y sugiere las líneas nuevas', () => {
+    const merged = mergeRqSelection(items, { 11: { include: false, quantity: '2' } });
+    expect(merged[11]).toEqual({ include: false, quantity: '2' });
+    expect(merged[12]).toEqual({ include: true, quantity: '5' });
+  });
+
+  it('DUPLICATE_DELIVERY pide revisar el historial y recarga', () => {
+    const d = describeDeliveryError(apiError(409, { code: 'DUPLICATE_DELIVERY' }));
+    expect(d.message).toBe('Esta entrega ya se registró hace unos segundos. Revise el historial del requerimiento.');
+    expect(d.refresh).toBe(true);
   });
 });

@@ -11,6 +11,8 @@ Nunca se inventa un pabellón: la ubicación sale de `Inventory.location_display
 """
 from decimal import Decimal
 
+from django.db.models import OuterRef, Subquery
+
 from apps.core.enums import RQStatusChoices
 from apps.warehouse.services.dispatch_totals import net_dispatched_by_item
 from apps.warehouse.services.rq_fulfillment import (
@@ -76,11 +78,18 @@ def _product(item):
 
 
 def _deliveries(request_obj, *, can_reverse_role: bool, reversible_state: bool) -> list:
-    from apps.warehouse.models import WarehouseDispatch
+    from apps.warehouse.models import InventoryMovement, WarehouseDispatch
 
+    # SYSPCC-041: first line of the vale (the "Imprimir vale" screen is addressed by a movement id);
+    # one correlated subquery in the same query, no per-delivery lookups.
+    first_movement = (
+        InventoryMovement.objects.filter(group_id=OuterRef('movement_group_id'))
+        .order_by('pk').values('pk')[:1]
+    )
     dispatches = list(
         WarehouseDispatch.objects
         .filter(request=request_obj)
+        .annotate(first_movement_id=Subquery(first_movement))
         .select_related('dispatched_by', 'movement_group')
         .prefetch_related('items__request_item')
         .order_by('pk')
@@ -95,6 +104,8 @@ def _deliveries(request_obj, *, can_reverse_role: bool, reversible_state: bool) 
             'id': dispatch.pk,
             'dispatch_number': dispatch.dispatch_number,
             'dispatch_guide_number': dispatch.dispatch_guide_number,
+            'movement_group_id': dispatch.movement_group_id,
+            'first_movement_id': dispatch.first_movement_id,
             'movement_date': group.movement_date if group else None,
             'dispatched_at': dispatch.dispatched_at,
             'dispatched_by': dispatch.dispatched_by.get_full_name() or dispatch.dispatched_by.username,

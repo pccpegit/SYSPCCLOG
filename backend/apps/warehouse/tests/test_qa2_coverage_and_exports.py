@@ -208,10 +208,11 @@ class TestEppServiceRules:
         assert InventoryMovement.objects.count() == 0
 
     @pytest.mark.parametrize('voucher', ['', '   ', None])
-    def test_a_blank_voucher_is_refused(self, item, central_warehouse, voucher):
-        with pytest.raises(ValueError, match='vale'):
-            self._call(item, central_warehouse, voucher_number=voucher)
-        assert InventoryMovement.objects.count() == 0
+    def test_a_blank_voucher_is_accepted_since_the_guide_is_automatic(self, item, central_warehouse, voucher):
+        # SYSPCC-041: the physical vale is optional; the duplicate check only applies when one is given.
+        group = self._call(item, central_warehouse, voucher_number=voucher)
+        assert group.voucher_number == '' and group.internal_guide_number.startswith('GR-')
+        assert InventoryMovement.objects.count() == 1
 
     def test_the_same_voucher_twice_is_refused_unless_forced_and_the_stock_moves_once_per_accepted_delivery(
         self, item, central_warehouse,

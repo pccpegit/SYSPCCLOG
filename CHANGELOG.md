@@ -4,6 +4,22 @@ Todos los cambios relevantes de SYSPCC se registran aquí. Formato [Keep a Chang
 
 ## [Sin publicar]
 
+## [1.1.0] - 2026-11-02
+
+### Agregado
+- Almacén: N° de guía automático `GR-AAAA-NNNNNN` en toda salida (Salida, entregas de EPP, ajustes, entregas de Picking y despacho automático), impreso en el PDF; correlativo único por año, sin duplicados ni saltos (SYSPCC-041).
+- Salida: selector opcional de RQ pendientes por entregar; una salida vinculada cuenta como entrega del RQ y actualiza el Master de RQ (SYSPCC-041).
+
+### Cambiado
+- Salida y Picking ya no piden N° de vale ni guía escritos a mano; los vales físicos históricos y la importación del Excel se conservan (SYSPCC-041).
+- El filtro y el indicador «Egresos sin vale» excluyen las salidas con guía automática (SYSPCC-041).
+
+### Seguridad
+- Límite de salidas por usuario, protección contra salidas duplicadas por doble envío y rechazo de vales que imitan una guía (SYSPCC-041).
+
+### Corregido
+- Kardex y vales sin consultas repetidas por fila (N+1) (SYSPCC-041).
+
 ## [1.0.0] - 2026-10-30
 
 Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a SYSPCC-040. Desde esta versión producción se despliega solo desde `main`.
@@ -34,5 +50,6 @@ Primera versión en producción (DigitalOcean App Platform). Reúne SYSPCC-001 a
 - El login ya no trae precargada la contraseña de los usuarios demo (SYSPCC-036).
 - CSRF double-submit en la autenticación por cookie, tokens de OneDrive cifrados en reposo y sin credenciales en el repositorio (SYSPCC-015 a 017).
 
-[Sin publicar]: https://github.com/pccpegit/SYSPCCLOG/compare/v1.0.0...develop
+[Sin publicar]: https://github.com/pccpegit/SYSPCCLOG/compare/v1.1.0...develop
+[1.1.0]: https://github.com/pccpegit/SYSPCCLOG/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/pccpegit/SYSPCCLOG/releases/tag/v1.0.0
